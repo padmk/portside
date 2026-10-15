@@ -14,7 +14,7 @@ enum L {
         var suffix = ""
         let suffixes: [(String, ([String]) -> String)] = [
             (#", restarting in (\S+)$"#, { ", restart za \($0[0])" }),
-            (#"; gave up after (\d+) restarts$"#, { "; poddano się po \($0[0]) restartach" }),
+            (#"; gave up after (\d+) restarts$"#, { "; bez kolejnych prób (restarty: \($0[0]))" }),
         ]
         for (pattern, render) in suffixes {
             if let (range, groups) = match(pattern, in: base) {
@@ -48,13 +48,24 @@ enum L {
         return (whole, groups)
     }
 
-    /// "1 padł", "3 padły", "5 padło": Polish plural of a past-tense verb.
+    /// Polish plural category: one (1), few (2-4, not 12-14), many (the rest).
+    private static func plural(_ n: Int, one: String, few: String, many: String) -> String {
+        let mod10 = n % 10, mod100 = n % 100
+        if n == 1 { return one }
+        if (2...4).contains(mod10) && !(12...14).contains(mod100) { return few }
+        return many
+    }
+
+    /// "1 awaria", "3 awarie", "5 awarii".
     static func crashedCount(_ n: Int) -> String {
         guard polish else { return "\(n) crashed" }
-        let mod10 = n % 10, mod100 = n % 100
-        if n == 1 { return "1 padł" }
-        if (2...4).contains(mod10) && !(12...14).contains(mod100) { return "\(n) padły" }
-        return "\(n) padło"
+        return "\(n) " + plural(n, one: "awaria", few: "awarie", many: "awarii")
+    }
+
+    /// "1 startuje", "3 startują", "5 startuje".
+    static func startingCount(_ n: Int) -> String {
+        guard polish else { return "\(n) starting" }
+        return "\(n) " + plural(n, one: "startuje", few: "startują", many: "startuje")
     }
 
     static func status(_ s: String) -> String {
@@ -62,9 +73,9 @@ enum L {
         case "running": return t("running", "działa")
         case "starting": return t("starting", "startuje")
         case "stopping": return t("stopping", "zatrzymuje się")
-        case "crashed": return t("crashed", "padł")
+        case "crashed": return t("crashed", "awaria")
         case "blocked": return t("blocked", "zablokowany")
-        case "exited": return t("exited", "zakończył się")
+        case "exited": return t("exited", "zakończony")
         case "external": return t("external", "zewnętrzny")
         default: return t("stopped", "zatrzymany")
         }
@@ -155,7 +166,7 @@ struct MenuPanel: View {
         if s.total == 0 { return L.t("No servers yet", "Brak serwerów") }
         var parts = [L.t("\(s.running) of \(s.total) running", "\(s.running) z \(s.total) działa")]
         if s.crashed > 0 { parts.append(L.crashedCount(s.crashed)) }
-        if s.starting > 0 { parts.append(L.t("\(s.starting) starting", "\(s.starting) startuje")) }
+        if s.starting > 0 { parts.append(L.startingCount(s.starting)) }
         return parts.joined(separator: " · ")
     }
 
@@ -190,7 +201,7 @@ struct MenuPanel: View {
             if store.daemonStopped {
                 Button(L.t("Start Daemon", "Uruchom demona")) { store.startDaemon() }
             } else {
-                Button(L.t("Restart Daemon", "Zrestartuj demona")) { store.restartDaemon() }
+                Button(L.t("Restart Daemon", "Uruchom ponownie demona")) { store.restartDaemon() }
                 Button(L.t("Stop Daemon and Servers", "Zatrzymaj demona i serwery")) { store.stopDaemon() }
             }
             Divider()
@@ -222,8 +233,8 @@ struct MenuPanel: View {
                    button: (L.t("Edit", "Edytuj"), { store.open("config") }))
         }
         if store.updateAvailable {
-            banner(icon: "arrow.triangle.2.circlepath", text: L.t("The daemon runs an older version.", "Demon działa w starszej wersji."), tint: .blue,
-                   button: (L.t("Restart", "Restartuj"), { store.restartDaemon() }))
+            banner(icon: "arrow.triangle.2.circlepath", text: L.t("The daemon runs an older version.", "Działa starsza wersja demona."), tint: .blue,
+                   button: (L.t("Restart", "Uruchom ponownie"), { store.restartDaemon() }))
         }
         if let err = store.lastError {
             banner(icon: "xmark.octagon", text: err, tint: .red, button: (L.t("Dismiss", "Zamknij"), { store.lastError = nil }))
@@ -344,7 +355,7 @@ struct MenuPanel: View {
         case "running":
             var parts = [L.status("running")]
             if v.mem > 0 { parts.append(String(format: "%.0f MB", Double(v.mem) / 1_048_576)) }
-            if v.stale == true { parts.append(L.t("restart to apply config", "restart, by zastosować config")) }
+            if v.stale == true { parts.append(L.t("restart to apply config", "zmieniona konfiguracja")) }
             return parts.joined(separator: " · ")
         default:
             return L.status(v.displayStatus)
@@ -357,10 +368,10 @@ struct MenuPanel: View {
                 iconButton("arrow.up.right.square", L.t("Open in browser", "Otwórz w przeglądarce")) { actions.openURL(url) }
             }
             if v.isAlive {
-                iconButton("arrow.clockwise", L.t("Restart", "Restartuj")) { store.perform("restart", v.name) }
+                iconButton("arrow.clockwise", L.t("Restart", "Uruchom ponownie")) { store.perform("restart", v.name) }
                 iconButton("stop.fill", L.t("Stop", "Zatrzymaj")) { store.perform("stop", v.name) }
             } else if v.external != nil {
-                iconButton("arrow.right.circle", L.t("Stop the other process and start", "Zatrzymaj tamten proces i uruchom")) {
+                iconButton("arrow.right.circle", L.t("Stop the other process and start", "Zatrzymaj proces zajmujący port i uruchom")) {
                     store.perform("start", v.name, takeover: true)
                 }
             } else {
@@ -391,12 +402,12 @@ struct MenuPanel: View {
         }
         Divider()
         if v.isAlive {
-            Button(L.t("Restart", "Restartuj")) { store.perform("restart", v.name) }
+            Button(L.t("Restart", "Uruchom ponownie")) { store.perform("restart", v.name) }
             Button(L.t("Stop", "Zatrzymaj")) { store.perform("stop", v.name) }
         } else {
             Button(L.t("Start", "Uruchom")) { store.perform("start", v.name) }
             if v.external != nil {
-                Button(L.t("Stop the Other Process and Start", "Zatrzymaj tamten proces i uruchom")) { store.perform("start", v.name, takeover: true) }
+                Button(L.t("Stop the Other Process and Start", "Zatrzymaj proces zajmujący port i uruchom")) { store.perform("start", v.name, takeover: true) }
             }
         }
         Divider()

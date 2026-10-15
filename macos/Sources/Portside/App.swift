@@ -151,15 +151,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let alert = NSAlert()
         do {
             let link = try CommandLineTool.install()
-            alert.messageText = L.t("Command line tool installed", "Narzędzie wiersza poleceń zainstalowane")
+            alert.messageText = L.t("Command line tool installed", "Zainstalowano narzędzie wiersza poleceń")
             var text = L.t("`portside` now points to this app: \(link.path)", "`portside` wskazuje teraz na tę aplikację: \(link.path)")
             if !CommandLineTool.onPath {
-                text += "\n\n" + L.t("Add ~/.local/bin to your PATH to use it.", "Dodaj ~/.local/bin do PATH, żeby z niego korzystać.")
+                text += "\n\n" + L.t("Add ~/.local/bin to your PATH to use it.", "Dodaj ~/.local/bin do PATH, aby używać polecenia portside.")
             }
             alert.informativeText = text
         } catch {
             alert.alertStyle = .warning
-            alert.messageText = L.t("Could not install the command line tool", "Nie udało się zainstalować narzędzia")
+            alert.messageText = L.t("Could not install the command line tool", "Nie udało się zainstalować narzędzia wiersza poleceń")
             alert.informativeText = error.localizedDescription
         }
         alert.runModal()

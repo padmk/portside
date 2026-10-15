@@ -20,15 +20,15 @@ export function formatUptime(since: string | undefined, now: number): string {
   return `${Math.floor(h / 24)}d ${h % 24}h`
 }
 
-/** `3m`, `2h`, `4d`: how long ago, for stopped servers. */
+/** `45 s`, `3 min`, `2 h`, `4 d`: how long ago, for stopped servers. Units read the same in English and Polish. */
 export function formatAgo(since: string | undefined, now: number): string {
   if (!since) return ''
   const s = Math.max(0, Math.floor((now - Date.parse(since)) / 1000))
-  if (s < 60) return `${s}s`
+  if (s < 60) return `${s} s`
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m`
+  if (m < 60) return `${m} min`
   const h = Math.floor(m / 60)
-  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
+  return h < 24 ? `${h} h` : `${Math.floor(h / 24)} d`
 }
 
 /** The time a chart covers, for example `2 min` or `45 s`. */

@@ -17,7 +17,7 @@ const pl: Rule[] = [
 
 const plSuffixes: Rule[] = [
   [/, restarting in (\S+)$/, (m) => `, restart za ${m[1]}`],
-  [/; gave up after (\d+) restarts$/, (m) => `; poddano się po ${m[1]} restartach`],
+  [/; gave up after (\d+) restarts$/, (m) => `; bez kolejnych prób (restarty: ${m[1]})`],
 ]
 
 export function translateNote(locale: Locale, note: string): string {

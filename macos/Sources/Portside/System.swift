@@ -52,7 +52,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     func setUp() {
         center.delegate = self
-        let restart = UNNotificationAction(identifier: "restart", title: L.t("Restart", "Restartuj"))
+        let restart = UNNotificationAction(identifier: "restart", title: L.t("Restart", "Uruchom ponownie"))
         let show = UNNotificationAction(identifier: "show", title: L.t("Show Logs", "Pokaż logi"), options: [.foreground])
         center.setNotificationCategories([UNNotificationCategory(identifier: "crash", actions: [restart, show], intentIdentifiers: [])])
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -60,7 +60,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     func crashed(_ v: Server) {
         let content = UNMutableNotificationContent()
-        content.title = L.t("\(v.name) crashed", "\(v.name) padł")
+        content.title = L.t("\(v.name) crashed", "\(v.name): awaria")
         content.body = v.note.map(L.note) ?? ""
         content.sound = .default
         content.categoryIdentifier = "crash"
