@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/padmk/portside/internal/app"
@@ -33,17 +34,40 @@ type env struct {
 	color   bool
 }
 
+// port is where commands reach the daemon: the port a running daemon
+// actually listens on (it may differ from the config until a restart), else
+// the configured one.
 func (e *env) port() int {
+	if p := e.envPort(); p > 0 {
+		return p
+	}
+	if p := client.LivePort(); p > 0 {
+		if _, err := client.New(p).Ping(e.ctx); err == nil {
+			return p
+		}
+	}
+	return e.configPort()
+}
+
+// configPort is the port a newly started daemon will use.
+func (e *env) configPort() int {
+	if p := e.envPort(); p > 0 {
+		return p
+	}
+	if cfg, err := config.Load(e.cfgPath); err == nil {
+		return cfg.Port
+	}
+	return app.DefaultPort
+}
+
+func (e *env) envPort() int {
 	if p := os.Getenv(app.Env("PORT")); p != "" {
 		var n int
 		if _, err := fmt.Sscanf(p, "%d", &n); err == nil && n > 0 {
 			return n
 		}
 	}
-	if cfg, err := config.Load(e.cfgPath); err == nil {
-		return cfg.Port
-	}
-	return app.DefaultPort
+	return 0
 }
 
 // client returns a client for a running daemon, starting one if needed.
@@ -104,14 +128,17 @@ func Main(args []string) int {
 		errOut:  os.Stderr,
 		color:   colorEnabled(),
 	}
+	explicitConfig := false
 	// Global flags may precede the command.
 	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
 		switch {
 		case args[0] == "--config" && len(args) > 1:
 			e.cfgPath = paths.ExpandHome(args[1])
+			explicitConfig = true
 			args = args[2:]
 		case strings.HasPrefix(args[0], "--config="):
 			e.cfgPath = paths.ExpandHome(strings.TrimPrefix(args[0], "--config="))
+			explicitConfig = true
 			args = args[1:]
 		case args[0] == "-h" || args[0] == "--help":
 			usage(e.out)
@@ -124,8 +151,12 @@ func Main(args []string) int {
 			return 2
 		}
 	}
-	if os.Getenv(app.Env("CONFIG")) == "" && e.cfgPath != paths.ConfigFile() {
-		// Let a spawned daemon see the same config.
+	if explicitConfig {
+		// A spawned daemon runs from "/", so it needs an absolute path, and an
+		// explicit flag wins over an inherited environment variable.
+		if abs, err := filepath.Abs(e.cfgPath); err == nil {
+			e.cfgPath = abs
+		}
 		os.Setenv(app.Env("CONFIG"), e.cfgPath)
 	}
 	if len(args) == 0 {

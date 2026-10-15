@@ -48,6 +48,7 @@ type Server struct {
 	cfgMu      sync.Mutex
 	cfgErr     string
 	cfgMod     time.Time
+	cfgRev     string
 	devOrigins map[string]bool
 	mux        *http.ServeMux
 	codes      codes
@@ -63,6 +64,9 @@ func New(opt Options) *Server {
 	}
 	if st, err := os.Stat(opt.ConfigPath); err == nil {
 		s.cfgMod = st.ModTime()
+	}
+	if data, err := os.ReadFile(opt.ConfigPath); err == nil {
+		s.cfgRev = config.Revision(data)
 	}
 	s.routes()
 	return s
@@ -202,10 +206,12 @@ func (s *Server) WatchConfig(ctx context.Context) {
 func (s *Server) reload() error {
 	st, statErr := os.Stat(s.opt.ConfigPath)
 	cfg, err := config.Load(s.opt.ConfigPath)
+	data, _ := os.ReadFile(s.opt.ConfigPath)
 	s.cfgMu.Lock()
 	if statErr == nil {
 		s.cfgMod = st.ModTime()
 	}
+	s.cfgRev = config.Revision(data)
 	if err != nil {
 		s.cfgErr = err.Error()
 		s.cfgMu.Unlock()
@@ -227,6 +233,12 @@ func (s *Server) configError() string {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	return s.cfgErr
+}
+
+func (s *Server) configRevision() string {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	return s.cfgRev
 }
 
 // ── JSON helpers ─────────────────────────────────────────────────────────

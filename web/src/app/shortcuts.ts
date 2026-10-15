@@ -174,7 +174,10 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
           if (current) toggleServer(current)
           break
         case 'r':
-          if (current && hasProcess(current)) restartServer(current.name)
+          // Also brings back a crashed or exited server, like its Restart button.
+          if (current && current.status !== 'stopping' && (hasProcess(current) || current.status === 'crashed' || current.status === 'exited')) {
+            restartServer(current.name)
+          }
           break
         case 'o':
           if (current?.url && (current.status === 'running' || current.status === 'starting')) window.open(current.url, '_blank', 'noreferrer')

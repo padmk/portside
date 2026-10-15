@@ -90,6 +90,10 @@ func Run(cfgPath string) error {
 		}(ln)
 	}
 	log.Printf("%s %s listening on http://127.0.0.1:%d (pid %d)", app.Name, app.Version, cfg.Port, os.Getpid())
+	// Clients find a daemon whose config has since moved to another port here.
+	portFile := filepath.Join(stateDir, "daemon.port")
+	_ = os.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"), 0o644)
+	defer os.Remove(portFile)
 
 	go sup.Run(ctx)
 	go srv.WatchConfig(ctx)

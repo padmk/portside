@@ -61,7 +61,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     func crashed(_ v: Server) {
         let content = UNMutableNotificationContent()
         content.title = L.t("\(v.name) crashed", "\(v.name) padł")
-        content.body = v.note ?? ""
+        content.body = v.note.map(L.note) ?? ""
         content.sound = .default
         content.categoryIdentifier = "crash"
         content.userInfo = ["server": v.name]

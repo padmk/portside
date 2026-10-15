@@ -286,17 +286,20 @@ func cmdLogs(e *env, args []string) error {
 		}
 		return c.Do(e.ctx, http.MethodGet, q, nil, e.out)
 	}
-	// Follow: print the tail as text, then stream raw output.
-	if err := c.Do(e.ctx, http.MethodGet, fmt.Sprintf("/api/servers/%s/logs?lines=%d", url.PathEscape(name), *n), nil, e.out); err != nil {
-		return err
-	}
-	ws, _, err := websocket.Dial(e.ctx, "ws://127.0.0.1:"+fmt.Sprint(c.Port)+"/api/servers/"+url.PathEscape(name)+"/terminal?tail=0&readonly=1",
+	// Follow: scrollback and live output come over one subscription, so
+	// nothing printed in between is lost. The first message is the scrollback.
+	ws, _, err := websocket.Dial(e.ctx, "ws://127.0.0.1:"+fmt.Sprint(c.Port)+"/api/servers/"+url.PathEscape(name)+"/terminal?always=1&readonly=1",
 		&websocket.DialOptions{HTTPHeader: c.Header()})
 	if err != nil {
 		return err
 	}
 	defer ws.CloseNow()
 	ws.SetReadLimit(-1)
+	if _, backlog, err := ws.Read(e.ctx); err == nil {
+		for _, l := range supervisor.PlainLines(backlog, *n) {
+			fmt.Fprintln(e.out, l)
+		}
+	}
 	isTTY := isTerminal(os.Stdout)
 	for {
 		_, data, err := ws.Read(e.ctx)
@@ -387,6 +390,9 @@ func cmdPorts(e *env, args []string) error {
 		owner := e.paint(dim, "unmanaged")
 		if l.Managed {
 			owner = e.paint(green, l.Server)
+			if l.Via != "" {
+				owner += e.paint(dim, " (via "+l.Via+")")
+			}
 		} else if l.Server != "" {
 			owner = e.paint(yellow, "blocks "+l.Server)
 		}

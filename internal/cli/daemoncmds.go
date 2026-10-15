@@ -59,11 +59,13 @@ func cmdDaemon(e *env, args []string) error {
 		if service.Query().Installed {
 			time.Sleep(time.Second) // launchd/systemd brings it back
 		}
+		// The new daemon listens where the config says now.
+		c = client.New(e.configPort())
 		h, err := c.Ensure(e.ctx)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(e.out, "daemon restarted (pid %d); servers that were running are being restored\n", h.PID)
+		fmt.Fprintf(e.out, "daemon restarted (pid %d) at %s; servers that were running are being restored\n", h.PID, c.Base)
 	case "info":
 		// Machine-readable; starts the daemon if needed. Used by the macOS app.
 		h, err := c.Ensure(e.ctx)
@@ -143,7 +145,9 @@ func cmdDoctor(e *env, args []string) error {
 		return err
 	}
 	problems := 0
-	ok := func(msg string, a ...any) { fmt.Fprintf(e.out, "%s %s\n", e.paint(green, "✓"), fmt.Sprintf(msg, a...)) }
+	ok := func(msg string, a ...any) {
+		fmt.Fprintf(e.out, "%s %s\n", e.paint(green, "✓"), fmt.Sprintf(msg, a...))
+	}
 	warn := func(msg string, a ...any) {
 		problems++
 		fmt.Fprintf(e.out, "%s %s\n", e.paint(yellow, "!"), fmt.Sprintf(msg, a...))

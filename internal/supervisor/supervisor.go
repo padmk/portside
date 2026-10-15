@@ -351,7 +351,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	if sv.Port > 0 && ports.Listening(sv.Port) {
+	if sv.Port > 0 && ports.Listening(sv.Port) && !composeOwnsPort(sv.Cmd, sv.Port) {
 		owner, found := ports.Owner(context.Background(), sv.Port)
 		if !opt.Takeover || !found {
 			s.mu.Lock()
@@ -396,7 +396,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	}
 	// Preflight can take seconds (port release, takeover, shell environment);
 	// a Stop or shutdown in the meantime wins.
-	if s.closing || !p.want || (token != 0 && p.startSeq != token) {
+	if cur, ok := s.procs[name]; !ok || cur != p || p.removed || s.closing || !p.want || (token != 0 && p.startSeq != token) {
 		// Stopped meanwhile: reflect it. Superseded by a newer start: leave
 		// the status to that one.
 		if (s.closing || !p.want) && p.status == Starting {
@@ -940,6 +940,35 @@ func (s *Supervisor) IsManagedPID(pid int) (string, bool) {
 		cur = ps.ppid
 	}
 	return "", false
+}
+
+// composeOwnsPort reports whether a container runtime holds the port for a
+// server that is itself a compose stack. Its containers may still be up from
+// an earlier run; "docker compose up" attaches to them instead of failing.
+func composeOwnsPort(cmd string, port int) bool {
+	if !IsComposeCommand(cmd) {
+		return false
+	}
+	owner, ok := ports.Owner(context.Background(), port)
+	return ok && IsContainerRuntime(owner.Command)
+}
+
+// IsComposeCommand reports whether a server's command runs a compose stack.
+func IsComposeCommand(cmd string) bool {
+	c := strings.ToLower(cmd)
+	return strings.Contains(c, "docker compose") || strings.Contains(c, "docker-compose") || strings.Contains(c, "podman compose")
+}
+
+// IsContainerRuntime reports whether a process name belongs to Docker,
+// OrbStack, Colima or Podman, which publish container ports on the host.
+func IsContainerRuntime(command string) bool {
+	lc := strings.ToLower(command)
+	for _, rt := range []string{"docker", "com.docke", "orbstack", "vpnkit", "colima", "lima", "podman"} {
+		if strings.Contains(lc, rt) {
+			return true
+		}
+	}
+	return false
 }
 
 // protected process names are never killed by takeover: stopping them would

@@ -309,10 +309,10 @@ export const pl: Record<Key, Message> = {
   'status.external': 'zewnętrzny',
 
   'count.running': 'działa',
-  'count.starting': 'startuje',
-  'count.crashed': 'awarie',
-  'count.external': 'zewnętrzne',
-  'count.stopped': 'zatrzymane',
+  'count.starting': { one: 'startuje', few: 'startują', many: 'startuje', other: 'startuje' },
+  'count.crashed': { one: 'awaria', few: 'awarie', many: 'awarii', other: 'awarii' },
+  'count.external': { one: 'zewnętrzny', few: 'zewnętrzne', many: 'zewnętrznych', other: 'zewnętrznych' },
+  'count.stopped': { one: 'zatrzymany', few: 'zatrzymane', many: 'zatrzymanych', other: 'zatrzymanych' },
 
   'top.counts': 'Serwery według stanu',
   'top.menu': 'Menu',

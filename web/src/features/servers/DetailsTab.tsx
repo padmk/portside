@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLive } from '../../state/live'
 import { FolderOpen } from 'lucide-react'
 import { api } from '../../api/client'
 import type { ServerView, Spec } from '../../api/types'
@@ -11,7 +12,9 @@ import { Charts } from './Charts'
 export function DetailsTab({ server: v, servers }: { server: ServerView; servers: ServerView[] }) {
   const t = useT()
   const [spec, setSpec] = useState<Spec | null>(null)
-  const sig = `${v.name}|${v.cmd}|${v.stale}`
+  const { state } = useLive()
+  // Any edit to the file (env, health, dependencies) changes the revision.
+  const sig = `${v.name}|${state?.config.revision ?? ''}`
 
   useEffect(() => {
     let live = true

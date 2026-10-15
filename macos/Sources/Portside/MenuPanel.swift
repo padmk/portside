@@ -6,6 +6,57 @@ enum L {
     static let polish = Locale.preferredLanguages.first?.hasPrefix("pl") ?? false
     static func t(_ en: String, _ pl: String) -> String { polish ? pl : en }
 
+    /// Polish renderings of the daemon's status notes, which arrive in English
+    /// (mirrors web/src/i18n/notes.ts).
+    static func note(_ note: String) -> String {
+        guard polish else { return note }
+        var base = note
+        var suffix = ""
+        let suffixes: [(String, ([String]) -> String)] = [
+            (#", restarting in (\S+)$"#, { ", restart za \($0[0])" }),
+            (#"; gave up after (\d+) restarts$"#, { "; poddano się po \($0[0]) restartach" }),
+        ]
+        for (pattern, render) in suffixes {
+            if let (range, groups) = match(pattern, in: base) {
+                suffix = render(groups) + suffix
+                base.removeSubrange(range)
+            }
+        }
+        let rules: [(String, ([String]) -> String)] = [
+            (#"^exited with code (-?\d+)$"#, { "zakończył się z kodem \($0[0])" }),
+            (#"^exited on its own$"#, { _ in "zakończył się sam" }),
+            (#"^waiting for (.+)$"#, { "czeka na \($0[0])" }),
+            (#"^port (\d+) is used by (.+) \(pid (\d+)\)$"#, { "port \($0[0]) zajmuje \($0[1]) (pid \($0[2]))" }),
+            (#"^port (\d+) is already in use$"#, { "port \($0[0]) jest już zajęty" }),
+            (#"^directory not found: (.+)$"#, { "brak katalogu: \($0[0])" }),
+            (#"^failed to start: (.+)$"#, { "nie udało się uruchomić: \($0[0])" }),
+            (#"^dependency (\S+) failed: (.+)$"#, { "zależność \($0[0]) nie wystartowała: \($0[1])" }),
+            (#"^dependency (\S+) did not become ready: (.+)$"#, { "zależność \($0[0]) nie była gotowa: \($0[1])" }),
+        ]
+        for (pattern, render) in rules {
+            if let (_, groups) = match(pattern, in: base) { return render(groups) + suffix }
+        }
+        return note
+    }
+
+    /// The range of the first match and its capture groups.
+    private static func match(_ pattern: String, in text: String) -> (Range<String.Index>, [String])? {
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let whole = Range(m.range, in: text) else { return nil }
+        let groups = (1..<m.numberOfRanges).compactMap { Range(m.range(at: $0), in: text).map { String(text[$0]) } }
+        return (whole, groups)
+    }
+
+    /// "1 padł", "3 padły", "5 padło": Polish plural of a past-tense verb.
+    static func crashedCount(_ n: Int) -> String {
+        guard polish else { return "\(n) crashed" }
+        let mod10 = n % 10, mod100 = n % 100
+        if n == 1 { return "1 padł" }
+        if (2...4).contains(mod10) && !(12...14).contains(mod100) { return "\(n) padły" }
+        return "\(n) padło"
+    }
+
     static func status(_ s: String) -> String {
         switch s {
         case "running": return t("running", "działa")
@@ -103,7 +154,7 @@ struct MenuPanel: View {
         }
         if s.total == 0 { return L.t("No servers yet", "Brak serwerów") }
         var parts = [L.t("\(s.running) of \(s.total) running", "\(s.running) z \(s.total) działa")]
-        if s.crashed > 0 { parts.append(L.t("\(s.crashed) crashed", "\(s.crashed) padło")) }
+        if s.crashed > 0 { parts.append(L.crashedCount(s.crashed)) }
         if s.starting > 0 { parts.append(L.t("\(s.starting) starting", "\(s.starting) startuje")) }
         return parts.joined(separator: " · ")
     }
@@ -209,9 +260,10 @@ struct MenuPanel: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(store.sections, id: \.title) { section in
-                        if let title = section.title {
-                            sectionHeader(title, section.servers)
+                    ForEach(store.sections, id: \.id) { section in
+                        // Ungrouped servers get a header only when groups exist above them.
+                        if section.group != nil || store.sections.count > 1 {
+                            sectionHeader(section.group, section.servers)
                         }
                         ForEach(section.servers) { server in
                             row(server)
@@ -228,20 +280,21 @@ struct MenuPanel: View {
     /// natural height of its own.
     private var listHeight: CGFloat {
         let sections = store.sections
-        let headers = sections.filter { $0.title != nil }.count
+        let headers = sections.filter { $0.group != nil || sections.count > 1 }.count
         let rows = store.servers.count
         return min(CGFloat(rows) * 38 + CGFloat(headers) * 29 + 12, 520)
     }
 
-    private func sectionHeader(_ title: String, _ servers: [Server]) -> some View {
+    private func sectionHeader(_ group: String?, _ servers: [Server]) -> some View {
         let running = servers.filter { $0.status == "running" }.count
+        let title = group ?? L.t("Other", "Pozostałe")
         return HStack(spacing: 6) {
             Text(title.uppercased()).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
             Text(verbatim: "\(running)/\(servers.count)").font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.tertiary)
             Spacer()
-            if title != "Other" {
+            if let group {
                 Button {
-                    store.bulk(running > 0 ? "stop" : "start", names: [title])
+                    store.bulk(running > 0 ? "stop" : "start", names: [group])
                 } label: {
                     Image(systemName: running > 0 ? "stop.fill" : "play.fill").font(.system(size: 9))
                 }
@@ -287,7 +340,7 @@ struct MenuPanel: View {
             if let cmd = v.external?.command { return L.t("port held by \(cmd)", "port zajmuje \(cmd)") }
             return L.status("external")
         case "crashed", "blocked":
-            return v.note ?? L.status(v.status)
+            return v.note.map(L.note) ?? L.status(v.status)
         case "running":
             var parts = [L.status("running")]
             if v.mem > 0 { parts.append(String(format: "%.0f MB", Double(v.mem) / 1_048_576)) }
@@ -306,14 +359,14 @@ struct MenuPanel: View {
             if v.isAlive {
                 iconButton("arrow.clockwise", L.t("Restart", "Restartuj")) { store.perform("restart", v.name) }
                 iconButton("stop.fill", L.t("Stop", "Zatrzymaj")) { store.perform("stop", v.name) }
-            } else if v.displayStatus == "external" {
+            } else if v.external != nil {
                 iconButton("arrow.right.circle", L.t("Stop the other process and start", "Zatrzymaj tamten proces i uruchom")) {
                     store.perform("start", v.name, takeover: true)
                 }
             } else {
                 iconButton("play.fill", L.t("Start", "Uruchom")) { store.perform("start", v.name) }
             }
-            iconButton("terminal", L.t("Show logs", "Pokaż logi")) { actions.openDashboard(v.name) }
+            iconButton("terminal", L.t("Show logs", "Pokaż logi")) { actions.openLogs(v.name) }
         }
     }
 
@@ -342,12 +395,12 @@ struct MenuPanel: View {
             Button(L.t("Stop", "Zatrzymaj")) { store.perform("stop", v.name) }
         } else {
             Button(L.t("Start", "Uruchom")) { store.perform("start", v.name) }
-            if v.displayStatus == "external" {
+            if v.external != nil {
                 Button(L.t("Stop the Other Process and Start", "Zatrzymaj tamten proces i uruchom")) { store.perform("start", v.name, takeover: true) }
             }
         }
         Divider()
-        Button(L.t("Show Logs", "Pokaż logi")) { actions.openDashboard(v.name) }
+        Button(L.t("Show Logs", "Pokaż logi")) { actions.openLogs(v.name) }
         Button(L.t("Open Folder", "Otwórz folder")) { store.open("folder", name: v.name) }
         Button(L.t("Open in Editor", "Otwórz w edytorze")) { store.open("editor", name: v.name) }
         Button(L.t("Open in Terminal", "Otwórz w terminalu")) { store.open("terminal", name: v.name) }

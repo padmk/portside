@@ -106,6 +106,10 @@ type ConfigInfo struct {
 	Error       string   `json:"error,omitempty"`
 	Warnings    []string `json:"warnings,omitempty"`
 	StateDir    string   `json:"stateDir"`
+	// Revision changes whenever the file's text changes.
+	Revision string `json:"revision"`
+	// Notify mirrors the notify setting for clients that notify themselves.
+	Notify bool `json:"notify"`
 }
 
 func (s *Server) snapshot() State {
@@ -119,6 +123,8 @@ func (s *Server) snapshot() State {
 			Error:       s.configError(),
 			Warnings:    cfg.Warnings,
 			StateDir:    paths.ShortenHome(s.opt.StateDir),
+			Revision:    s.configRevision(),
+			Notify:      cfg.Notify,
 		},
 		Servers: s.sup.Snapshot(s.opt.Port),
 		Groups:  cfg.Groups(),
@@ -387,7 +393,9 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 
 	backlog, ch := lb.Subscribe()
 	defer lb.Unsubscribe(ch)
-	if r.URL.Query().Get("tail") != "0" && len(backlog) > 0 {
+	// With always=1 the scrollback is sent even when empty, so a client can
+	// tell it apart from live output.
+	if r.URL.Query().Get("tail") != "0" && (len(backlog) > 0 || r.URL.Query().Get("always") == "1") {
 		if err := c.Write(ctx, websocket.MessageBinary, backlog); err != nil {
 			return
 		}
@@ -597,8 +605,9 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 type ListenerView struct {
 	ports.Listener
 	CwdDisplay string `json:"cwdDisplay,omitempty"`
-	Server     string `json:"server,omitempty"`  // configured server owning the port
-	Managed    bool   `json:"managed"`           // process started by Portside
+	Server     string `json:"server,omitempty"`    // configured server owning the port
+	Managed    bool   `json:"managed"`             // process started by Portside
+	Via        string `json:"via,omitempty"`       // "containers" when a runtime publishes a managed compose port
 	Protected  string `json:"protected,omitempty"` // why it may not be killed
 }
 
@@ -608,6 +617,12 @@ func (s *Server) listeners(w http.ResponseWriter, r *http.Request) {
 	for _, sv := range cfg.Servers {
 		if sv.Port > 0 {
 			byPort[sv.Port] = sv.Name
+		}
+	}
+	live := map[string]bool{}
+	for _, v := range s.sup.Snapshot(s.opt.Port) {
+		if v.PID != 0 {
+			live[v.Name] = true
 		}
 	}
 	var out []ListenerView
@@ -620,6 +635,11 @@ func (s *Server) listeners(w http.ResponseWriter, r *http.Request) {
 		} else if name, ok := s.sup.IsManagedPID(l.PID); ok {
 			v.Managed = true
 			v.Server = name
+		} else if sv, ok := cfg.Server(v.Server); ok && live[sv.Name] && supervisor.IsComposeCommand(sv.Cmd) && supervisor.IsContainerRuntime(l.Command) {
+			// A running compose stack: the runtime publishes its containers' ports.
+			v.Managed = true
+			v.Via = "containers"
+			v.Protected = s.sup.Killable(l)
 		} else {
 			v.Protected = s.sup.Killable(l)
 		}

@@ -192,14 +192,21 @@ func cmdScan(e *env, args []string) error {
 		fmt.Fprintf(e.out, "\nAdd them all with `%s scan --add`, or pick in the dashboard.\n", app.ID)
 		return nil
 	}
+	added, failed := 0, 0
 	for _, s := range found {
 		p := s.Port
 		spec := config.Spec{Name: s.Name, Dir: relDir(cfg.Root, s.Dir), Cmd: s.Cmd, Port: &p, Stop: s.StopAfter}
 		if err := config.AddServer(e.cfgPath, spec); err != nil {
+			failed++
 			fmt.Fprintf(e.errOut, "%s %s: %v\n", e.paint(red, "✗"), s.Name, err)
+			continue
 		}
+		added++
 	}
-	fmt.Fprintf(e.out, "\nAdded %d servers to %s.\n", len(found), paths.ShortenHome(e.cfgPath))
+	fmt.Fprintf(e.out, "\nAdded %d servers to %s.\n", added, paths.ShortenHome(e.cfgPath))
+	if failed > 0 {
+		return silentError{1}
+	}
 	return nil
 }
 
@@ -245,6 +252,18 @@ func cmdImport(e *env, args []string) error {
 		if err := config.SetTopLevel(e.cfgPath, "root", config.Quote(imp.Root)); err != nil {
 			return err
 		}
+		if cfg, err = config.Load(e.cfgPath); err != nil {
+			return err
+		}
+	}
+	// devctl directories are relative to devctl's root; write them relative to ours.
+	importRoot := paths.ExpandHome(imp.Root)
+	for i := range imp.Servers {
+		dir := paths.ExpandHome(imp.Servers[i].Dir)
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(importRoot, dir)
+		}
+		imp.Servers[i].Dir = relDir(cfg.Root, dir)
 	}
 	if imp.PathDir != "" && len(cfg.PathPrepend) == 0 {
 		if err := config.SetTopLevel(e.cfgPath, "path", "["+config.Quote(imp.PathDir)+"]"); err != nil {

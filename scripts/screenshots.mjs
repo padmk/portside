@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const [demo, out] = process.argv.slice(2)
+const [demo, out, set = 'readme'] = process.argv.slice(2)
 const BASE = 'http://127.0.0.1:7990'
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -47,8 +47,9 @@ const shot = async (name) => {
   writeFileSync(join(out, name), Buffer.from(r.data, 'base64'))
   console.log('wrote', name)
 }
+const locale = set === 'portfolio' ? 'pl' : 'en'
 const theme = async (family, mode) => {
-  await evaluate(`localStorage.setItem('portside.themeFamily', ${JSON.stringify(family)}); localStorage.setItem('portside.themeMode', ${JSON.stringify(mode)}); localStorage.setItem('portside.locale', 'en')`)
+  await evaluate(`localStorage.setItem('portside.themeFamily', ${JSON.stringify(family)}); localStorage.setItem('portside.themeMode', ${JSON.stringify(mode)}); localStorage.setItem('portside.locale', ${JSON.stringify(locale)})`)
 }
 let loads = 0
 // A query string forces a real reload so the stored theme is applied.
@@ -69,10 +70,20 @@ if (session !== true) {
   chrome.kill()
   process.exit(1)
 }
-await theme('rose-pine', 'dark'); await open(); await shot('overview-dark.png')
-await theme('everforest', 'light'); await open(); await shot('overview-light.png')
-await theme('tokyo-night', 'dark'); await open('#/web', 3500); await shot('detail.png')
-await theme('catppuccin', 'light'); await open('#/blog', 3000); await shot('crashed.png')
+if (set === 'portfolio') {
+  // Pairs for a site that swaps images with its own light and dark theme.
+  for (const [mode, suffix] of [['dark', ''], ['light', '-light']]) {
+    await theme('rose-pine', mode)
+    await open(); await shot(`portside-overview${suffix}.png`)
+    await open('#/web', 3500); await shot(`portside-detail${suffix}.png`)
+    await open('#/blog', 3000); await shot(`portside-crashed${suffix}.png`)
+  }
+} else {
+  await theme('rose-pine', 'dark'); await open(); await shot('overview-dark.png')
+  await theme('everforest', 'light'); await open(); await shot('overview-light.png')
+  await theme('tokyo-night', 'dark'); await open('#/web', 3500); await shot('detail.png')
+  await theme('catppuccin', 'light'); await open('#/blog', 3000); await shot('crashed.png')
+}
 
 await send('Browser.close').catch(() => {})
 chrome.kill()

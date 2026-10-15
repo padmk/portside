@@ -52,7 +52,7 @@ export function Overview({ servers, groups }: Props) {
             </button>
           </div>
         )}
-        {sections.length === 0 && <p className="empty-note">{t('list.noMatch', { q: filter || (status ? t(`count.${status}`) : '') })}</p>}
+        {sections.length === 0 && <p className="empty-note">{t('list.noMatch', { q: filter || (status ? t(`status.${status}`) : '') })}</p>}
         {sections.map((s) => (
           <GroupSection
             key={s.group ?? '\0'}

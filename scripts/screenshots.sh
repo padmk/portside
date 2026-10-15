@@ -3,17 +3,27 @@
 # temporary home directory (so paths read ~/code/acme/...), a daemon on :7990
 # and headless Chrome. Needs Google Chrome and Node 24; touches nothing else.
 #
-#   scripts/screenshots.sh           # dashboard screenshots
-#   scripts/screenshots.sh --menu    # also the macOS menu bar panel (opens it on screen)
+#   scripts/screenshots.sh                    # README screenshots in design/screenshots
+#   scripts/screenshots.sh --portfolio DIR    # light/dark pairs and the menu bar panel into DIR
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 REAL_HOME="$HOME"
 
+if lsof -nP -iTCP:7990 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "port 7990 is in use (a demo daemon left running?); stop it first" >&2
+  exit 1
+fi
 DEMO="$(mktemp -d /tmp/portside-demo.XXXXXX)"
 HOMEDIR="$DEMO/home"
 PS="$DEMO/portside"
-go build -o "$PS" ./cmd/portside # before HOME changes, so the module cache is reused
+APP="$REPO/dist/macos/Portside.app"
+if [ "${1:-}" = "--portfolio" ] && [ -x "$APP/Contents/Helpers/portside" ]; then
+  # Same binary as the app, so the app sees a daemon of its own version.
+  cp "$APP/Contents/Helpers/portside" "$PS"
+else
+  go build -o "$PS" ./cmd/portside # before HOME changes, so the module cache is reused
+fi
 
 for p in acme/web acme/api acme/worker acme/docs studio/app blog; do mkdir -p "$HOMEDIR/code/$p"; done
 # Simple project logos, picked up as favicons.
@@ -81,23 +91,33 @@ env = { DEMO_KIND = "next", DEMO_NAME = "blog", DEMO_CRASH = "5" }
 TOML
 
 export HOME="$HOMEDIR" SHELL=/bin/bash PORTSIDE_CONFIG="$DEMO/portside.toml" PORTSIDE_STATE_DIR="$DEMO/state"
-cleanup() { "$PS" daemon stop >/dev/null 2>&1 || true; }
+cleanup() {
+  # Demo app instances would start the demo daemon again, so they go first.
+  pkill -f "$REPO/dist/macos/Portside.app/Contents/MacOS/Portside" 2>/dev/null || true
+  "$PS" daemon stop >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 
 "$PS" daemon start >/dev/null
 "$PS" up --all >/dev/null || true
 sleep 14 # let logs, sparklines and the crash happen
 
-# Chrome keeps cookies in the real keychain, so it runs with the real home.
-HOME="$REAL_HOME" node "$REPO/scripts/screenshots.mjs" "$DEMO" "$REPO/design/screenshots"
-
-if [ "${1:-}" = "--menu" ] && [ -d "$REPO/dist/macos/Portside.app" ]; then
-  open -n --env HOME="$HOMEDIR" --env PORTSIDE_CONFIG="$PORTSIDE_CONFIG" --env PORTSIDE_STATE_DIR="$PORTSIDE_STATE_DIR" \
-    "$REPO/dist/macos/Portside.app" --args --show-menu
-  sleep 6
-  # Top right corner of the main display, where the panel opens.
-  screencapture -x "$DEMO/screen.png"
-  pkill -f "$REPO/dist/macos/Portside.app/Contents/MacOS/Portside" || true
-  echo "Menu bar panel captured to $DEMO/screen.png; crop it into design/screenshots/menubar.png."
+MODE="${1:-}"
+OUT="$REPO/design/screenshots"
+SET=readme
+if [ "$MODE" = "--portfolio" ]; then
+  OUT="${2:?usage: --portfolio DIR}"
+  SET=portfolio
+  mkdir -p "$OUT"
 fi
-echo "Screenshots written to design/screenshots/ (demo in $DEMO)"
+# Chrome keeps cookies in the real keychain, so it runs with the real home.
+HOME="$REAL_HOME" node "$REPO/scripts/screenshots.mjs" "$DEMO" "$OUT" "$SET"
+
+if [ "$SET" = portfolio ] && [ -d "$REPO/dist/macos/Portside.app" ]; then
+  # The menu bar panel, drawn offscreen by a second app instance on the demo daemon.
+  for look in dark light; do
+    suffix=""; [ "$look" = light ] && suffix="-light"
+    "$APP/Contents/MacOS/Portside" -AppleLanguages "(${SHOT_LANG:-pl})" --appearance="$look" --render-panel="$OUT/portside-menubar$suffix.png" >/dev/null 2>&1 || true
+  done
+fi
+echo "Screenshots written to $OUT (demo in $DEMO)"

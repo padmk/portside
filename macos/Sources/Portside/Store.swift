@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -15,6 +16,9 @@ final class Store {
     private(set) var servers: [Server] = []
     private(set) var groups: [String] = []
     private(set) var configError: String?
+    private(set) var configPath: String?
+    /// Mirrors the config's notify setting.
+    private(set) var notifyOnCrash = true
     private(set) var daemonVersion: String?
     private(set) var bundledVersion: String?
     private(set) var baseURL: URL?
@@ -122,11 +126,13 @@ final class Store {
         connection = .connected
         daemonVersion = state.daemon.version
         configError = state.config.error
+        configPath = state.config.path
+        notifyOnCrash = state.config.notify ?? true
         groups = state.groups ?? []
         servers = state.servers
         for v in state.servers {
             let before = previous[v.name]
-            if v.status == "crashed", let before, before != "crashed", before != "stopped" {
+            if v.status == "crashed", let before, before != "crashed", before != "stopped", notifyOnCrash {
                 onCrash?(v)
             }
             previous[v.name] = v.status
@@ -143,15 +149,22 @@ final class Store {
         }
     }
 
+    struct Section {
+        let id: String
+        /// nil for the ungrouped servers.
+        let group: String?
+        let servers: [Server]
+    }
+
     /// Servers grouped as the dashboard shows them: groups first, ungrouped last.
-    var sections: [(title: String?, servers: [Server])] {
-        var out: [(String?, [Server])] = []
+    var sections: [Section] {
+        var out: [Section] = []
         for g in groups {
             let members = servers.filter { $0.group == g }
-            if !members.isEmpty { out.append((g, members)) }
+            if !members.isEmpty { out.append(Section(id: "group:" + g, group: g, servers: members)) }
         }
         let rest = servers.filter { ($0.group ?? "").isEmpty }
-        if !rest.isEmpty { out.append((groups.isEmpty ? nil : "Other", rest)) }
+        if !rest.isEmpty { out.append(Section(id: "ungrouped", group: nil, servers: rest)) }
         return out
     }
 
@@ -172,7 +185,14 @@ final class Store {
             do {
                 var body: [String: Any] = ["action": action]
                 if let names { body["names"] = names } else { body["all"] = true }
-                try await api?.post("api/bulk", body: body)
+                guard let data = try await api?.post("api/bulk", body: body) else { return }
+                // The request succeeds as a whole; individual servers can still fail.
+                let results = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["results"] as? [[String: Any]] ?? []
+                let failures = results.compactMap { r -> String? in
+                    guard let err = r["error"] as? String, !err.isEmpty, let name = r["name"] as? String else { return nil }
+                    return "\(name): \(L.note(err))"
+                }
+                if !failures.isEmpty { lastError = failures.joined(separator: "\n") }
             } catch {
                 lastError = error.localizedDescription
             }
@@ -180,10 +200,38 @@ final class Store {
     }
 
     func open(_ target: String, name: String? = nil) {
+        guard let api else {
+            // Without a daemon (e.g. a broken config) open the files directly,
+            // which is exactly when they are needed.
+            openLocally(target)
+            return
+        }
         Task {
             var body: [String: Any] = ["target": target]
             if let name { body["name"] = name }
-            do { try await api?.post("api/open", body: body) } catch { lastError = error.localizedDescription }
+            do { try await api.post("api/open", body: body) } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    private func openLocally(_ target: String) {
+        let env = ProcessInfo.processInfo.environment
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let config = configPath.map(URL.init(fileURLWithPath:))
+            ?? env["PORTSIDE_CONFIG"].map(URL.init(fileURLWithPath:))
+            ?? home.appendingPathComponent(".config/portside/portside.toml")
+        let state = env["PORTSIDE_STATE_DIR"].map(URL.init(fileURLWithPath:))
+            ?? home.appendingPathComponent(".local/state/portside")
+        switch target {
+        case "config":
+            if FileManager.default.fileExists(atPath: config.path) {
+                NSWorkspace.shared.open(config)
+            } else {
+                lastError = L.t("No config file yet at \(config.path).", "Brak pliku konfiguracji: \(config.path).")
+            }
+        case "logs":
+            NSWorkspace.shared.activateFileViewerSelecting([state.appendingPathComponent("logs")])
+        default:
+            lastError = L.t("The daemon is not running.", "Demon nie działa.")
         }
     }
 

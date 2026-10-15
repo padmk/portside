@@ -13,7 +13,8 @@ import { DetailRail } from '../features/servers/DetailRail'
 import { EmptyState } from '../features/servers/EmptyState'
 import { useT } from '../i18n'
 import { useLive } from '../state/live'
-import { closeServer, useSelectedName } from '../state/route'
+import { closeServer, takeTerminalLink, useSelectedName } from '../state/route'
+import { showTerminal } from '../state/ui'
 import { useUi } from '../state/ui'
 import { Toasts } from '../ui/Toasts'
 import { brand } from '../brand'
@@ -34,6 +35,15 @@ export function App() {
   const selected = selectedName ? servers.find((s) => s.name === selectedName) : undefined
 
   useShortcuts(servers, groups, selected ? selected.name : null)
+
+  useEffect(() => {
+    const check = () => {
+      if (takeTerminalLink()) showTerminal()
+    }
+    check()
+    window.addEventListener('hashchange', check)
+    return () => window.removeEventListener('hashchange', check)
+  }, [])
 
   // A link to a server that no longer exists falls back to the overview.
   useEffect(() => {
@@ -56,18 +66,17 @@ export function App() {
       <TopBar servers={servers} connection={connection} inDetail={!!selected} />
       {state && <ConfigBanners config={state.config} />}
       <main className="main">
-        {!state ? (
+        {connection === 'unauthorized' ? (
           <div className="boot" role="status">
             <Mark className="boot-mark" />
-            {connection === 'unauthorized' ? (
-              <>
-                <h1 className="boot-title">{t('auth.title')}</h1>
-                <p>{t('auth.body')}</p>
-                <code className="mono">portside open</code>
-              </>
-            ) : (
-              <p>{connection === 'connecting' ? t('top.connecting') : t('boot.unreachable')}</p>
-            )}
+            <h1 className="boot-title">{t('auth.title')}</h1>
+            <p>{t('auth.body')}</p>
+            <code className="mono">portside open</code>
+          </div>
+        ) : !state ? (
+          <div className="boot" role="status">
+            <Mark className="boot-mark" />
+            <p>{connection === 'connecting' ? t('top.connecting') : t('boot.unreachable')}</p>
           </div>
         ) : servers.length === 0 ? (
           <EmptyState />

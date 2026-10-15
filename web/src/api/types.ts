@@ -63,6 +63,9 @@ export interface ConfigInfo {
   error?: string
   warnings?: string[]
   stateDir: string
+  /** Changes whenever the config file's text changes. */
+  revision: string
+  notify: boolean
 }
 
 export interface State {

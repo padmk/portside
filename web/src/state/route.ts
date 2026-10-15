@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 
 /** The open server is carried in the URL hash as `#/<name>`; no hash means the overview. */
 function read(): string | null {
-  const m = /^#\/(.+)$/.exec(location.hash)
+  const m = /^#\/([^/]+)(?:\/terminal)?$/.exec(location.hash)
   if (!m || !m[1]) return null
   try {
     return decodeURIComponent(m[1])
@@ -22,6 +22,14 @@ export function selectServer(name: string | null) {
 }
 
 export const closeServer = () => selectServer(null)
+
+/** `#/<name>/terminal` (used by the menu bar app's Show Logs) opens the server on its terminal. */
+export function takeTerminalLink(): boolean {
+  const m = /^#\/([^/]+)\/terminal$/.exec(location.hash)
+  if (!m) return false
+  history.replaceState(null, '', `#/${m[1]}`)
+  return true
+}
 
 export function useSelectedName(): string | null {
   return useSyncExternalStore(

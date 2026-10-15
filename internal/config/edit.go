@@ -461,8 +461,35 @@ func UpdateServer(path, name string, s Spec) error {
 			keep = nil
 		}
 		repl := append(append([]string{}, keep...), strings.Split(strings.TrimRight(Render(s), "\n"), "\n")...)
-		return append(append(append([]string{}, d.lines[:start]...), repl...), d.lines[end:]...), nil
+		out := append(append(append([]string{}, d.lines[:start]...), repl...), d.lines[end:]...)
+		if s.Name != name {
+			out = renameDependency(newDoc(out), name, s.Name)
+		}
+		return out, nil
 	})
+}
+
+// renameDependency rewrites depends_on entries of other servers so that a
+// rename keeps the file valid. Arrays may span several lines.
+func renameDependency(d *doc, from, to string) []string {
+	quoted := regexp.MustCompile(`(["'])` + regexp.QuoteMeta(from) + `(["'])`)
+	depsRe := regexp.MustCompile(`^\s*depends_on\s*=`)
+	inDeps := false
+	for i, l := range d.lines {
+		if d.cont[i] {
+			continue
+		}
+		if depsRe.MatchString(l) {
+			inDeps = true
+		}
+		if inDeps {
+			d.lines[i] = quoted.ReplaceAllString(l, "${1}"+to+"${2}")
+			if strings.Contains(l, "]") {
+				inDeps = false
+			}
+		}
+	}
+	return d.lines
 }
 
 // RemoveServer deletes a server table and the comments directly above it.

@@ -19,6 +19,7 @@ struct Health: Decodable {
 struct ConfigInfo: Decodable {
     let path: String
     let error: String?
+    let notify: Bool?
 }
 
 struct PortHolder: Decodable, Hashable {
@@ -156,7 +157,8 @@ struct APIClient {
         return url
     }
 
-    func post(_ path: String, body: [String: Any]? = nil) async throws {
+    @discardableResult
+    func post(_ path: String, body: [String: Any]? = nil) async throws -> Data {
         var req = URLRequest(url: base.appendingPathComponent(path))
         req.httpMethod = "POST"
         req.timeoutInterval = 120
@@ -170,5 +172,6 @@ struct APIClient {
             let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw DaemonError.failed(msg ?? "Request failed (\(http.statusCode))")
         }
+        return data
     }
 }

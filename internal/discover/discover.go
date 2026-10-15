@@ -238,11 +238,18 @@ func detectNode(dir, name string) (Suggestion, bool) {
 	}
 	pm := packageManager(dir)
 	cmd := pm.run(script)
-	if flags != "" && !strings.Contains(body, "--port") && !strings.Contains(body, " -p ") {
+	// A script that pins its own port keeps it; the suggestion must use the same one.
+	if m := scriptPortRe.FindStringSubmatch(body); m != nil {
+		port, _ := strconv.Atoi(m[1])
+		return Suggestion{Name: name, Dir: dir, Cmd: cmd, Kind: kind, Port: port}, true
+	}
+	if flags != "" {
 		cmd += pm.sep() + flags
 	}
 	return Suggestion{Name: name, Dir: dir, Cmd: cmd, Kind: kind}, true
 }
+
+var scriptPortRe = regexp.MustCompile(`(?:--port[= ]|\s-p\s+)(\d{2,5})\b`)
 
 type pm string
 

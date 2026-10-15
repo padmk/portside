@@ -51,13 +51,13 @@ export function TopBar({ servers, connection, inDetail }: Props) {
               type="button"
               className={`count status-text--${g.lamp}`}
               aria-pressed={status === g.id}
-              aria-label={t('top.filterBy', { status: t(`count.${g.id}`) })}
-              title={t('top.filterBy', { status: t(`count.${g.id}`) })}
+              aria-label={t('top.filterBy', { status: t(`status.${g.id}`) })}
+              title={t('top.filterBy', { status: t(`status.${g.id}`) })}
               onClick={() => pickStatus(g.id)}
             >
               <Lamp status={g.lamp} decorative />
               <span className="num count-num">{counts[g.id]}</span>
-              <span className="count-label">{t(`count.${g.id}`)}</span>
+              <span className="count-label">{t(`count.${g.id}`, { n: counts[g.id] })}</span>
             </button>
           </li>
         ))}

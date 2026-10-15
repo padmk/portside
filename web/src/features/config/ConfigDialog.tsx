@@ -10,6 +10,12 @@ import { ConfirmDialog } from '../dialogs/ConfirmDialog'
 import { openOnDesktop } from '../servers/actions'
 import './config.css'
 
+/** Same as config.Revision in Go: the first 8 bytes of SHA-256, in hex. */
+async function revisionOf(text: string): Promise<string> {
+  const sum = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
+  return Array.from(sum.slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 export function ConfigDialog() {
   const t = useT()
   const [saved, setSaved] = useState<string | null>(null)
@@ -43,9 +49,9 @@ export function ConfigDialog() {
     setError('')
     try {
       applyState(await api.saveConfig(text, revision))
-      // The next save must be based on what is on disk now.
-      const fresh = await api.config()
-      setRevision(fresh.revision)
+      // The next save is based on exactly the text written now; an edit made
+      // elsewhere afterwards changes the file's revision and is detected.
+      setRevision(await revisionOf(text))
       setSaved(text)
       toast(t('config.saved'))
     } catch (e) {

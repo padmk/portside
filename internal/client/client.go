@@ -141,6 +141,16 @@ func (c *Client) Ping(ctx context.Context) (Health, error) {
 	return h, nil
 }
 
+// LivePort returns the port recorded by a running daemon, or 0.
+func LivePort() int {
+	b, err := os.ReadFile(filepath.Join(paths.StateDir(), "daemon.port"))
+	if err != nil {
+		return 0
+	}
+	p, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return p
+}
+
 // ErrNotRunning means no daemon answered and none was started.
 var ErrNotRunning = errors.New("daemon is not running")
 
