@@ -1,0 +1,52 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # macOS runners cost ten times more minutes in private repositories, so the
+  # macOS build (including the menu bar app) runs on demand and on release tags.
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Also build on macOS
+        type: boolean
+        default: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: make build
+      - run: go vet ./...
+      - run: pnpm --dir web check:contrast
+      - run: ./bin/portside version
+
+  macos:
+    if: github.event_name == 'workflow_dispatch' && inputs.macos
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: scripts/build-macos-app.sh

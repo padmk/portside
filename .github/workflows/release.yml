@@ -1,0 +1,78 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    # Linux and macOS command-line archives with the embedded dashboard.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  app:
+    # macOS menu bar app, attached to the same release and published as a Homebrew cask.
+    needs: cli
+    runs-on: macos-latest
+    env:
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Build Portside.app
+        run: VERSION="${GITHUB_REF_NAME#v}" scripts/build-macos-app.sh --zip
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "dist/macos/Portside-${GITHUB_REF_NAME#v}.zip" --clobber
+      - name: Update the Homebrew cask
+        # Skipped until the tap repository and its token are set up.
+        if: env.HAS_TAP_TOKEN == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sha=$(shasum -a 256 "dist/macos/Portside-$version.zip" | cut -d' ' -f1)
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/padmk/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/__VERSION__/$version/" -e "s/__SHA256__/$sha/" packaging/homebrew/portside.rb.tmpl > tap/Casks/portside.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/portside.rb
+          git commit -m "portside $version"
+          git push
