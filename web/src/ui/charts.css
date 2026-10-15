@@ -1,0 +1,70 @@
+/* CPU and memory area charts, used by the details tab and the single-server card. */
+.charts {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+.charts figure {
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--card);
+}
+.charts figcaption {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+}
+.charts figcaption strong {
+  color: var(--text);
+  font-size: var(--fs-xl);
+  font-weight: 650;
+}
+.charts figcaption .span {
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.area {
+  position: relative;
+}
+.area svg {
+  display: block;
+  width: 100%;
+  height: var(--area-h, 120px);
+  overflow: visible;
+}
+.area .grid {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.6;
+}
+.charts figure:first-child .area {
+  color: var(--running);
+}
+.charts figure:nth-child(2) .area {
+  color: var(--external);
+}
+.area-max,
+.area-min {
+  position: absolute;
+  right: 0;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+.area-max {
+  top: -3px;
+}
+.area-min {
+  bottom: -3px;
+}

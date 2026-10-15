@@ -1,0 +1,354 @@
+/*
+ * Portside tokens layered on the bundled palettes in ./themes (never edited).
+ *
+ * - Status colors come from each palette's published colors. A lamp color
+ *   (--running, ...) must reach 3:1 as a graphic and its text twin
+ *   (--running-text, ...) 4.5:1 as text; where a published color is too light
+ *   for that, the token is the color mixed toward --text.
+ * - Secondary text (--text-2, --text-3) is derived from --text over --bg: the
+ *   bundled --muted and --faint differ in order and contrast between palettes.
+ * - Actions use --primary. It is the palette accent unless that accent reads as
+ *   an error or a warning (red, maroon, orange), then the palette's green or blue.
+ * - --project-1 to --project-6 tint each server's initials tile (colors from the
+ *   same palette).
+ * - Status is never color alone: lamps differ in shape and every status has a
+ *   text label.
+ *
+ * `node scripts/check-contrast.mjs` verifies every pairing used by the
+ * interface against WCAG AA for each theme.
+ */
+
+html {
+  /* Surfaces */
+  --canvas: var(--list);
+  --card: var(--surface-raised);
+  --well: var(--surface);
+
+  /* Control outlines (inputs, outline buttons) need 3:1, unlike the hairline --border */
+  --border-strong: color-mix(in srgb, var(--text) 52%, var(--bg));
+
+  /* Text */
+  --text-2: color-mix(in srgb, var(--text) 82%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 66%, var(--bg));
+
+  /* Focus ring, selection and soft action wash */
+  --focus: var(--accent-ink);
+  --primary-soft: color-mix(in srgb, var(--primary) 10%, transparent);
+  --selection: var(--editor-selection);
+
+  /* Idle servers use the quiet text color; washes tint chips and pills */
+  --stopped: var(--text-3);
+  --stopped-text: var(--text-2);
+  --running-wash: color-mix(in srgb, var(--running) 9%, transparent);
+  --starting-wash: color-mix(in srgb, var(--starting) 9%, transparent);
+  --crashed-wash: color-mix(in srgb, var(--crashed) 9%, transparent);
+  --external-wash: color-mix(in srgb, var(--external) 9%, transparent);
+  --stopped-wash: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* Elevation and overlays depend on the mode, not the palette. */
+html[data-mode='dark'] {
+  --scrim: rgb(0 0 0 / 0.55);
+  --shadow-fallback: 0 18px 60px rgb(0 0 0 / 45%), 0 2px 12px rgb(0 0 0 / 24%);
+  --shadow-card: 0 6px 18px -10px rgb(0 0 0 / 60%);
+}
+html[data-mode='light'] {
+  --scrim: rgb(40 40 60 / 0.28);
+  --shadow-fallback: 0 18px 60px rgb(20 20 24 / 14%), 0 2px 12px rgb(20 20 24 / 8%);
+  --shadow-card: 0 1px 2px rgb(40 40 60 / 6%), 0 8px 20px -14px rgb(40 40 60 / 30%);
+}
+
+/* Rose Pine: the accent (rose) is also the action color. */
+html[data-theme='rose-pine'] {
+  --text-2: color-mix(in srgb, var(--text) 82%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 63%, var(--bg));
+  --running: #9ccfd8;
+  --running-text: #9ccfd8;
+  --starting: #f6c177;
+  --starting-text: #f6c177;
+  --crashed: #eb6f92;
+  --crashed-text: color-mix(in srgb, #eb6f92 76%, var(--text));
+  --external: #c4a7e7;
+  --external-text: #c4a7e7;
+  --primary: #ea9a97;
+  --primary-fg: #232136;
+  --link: #c4a7e7;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #3e8fb0;
+  --project-2: #c4a7e7;
+  --project-3: #f6c177;
+  --project-4: #9ccfd8;
+  --project-5: #ea9a97;
+  --project-6: #eb6f92;
+}
+
+html[data-theme='rose-pine-dawn'] {
+  --border-strong: color-mix(in srgb, var(--text) 72%, var(--bg));
+  --text-2: color-mix(in srgb, var(--text) 100%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 88%, var(--bg));
+  --running: color-mix(in srgb, #56949f 88%, var(--text));
+  --running-text: color-mix(in srgb, #56949f 22%, var(--text));
+  --starting: color-mix(in srgb, #ea9d34 55%, var(--text));
+  --starting-text: color-mix(in srgb, #ea9d34 14%, var(--text));
+  --crashed: #b4637a;
+  --crashed-text: color-mix(in srgb, #b4637a 33%, var(--text));
+  --external: #907aa9;
+  --external-text: color-mix(in srgb, #907aa9 25%, var(--text));
+  --primary: #d7827e;
+  --primary-fg: #191724;
+  --link: #286983;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--bg));
+  --project-1: #286983;
+  --project-2: #907aa9;
+  --project-3: #ea9d34;
+  --project-4: #56949f;
+  --project-5: #d7827e;
+  --project-6: #b4637a;
+}
+
+/* Everforest: the accent is red in the dark palette, so actions use the palette's green. */
+html[data-theme='everforest-dark'] {
+  --text-2: color-mix(in srgb, var(--text) 82%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 70%, var(--bg));
+  --running: #a7c080;
+  --running-text: #a7c080;
+  --starting: #dbbc7f;
+  --starting-text: #dbbc7f;
+  --crashed: #e67e80;
+  --crashed-text: color-mix(in srgb, #e67e80 90%, var(--text));
+  --external: #7fbbb3;
+  --external-text: #7fbbb3;
+  --primary: #a7c080;
+  --primary-fg: #1e2326;
+  --link: #7fbbb3;
+  --focus: #a7c080;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #7fbbb3;
+  --project-2: #d699b6;
+  --project-3: #e69875;
+  --project-4: #a7c080;
+  --project-5: #83c092;
+  --project-6: #dbbc7f;
+}
+
+html[data-theme='everforest-light'] {
+  --border-strong: color-mix(in srgb, var(--text) 70%, var(--bg));
+  --text-2: color-mix(in srgb, var(--text) 99%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 87%, var(--bg));
+  --running: color-mix(in srgb, #8da101 76%, var(--text));
+  --running-text: color-mix(in srgb, #8da101 24%, var(--text));
+  --starting: color-mix(in srgb, #dfa000 60%, var(--text));
+  --starting-text: color-mix(in srgb, #dfa000 19%, var(--text));
+  --crashed: color-mix(in srgb, #f85552 90%, var(--text));
+  --crashed-text: color-mix(in srgb, #f85552 35%, var(--text));
+  --external: color-mix(in srgb, #3a94c5 92%, var(--text));
+  --external-text: color-mix(in srgb, #3a94c5 29%, var(--text));
+  --primary: color-mix(in srgb, #8da101 60%, #2d353b);
+  --primary-fg: #fffbef;
+  --link: color-mix(in srgb, #3a94c5 43%, var(--text));
+  --focus: color-mix(in srgb, #3a94c5 84%, var(--text));
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #3a94c5;
+  --project-2: #df69ba;
+  --project-3: #f57d26;
+  --project-4: #8da101;
+  --project-5: #35a77c;
+  --project-6: #dfa000;
+}
+
+html[data-theme='tokyo-night'] {
+  --border-strong: color-mix(in srgb, var(--text) 65%, var(--bg));
+  --selection: color-mix(in srgb, #7aa2f7 14%, var(--bg));
+  --text-2: color-mix(in srgb, var(--text) 100%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 88%, var(--bg));
+  --running: #9ece6a;
+  --running-text: #9ece6a;
+  --starting: #e0af68;
+  --starting-text: #e0af68;
+  --crashed: #f7768e;
+  --crashed-text: color-mix(in srgb, #f7768e 14%, var(--text));
+  --external: #7aa2f7;
+  --external-text: color-mix(in srgb, #7aa2f7 86%, var(--text));
+  --primary: #7aa2f7;
+  --primary-fg: #16161f;
+  --link: #7dcfff;
+  --focus: #7aa2f7;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #7aa2f7;
+  --project-2: #bb9af7;
+  --project-3: #ff9e64;
+  --project-4: #9ece6a;
+  --project-5: #73daca;
+  --project-6: #e0af68;
+}
+
+/* The light accent is a maroon that reads as an error, so actions use the palette's blue. */
+html[data-theme='tokyo-night-light'] {
+  --border-strong: color-mix(in srgb, var(--text) 62%, var(--bg));
+  --text-2: color-mix(in srgb, var(--text) 89%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 77%, var(--bg));
+  --running: #385f0d;
+  --running-text: #385f0d;
+  --starting: #8f5e15;
+  --starting-text: color-mix(in srgb, #8f5e15 78%, var(--text));
+  --crashed: #8c4351;
+  --crashed-text: #8c4351;
+  --external: #34548a;
+  --external-text: #34548a;
+  --primary: #34548a;
+  --primary-fg: #eaeaed;
+  --link: #34548a;
+  --focus: #34548a;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #34548a;
+  --project-2: #5a4a78;
+  --project-3: #965027;
+  --project-4: #385f0d;
+  --project-5: #33635c;
+  --project-6: #8c4351;
+}
+
+html[data-theme='catppuccin-macchiato'] {
+  --border-strong: color-mix(in srgb, var(--text) 56%, var(--bg));
+  --text-2: color-mix(in srgb, var(--text) 85%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 73%, var(--bg));
+  --running: #a6da95;
+  --running-text: #a6da95;
+  --starting: #eed49f;
+  --starting-text: #eed49f;
+  --crashed: #ed8796;
+  --crashed-text: color-mix(in srgb, #ed8796 64%, var(--text));
+  --external: #8aadf4;
+  --external-text: color-mix(in srgb, #8aadf4 82%, var(--text));
+  --primary: #8aadf4;
+  --primary-fg: #24273a;
+  --link: #8aadf4;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #8aadf4;
+  --project-2: #c6a0f6;
+  --project-3: #f5a97f;
+  --project-4: #a6da95;
+  --project-5: #8bd5ca;
+  --project-6: #f5bde6;
+}
+
+html[data-theme='catppuccin-latte'] {
+  --border-strong: color-mix(in srgb, var(--text) 68%, var(--bg));
+  --text-2: color-mix(in srgb, var(--text) 98%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 86%, var(--bg));
+  --running: color-mix(in srgb, #40a02b 86%, var(--text));
+  --running-text: color-mix(in srgb, #40a02b 30%, var(--text));
+  --starting: color-mix(in srgb, #df8e1d 66%, var(--text));
+  --starting-text: color-mix(in srgb, #df8e1d 22%, var(--text));
+  --crashed: #d20f39;
+  --crashed-text: color-mix(in srgb, #d20f39 81%, var(--text));
+  --external: #1e66f5;
+  --external-text: color-mix(in srgb, #1e66f5 56%, var(--text));
+  --primary: #8839ef;
+  --primary-fg: #eff1f5;
+  --link: color-mix(in srgb, #1e66f5 79%, var(--text));
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #1e66f5;
+  --project-2: #8839ef;
+  --project-3: #fe640b;
+  --project-4: #40a02b;
+  --project-5: #179299;
+  --project-6: #ea76cb;
+}
+
+html[data-theme='nord'] {
+  --running: #a3be8c;
+  --running-text: color-mix(in srgb, #a3be8c 86%, var(--text));
+  --starting: #ebcb8b;
+  --starting-text: #ebcb8b;
+  --crashed: color-mix(in srgb, #bf616a 83%, var(--text));
+  --crashed-text: color-mix(in srgb, #bf616a 41%, var(--text));
+  --external: #81a1c1;
+  --external-text: color-mix(in srgb, #81a1c1 60%, var(--text));
+  --primary: #90b9c9;
+  --primary-fg: #2f3440;
+  --link: #88c0d0;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #81a1c1;
+  --project-2: #b48ead;
+  --project-3: #d08770;
+  --project-4: #a3be8c;
+  --project-5: #8fbcbb;
+  --project-6: #ebcb8b;
+}
+
+/* The light accent is orange, which reads as a warning, so actions use Nord frost. */
+html[data-theme='nord-light'] {
+  --border-strong: color-mix(in srgb, var(--text) 65%, var(--bg));
+  --text-2: color-mix(in srgb, var(--text) 94%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 82%, var(--bg));
+  --running: color-mix(in srgb, #a3be8c 56%, var(--text));
+  --running-text: color-mix(in srgb, #a3be8c 23%, var(--text));
+  --starting: color-mix(in srgb, #ebcb8b 46%, var(--text));
+  --starting-text: color-mix(in srgb, #ebcb8b 19%, var(--text));
+  --crashed: #bf616a;
+  --crashed-text: color-mix(in srgb, #bf616a 53%, var(--text));
+  --external: #5e81ac;
+  --external-text: color-mix(in srgb, #5e81ac 48%, var(--text));
+  --primary: #88c0d0;
+  --primary-fg: #2e3440;
+  --link: color-mix(in srgb, #5e81ac 63%, var(--text));
+  --focus: #5e81ac;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--bg));
+  --project-1: #5e81ac;
+  --project-2: #b48ead;
+  --project-3: #d08770;
+  --project-4: #a3be8c;
+  --project-5: #8fbcbb;
+  --project-6: #ebcb8b;
+}
+
+/* Neutral: the accent is red, so actions use the palette's blue. */
+html[data-theme='dark'] {
+  --text-2: color-mix(in srgb, var(--text) 82%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 65%, var(--bg));
+  --running: #5fc48a;
+  --running-text: #5fc48a;
+  --starting: #e0b450;
+  --starting-text: #e0b450;
+  --crashed: #f0746f;
+  --crashed-text: color-mix(in srgb, #f0746f 88%, var(--text));
+  --external: #44a2e5;
+  --external-text: color-mix(in srgb, #44a2e5 90%, var(--text));
+  --primary: #44a2e5;
+  --primary-fg: #0d1218;
+  --link: #6db6ec;
+  --focus: #44a2e5;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #44a2e5;
+  --project-2: #b58be8;
+  --project-3: #e8955a;
+  --project-4: #5fc48a;
+  --project-5: #4dc4c0;
+  --project-6: #e0b450;
+}
+
+html[data-theme='light'] {
+  --text-2: color-mix(in srgb, var(--text) 82%, var(--bg));
+  --text-3: color-mix(in srgb, var(--text) 69%, var(--bg));
+  --running: #1d7a46;
+  --running-text: color-mix(in srgb, #1d7a46 96%, var(--text));
+  --starting: #8a6100;
+  --starting-text: color-mix(in srgb, #8a6100 99%, var(--text));
+  --crashed: #c4332f;
+  --crashed-text: color-mix(in srgb, #c4332f 97%, var(--text));
+  --external: #2360a3;
+  --external-text: #2360a3;
+  --primary: #2360a3;
+  --primary-fg: #ffffff;
+  --link: #2360a3;
+  --focus: #2360a3;
+  --canvas: #f6f6f8;
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--text));
+  --project-1: #2360a3;
+  --project-2: #7b4fb0;
+  --project-3: #c2561f;
+  --project-4: #1d7a46;
+  --project-5: #17757a;
+  --project-6: #8a6100;
+}

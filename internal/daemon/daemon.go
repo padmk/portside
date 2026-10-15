@@ -1,0 +1,148 @@
+// Package daemon runs the long-lived process: it owns the supervisor and
+// serves the HTTP API, dashboard and proxy until it receives a signal.
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/paths"
+	"github.com/padmk/portside/internal/server"
+	"github.com/padmk/portside/internal/supervisor"
+	"github.com/padmk/portside/web"
+)
+
+// Run blocks until the daemon is asked to stop.
+func Run(cfgPath string) error {
+	stateDir := paths.StateDir()
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return err
+	}
+	lock, err := acquireLock(filepath.Join(stateDir, "daemon.lock"))
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
+	if _, err := os.Stat(cfgPath); errors.Is(err, os.ErrNotExist) {
+		if err := config.WriteStarter(cfgPath); err != nil {
+			return err
+		}
+		log.Printf("created %s", cfgPath)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	for _, w := range cfg.Warnings {
+		log.Printf("config: %s", w)
+	}
+
+	token, err := server.LoadOrCreateToken(stateDir)
+	if err != nil {
+		return fmt.Errorf("auth token: %w", err)
+	}
+	sup := supervisor.New(cfg, stateDir)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var once sync.Once
+	stop := make(chan struct{})
+	shutdown := func() { once.Do(func() { close(stop) }) }
+
+	srv := server.New(server.Options{
+		Supervisor: sup,
+		ConfigPath: cfgPath,
+		StateDir:   stateDir,
+		Port:       cfg.Port,
+		UI:         web.Assets(),
+		Token:      token,
+		Shutdown:   shutdown,
+	})
+
+	listeners, err := listen(cfg.Port)
+	if err != nil {
+		return err
+	}
+	// Recover before serving: a request handled earlier could overwrite the
+	// state file that records the previous run's process groups.
+	sup.Recover()
+	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	for _, ln := range listeners {
+		go func(ln net.Listener) {
+			if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("http: %v", err)
+				shutdown()
+			}
+		}(ln)
+	}
+	log.Printf("%s %s listening on http://127.0.0.1:%d (pid %d)", app.Name, app.Version, cfg.Port, os.Getpid())
+
+	go sup.Run(ctx)
+	go srv.WatchConfig(ctx)
+
+	sig := make(chan os.Signal, 2)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	select {
+	case s := <-sig:
+		log.Printf("received %s, stopping servers", s)
+	case <-stop:
+		log.Printf("shutdown requested, stopping servers")
+	}
+	// A second signal skips the graceful wait.
+	go func() {
+		<-sig
+		log.Printf("forced exit")
+		os.Exit(1)
+	}()
+	cancel()
+	sup.Shutdown()
+	sctx, scancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer scancel()
+	_ = httpSrv.Shutdown(sctx)
+	log.Printf("bye")
+	return nil
+}
+
+// listen binds IPv4 loopback (required) and IPv6 loopback (best effort), so
+// browsers that resolve *.localhost to ::1 reach the proxy too.
+func listen(port int) ([]net.Listener, error) {
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	v4, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot listen on %s: %w (change `port` in the config)", addr, err)
+	}
+	out := []net.Listener{v4}
+	if v6, err := net.Listen("tcp", net.JoinHostPort("::1", strconv.Itoa(port))); err == nil {
+		out = append(out, v6)
+	}
+	return out, nil
+}
+
+// acquireLock guarantees a single daemon per state directory.
+func acquireLock(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("another %s daemon is already running (lock %s)", app.Name, paths.ShortenHome(path))
+	}
+	_ = f.Truncate(0)
+	_, _ = f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)
+	return f, nil
+}

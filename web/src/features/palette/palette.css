@@ -1,0 +1,79 @@
+.dialog.palette {
+  width: 560px;
+  max-height: min(520px, calc(100% - 96px));
+  margin-top: 12vh;
+}
+.palette .dialog-main {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.palette .dialog-body {
+  height: auto;
+}
+.palette-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.palette-field {
+  flex: 1;
+  height: 48px;
+  border: 0;
+  background: none;
+  font-size: var(--fs-md);
+  outline: none;
+}
+.palette-field::placeholder {
+  color: var(--text-3);
+}
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.palette-item[aria-selected='true'] {
+  background: var(--primary-soft);
+}
+.palette-item .ic {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  color: var(--text-3);
+}
+.palette-item[aria-selected='true'] .ic {
+  color: var(--link);
+}
+.palette-item .lbl {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-item mark {
+  background: none;
+  color: var(--link);
+  font-weight: 650;
+}
+.palette-item .hint {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.palette-none {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-3);
+}

@@ -1,0 +1,14 @@
+/* Bundled palettes, copied unchanged from the shared theme catalog. Each is scoped to html[data-theme]. */
+@import './themes/rose-pine.css';
+@import './themes/rose-pine-dawn.css';
+@import './themes/everforest-dark.css';
+@import './themes/everforest-light.css';
+@import './themes/tokyo-night.css';
+@import './themes/tokyo-night-light.css';
+@import './themes/catppuccin-macchiato.css';
+@import './themes/catppuccin-latte.css';
+@import './themes/nord.css';
+@import './themes/nord-light.css';
+@import './themes/dark.css';
+@import './themes/light.css';
+@import './semantic.css';

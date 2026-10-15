@@ -1,0 +1,39 @@
+/*
+ * Structural tokens: type, space, shape, motion. Colors come from the bundled
+ * theme files in ./themes and the Portside tokens in ./semantic.css.
+ */
+
+:root {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Type scale: nothing below 12px */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 15px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+
+  --control-h: 38px;
+  --control-h-lg: 44px;
+  --topbar-h: 60px;
+  --footer-h: 32px;
+  --rail-w: 264px;
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --elevation: var(--shadow, var(--shadow-fallback));
+}

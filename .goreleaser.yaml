@@ -1,0 +1,35 @@
+version: 2
+project_name: portside
+
+before:
+  hooks:
+    - pnpm --dir web install --frozen-lockfile
+    - pnpm --dir web build
+
+builds:
+  - main: ./cmd/portside
+    binary: portside
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/padmk/portside/internal/app.Version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+release:
+  github:
+    owner: padmk
+    name: portside
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^chore:"]

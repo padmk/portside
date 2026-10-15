@@ -1,0 +1,187 @@
+.seg-wrap {
+  padding: 12px 18px 0;
+}
+.foot-spacer {
+  flex: 1;
+}
+.foot-note {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.manual {
+  display: grid;
+  gap: 16px;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 720px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+.inline {
+  display: flex;
+  gap: 6px;
+}
+fieldset.field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+fieldset.field legend {
+  padding: 0;
+  margin-bottom: 5px;
+}
+.dep-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dep {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.dep:has(input:checked) {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border-strong));
+  background: var(--primary-soft);
+}
+.dep input {
+  margin: 0;
+  accent-color: var(--primary);
+}
+.env-field {
+  display: grid;
+  gap: 6px;
+}
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) var(--control-h);
+  gap: 6px;
+}
+.env-add {
+  justify-self: start;
+}
+.form-error {
+  margin: 0;
+  color: var(--crashed-text);
+  font-size: var(--fs-xs);
+}
+.form-error--block {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--crashed) 40%, transparent);
+  border-radius: var(--r-md);
+  background: var(--crashed-wash);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Discover */
+.discover {
+  display: grid;
+  gap: 14px;
+}
+.scan-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.scan-bar .grow {
+  flex: 1;
+}
+.scan-bar .field:nth-child(2) {
+  width: 170px;
+}
+.scan-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 0;
+  color: var(--text-3);
+}
+.pick-head {
+  padding-bottom: 2px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.picks {
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.pick {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 3px;
+  padding: 10px 12px;
+  background: var(--surface-raised);
+}
+.pick + .pick {
+  border-top: 1px solid var(--border);
+}
+.pick:not([data-checked]) {
+  background: transparent;
+}
+.pick:not([data-checked]) > :not(.pick-check) {
+  opacity: 0.55;
+}
+.pick-check {
+  grid-row: 1;
+  align-self: center;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+.pick-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pick-fields .input:first-child {
+  flex: 1;
+  max-width: 260px;
+  font-weight: 550;
+}
+.pick-port {
+  width: 92px;
+  margin-left: auto;
+}
+.pick-path,
+.pick-cmd,
+.pick .form-error {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.pick-cmd {
+  color: var(--text-2);
+}
+.pick .form-error {
+  color: var(--crashed-text);
+  white-space: normal;
+}
+
+.dialog.server-dialog {
+  min-height: min(640px, calc(100% - 48px));
+}

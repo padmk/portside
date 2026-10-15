@@ -1,0 +1,826 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/discover"
+	"github.com/padmk/portside/internal/paths"
+	"github.com/padmk/portside/internal/ports"
+	"github.com/padmk/portside/internal/supervisor"
+)
+
+func (s *Server) routes() {
+	m := http.NewServeMux()
+	m.HandleFunc("GET /api/health", s.health)
+	m.HandleFunc("GET /api/session", s.session)
+	m.HandleFunc("POST /api/auth/code", s.authCode)
+	m.HandleFunc("GET /auth", s.signIn)
+	m.HandleFunc("GET /api/state", s.state)
+	m.HandleFunc("GET /api/events", s.events)
+
+	m.HandleFunc("POST /api/servers/{name}/start", s.action("start"))
+	m.HandleFunc("POST /api/servers/{name}/stop", s.action("stop"))
+	m.HandleFunc("POST /api/servers/{name}/restart", s.action("restart"))
+	m.HandleFunc("POST /api/servers/{name}/ensure", s.ensure)
+	m.HandleFunc("POST /api/bulk", s.bulk)
+
+	m.HandleFunc("GET /api/servers/{name}/logs", s.logs)
+	m.HandleFunc("DELETE /api/servers/{name}/logs", s.clearLogs)
+	m.HandleFunc("GET /api/servers/{name}/terminal", s.terminal)
+	m.HandleFunc("GET /api/servers/{name}/icon", s.icon)
+
+	m.HandleFunc("GET /api/servers/{name}/spec", s.getSpec)
+	m.HandleFunc("POST /api/servers", s.createServer)
+	m.HandleFunc("PUT /api/servers/{name}", s.updateServer)
+	m.HandleFunc("DELETE /api/servers/{name}", s.deleteServer)
+	m.HandleFunc("POST /api/servers/{name}/enabled", s.setEnabled)
+
+	m.HandleFunc("GET /api/config", s.getConfig)
+	m.HandleFunc("PUT /api/config", s.putConfig)
+	m.HandleFunc("GET /api/listeners", s.listeners)
+	m.HandleFunc("POST /api/listeners/kill", s.killListener)
+	m.HandleFunc("GET /api/discover", s.discover)
+	m.HandleFunc("GET /api/free-port", s.freePort)
+	m.HandleFunc("POST /api/open", s.open)
+	m.HandleFunc("POST /api/shutdown", s.shutdown)
+
+	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		fail(w, http.StatusNotFound, errors.New("no such endpoint"))
+	})
+	m.HandleFunc("/", s.serveUI)
+	s.mux = m
+}
+
+// ── state ────────────────────────────────────────────────────────────────
+
+// Health identifies the daemon to clients probing the port.
+type Health struct {
+	App       string    `json:"app"`
+	Name      string    `json:"name"`
+	Version   string    `json:"version"`
+	PID       int       `json:"pid"`
+	Port      int       `json:"port"`
+	StartedAt time.Time `json:"startedAt"`
+	// SampleIntervalMs is the spacing of cpuHistory/memHistory samples.
+	SampleIntervalMs int `json:"sampleIntervalMs"`
+}
+
+func (s *Server) healthInfo() Health {
+	return Health{App: app.ID, Name: app.Name, Version: app.Version, PID: os.Getpid(), Port: s.opt.Port, StartedAt: s.started,
+		SampleIntervalMs: int(supervisor.SampleInterval / time.Millisecond)}
+}
+
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.healthInfo())
+}
+
+// State is everything the dashboard renders.
+type State struct {
+	Daemon  Health            `json:"daemon"`
+	Config  ConfigInfo        `json:"config"`
+	Servers []supervisor.View `json:"servers"`
+	Groups  []string          `json:"groups"`
+}
+
+// ConfigInfo describes the loaded configuration file.
+type ConfigInfo struct {
+	Path        string   `json:"path"`
+	PathDisplay string   `json:"pathDisplay"`
+	Root        string   `json:"root"`
+	Error       string   `json:"error,omitempty"`
+	Warnings    []string `json:"warnings,omitempty"`
+	StateDir    string   `json:"stateDir"`
+}
+
+func (s *Server) snapshot() State {
+	cfg := s.sup.Config()
+	return State{
+		Daemon: s.healthInfo(),
+		Config: ConfigInfo{
+			Path:        s.opt.ConfigPath,
+			PathDisplay: paths.ShortenHome(s.opt.ConfigPath),
+			Root:        paths.ShortenHome(cfg.Root),
+			Error:       s.configError(),
+			Warnings:    cfg.Warnings,
+			StateDir:    paths.ShortenHome(s.opt.StateDir),
+		},
+		Servers: s.sup.Snapshot(s.opt.Port),
+		Groups:  cfg.Groups(),
+	}
+}
+
+func (s *Server) state(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.snapshot())
+}
+
+// events streams the full state as JSON text messages whenever it changes,
+// at most four times per second.
+func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		return
+	}
+	defer c.CloseNow()
+	ctx := c.CloseRead(r.Context())
+	if r.URL.Query().Get("notifier") == "1" {
+		defer s.sup.AddDesktopClient()()
+	}
+	ch := s.sup.Subscribe()
+	defer s.sup.Unsubscribe(ch)
+	send := func() error {
+		data, err := json.Marshal(s.snapshot())
+		if err != nil {
+			return err
+		}
+		wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		return c.Write(wctx, websocket.MessageText, data)
+	}
+	if send() != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ch:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(250 * time.Millisecond):
+		}
+		if send() != nil {
+			return
+		}
+	}
+}
+
+// ── actions ──────────────────────────────────────────────────────────────
+
+type actionBody struct {
+	Takeover bool `json:"takeover"`
+}
+
+func (s *Server) action(kind string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		var body actionBody
+		if err := readJSON(r, &body); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if _, ok := s.sup.Config().Server(name); !ok {
+			fail(w, http.StatusNotFound, fmt.Errorf("unknown server %q", name))
+			return
+		}
+		opt := supervisor.StartOptions{Takeover: body.Takeover}
+		var err error
+		switch kind {
+		case "start":
+			err = s.sup.Start(name, opt)
+		case "stop":
+			err = s.sup.Stop(name)
+		case "restart":
+			err = s.sup.Restart(name, opt)
+		}
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.view(name))
+	}
+}
+
+func (s *Server) view(name string) *supervisor.View {
+	for _, v := range s.sup.Snapshot(s.opt.Port) {
+		if v.Name == name {
+			return &v
+		}
+	}
+	return nil
+}
+
+type ensureBody struct {
+	Timeout  string `json:"timeout"`
+	Takeover bool   `json:"takeover"`
+}
+
+// ensure starts a server if needed and waits until it is ready. Agents use
+// it to get a working URL without ever launching a duplicate.
+func (s *Server) ensure(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var body ensureBody
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	timeout := 90 * time.Second
+	if body.Timeout != "" {
+		d, err := time.ParseDuration(body.Timeout)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		timeout = d
+	}
+	if err := s.sup.Start(name, supervisor.StartOptions{Takeover: body.Takeover}); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.sup.WaitReady(r.Context(), name, timeout); err != nil {
+		v := s.view(name)
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "server": v})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(name))
+}
+
+type bulkBody struct {
+	Action   string   `json:"action"`
+	Names    []string `json:"names"` // server or group names
+	All      bool     `json:"all"`
+	Takeover bool     `json:"takeover"`
+}
+
+type bulkResult struct {
+	Name  string `json:"name"`
+	Error string `json:"error,omitempty"`
+}
+
+func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
+	var body bulkBody
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	cfg := s.sup.Config()
+	var names []string
+	if body.All {
+		for _, sv := range cfg.Servers {
+			if sv.Enabled || body.Action == "stop" {
+				names = append(names, sv.Name)
+			}
+		}
+	} else {
+		var err error
+		if names, err = cfg.Resolve(body.Names); err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+	}
+	res := make([]bulkResult, len(names))
+	for i, n := range names {
+		res[i].Name = n
+	}
+	opt := supervisor.StartOptions{Takeover: body.Takeover}
+	parallel := func(fn func(string) error) {
+		var wg sync.WaitGroup
+		for i, n := range names {
+			wg.Add(1)
+			go func(i int, n string) {
+				defer wg.Done()
+				if err := fn(n); err != nil && res[i].Error == "" {
+					res[i].Error = err.Error()
+				}
+			}(i, n)
+		}
+		wg.Wait()
+	}
+	switch body.Action {
+	case "start":
+		parallel(func(n string) error { return s.sup.Start(n, opt) })
+	case "stop":
+		parallel(s.sup.Stop)
+	case "restart":
+		// Stop everything first, then start in dependency order, so a
+		// dependent never comes up against a dependency about to go down.
+		parallel(s.sup.Stop)
+		idx := map[string]int{}
+		for i, n := range names {
+			idx[n] = i
+		}
+		for _, n := range cfg.WithDeps(names) {
+			i, selected := idx[n]
+			if !selected {
+				continue
+			}
+			if err := s.sup.Start(n, opt); err != nil {
+				res[i].Error = err.Error()
+			}
+		}
+	default:
+		fail(w, http.StatusBadRequest, fmt.Errorf("unknown action %q", body.Action))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": res})
+}
+
+// ── logs and terminal ────────────────────────────────────────────────────
+
+func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
+	lb, ok := s.sup.Logs(r.PathValue("name"))
+	if !ok {
+		fail(w, http.StatusNotFound, errors.New("unknown server"))
+		return
+	}
+	if r.URL.Query().Get("raw") == "1" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(lb.Raw())
+		return
+	}
+	n, _ := strconv.Atoi(r.URL.Query().Get("lines"))
+	if n <= 0 {
+		n = 200
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	for _, l := range lb.Lines(n) {
+		fmt.Fprintln(w, l)
+	}
+}
+
+func (s *Server) clearLogs(w http.ResponseWriter, r *http.Request) {
+	s.sup.ClearLogs(r.PathValue("name"))
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+type termMsg struct {
+	T    string `json:"t"` // "i" input, "r" resize
+	D    string `json:"d,omitempty"`
+	Cols uint16 `json:"c,omitempty"`
+	Rows uint16 `json:"r,omitempty"`
+}
+
+// terminal streams raw output as binary messages (scrollback first) and
+// accepts keystrokes and resize requests as JSON text messages.
+func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	lb, ok := s.sup.Logs(name)
+	if !ok {
+		fail(w, http.StatusNotFound, errors.New("unknown server"))
+		return
+	}
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		return
+	}
+	defer c.CloseNow()
+	c.SetReadLimit(1 << 16)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	backlog, ch := lb.Subscribe()
+	defer lb.Unsubscribe(ch)
+	if r.URL.Query().Get("tail") != "0" && len(backlog) > 0 {
+		if err := c.Write(ctx, websocket.MessageBinary, backlog); err != nil {
+			return
+		}
+	}
+	readOnly := r.URL.Query().Get("readonly") == "1"
+	go func() {
+		defer cancel()
+		for {
+			_, data, err := c.Read(ctx)
+			if err != nil {
+				return
+			}
+			var m termMsg
+			if json.Unmarshal(data, &m) != nil {
+				continue
+			}
+			switch m.T {
+			case "i":
+				if !readOnly {
+					_ = s.sup.Input(name, []byte(m.D))
+				}
+			case "r":
+				s.sup.Resize(name, m.Cols, m.Rows)
+			}
+		}
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case chunk := <-ch:
+			// Coalesce bursts into one message.
+			buf := chunk
+		drain:
+			for len(buf) < 256<<10 {
+				select {
+				case more := <-ch:
+					buf = append(buf, more...)
+				default:
+					break drain
+				}
+			}
+			wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+			err := c.Write(wctx, websocket.MessageBinary, buf)
+			wcancel()
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+// iconTypes are the image formats served as project icons, by lowercase extension.
+var iconTypes = map[string]string{
+	".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon",
+	".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
+}
+
+func (s *Server) icon(w http.ResponseWriter, r *http.Request) {
+	sv, ok := s.sup.Config().Server(r.PathValue("name"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	p := supervisor.IconPath(sv.Dir, sv.Icon)
+	ctype := iconTypes[strings.ToLower(filepath.Ext(p))]
+	if p == "" || ctype == "" {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := os.ReadFile(p)
+	if err != nil || len(data) > 2<<20 {
+		http.NotFound(w, r)
+		return
+	}
+	// Project files are untrusted: an SVG opened directly must not run script
+	// on the dashboard's origin.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Cache-Control", "max-age=300")
+	_, _ = w.Write(data)
+}
+
+// ── config editing ───────────────────────────────────────────────────────
+
+func (s *Server) getSpec(w http.ResponseWriter, r *http.Request) {
+	sv, ok := s.sup.Config().Server(r.PathValue("name"))
+	if !ok {
+		fail(w, http.StatusNotFound, errors.New("unknown server"))
+		return
+	}
+	writeJSON(w, http.StatusOK, config.SpecOf(sv))
+}
+
+func (s *Server) edit(w http.ResponseWriter, fn func() error) {
+	s.editMu.Lock()
+	err := fn()
+	if err == nil {
+		err = s.reload()
+	}
+	s.editMu.Unlock()
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.snapshot())
+}
+
+func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
+	var spec config.Spec
+	if err := readJSON(r, &spec); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	s.normalizeSpec(&spec)
+	s.edit(w, func() error { return config.AddServer(s.opt.ConfigPath, spec) })
+}
+
+func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
+	var spec config.Spec
+	if err := readJSON(r, &spec); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	s.normalizeSpec(&spec)
+	s.edit(w, func() error { return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec) })
+}
+
+// normalizeSpec makes directories under root relative and trims input.
+func (s *Server) normalizeSpec(sp *config.Spec) {
+	sp.Name = strings.TrimSpace(sp.Name)
+	sp.Cmd = strings.TrimSpace(sp.Cmd)
+	sp.Dir = strings.TrimSpace(sp.Dir)
+	sp.Group = strings.TrimSpace(sp.Group)
+	root := s.sup.Config().Root
+	abs := paths.ExpandHome(sp.Dir)
+	if filepath.IsAbs(abs) {
+		if rel, err := filepath.Rel(root, abs); err == nil && !strings.HasPrefix(rel, "..") {
+			sp.Dir = rel
+			if rel == "." {
+				sp.Dir = ""
+			}
+		} else {
+			sp.Dir = paths.ShortenHome(abs)
+		}
+	}
+}
+
+func (s *Server) deleteServer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	s.edit(w, func() error { return config.RemoveServer(s.opt.ConfigPath, name) })
+}
+
+func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	s.edit(w, func() error { return config.SetEnabled(s.opt.ConfigPath, r.PathValue("name"), body.Enabled) })
+}
+
+func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
+	data, err := os.ReadFile(s.opt.ConfigPath)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": s.opt.ConfigPath, "text": string(data), "revision": config.Revision(data)})
+}
+
+func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text     string `json:"text"`
+		Revision string `json:"revision"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if body.Revision == "" {
+		fail(w, http.StatusBadRequest, errors.New("revision is required; reload the config and try again"))
+		return
+	}
+	s.editMu.Lock()
+	err := config.ReplaceIfUnchanged(s.opt.ConfigPath, []byte(body.Text), body.Revision)
+	if err == nil {
+		err = s.reload()
+	}
+	s.editMu.Unlock()
+	if errors.Is(err, config.ErrConflict) {
+		fail(w, http.StatusConflict, err)
+		return
+	}
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.snapshot())
+}
+
+// ── ports and discovery ──────────────────────────────────────────────────
+
+// ListenerView is a listening process annotated with what Portside knows.
+type ListenerView struct {
+	ports.Listener
+	CwdDisplay string `json:"cwdDisplay,omitempty"`
+	Server     string `json:"server,omitempty"`  // configured server owning the port
+	Managed    bool   `json:"managed"`           // process started by Portside
+	Protected  string `json:"protected,omitempty"` // why it may not be killed
+}
+
+func (s *Server) listeners(w http.ResponseWriter, r *http.Request) {
+	cfg := s.sup.Config()
+	byPort := map[int]string{}
+	for _, sv := range cfg.Servers {
+		if sv.Port > 0 {
+			byPort[sv.Port] = sv.Name
+		}
+	}
+	var out []ListenerView
+	for _, l := range ports.List(r.Context()) {
+		v := ListenerView{Listener: l, CwdDisplay: paths.ShortenHome(l.Cwd), Server: byPort[l.Port]}
+		if l.PID == os.Getpid() {
+			v.Server = app.ID
+			v.Managed = true
+			v.Protected = "this is " + app.Name + " itself"
+		} else if name, ok := s.sup.IsManagedPID(l.PID); ok {
+			v.Managed = true
+			v.Server = name
+		} else {
+			v.Protected = s.sup.Killable(l)
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"listeners": out})
+}
+
+func (s *Server) killListener(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		PID  int `json:"pid"`
+		Port int `json:"port"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	// Only processes currently listening may be killed through the API.
+	var target *ports.Listener
+	for _, l := range ports.List(r.Context()) {
+		if l.PID == body.PID && (body.Port == 0 || l.Port == body.Port) {
+			l := l
+			target = &l
+			break
+		}
+	}
+	if target == nil {
+		fail(w, http.StatusNotFound, fmt.Errorf("no listening process with pid %d", body.PID))
+		return
+	}
+	if err := s.sup.KillListener(*target); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// DiscoverResult is a suggestion with a free port reserved for it.
+type DiscoverResult struct {
+	discover.Suggestion
+	DirDisplay string `json:"dirDisplay"`
+	DirConfig  string `json:"dirConfig"` // how dir would be written to the config
+}
+
+func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
+	cfg := s.sup.Config()
+	root := cfg.Root
+	if q := r.URL.Query().Get("root"); q != "" {
+		root = paths.ExpandHome(q)
+	}
+	configured := map[string]bool{}
+	for _, sv := range cfg.Servers {
+		configured[sv.Dir] = true
+	}
+	found := discover.Scan(root, 3, nil)
+	taken := map[int]bool{}
+	names := map[string]bool{}
+	for _, sv := range cfg.Servers {
+		taken[sv.Port] = true
+		names[sv.Name] = true
+	}
+	out := []DiscoverResult{}
+	for _, sg := range found {
+		if configured[sg.Dir] {
+			continue
+		}
+		if sg.Port == 0 && !sg.NoPort {
+			sg.Port = cfg.FreePort(func(p int) bool { return taken[p] })
+			taken[sg.Port] = true
+		}
+		for base, i := sg.Name, 2; names[sg.Name]; i++ {
+			sg.Name = fmt.Sprintf("%s-%d", base, i)
+		}
+		names[sg.Name] = true
+		res := DiscoverResult{Suggestion: sg, DirDisplay: paths.ShortenHome(sg.Dir), DirConfig: paths.ShortenHome(sg.Dir)}
+		if rel, err := filepath.Rel(cfg.Root, sg.Dir); err == nil && !strings.HasPrefix(rel, "..") {
+			res.DirConfig = rel
+		}
+		out = append(out, res)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"root": paths.ShortenHome(root), "suggestions": out})
+}
+
+func (s *Server) freePort(w http.ResponseWriter, r *http.Request) {
+	p := s.sup.Config().FreePort(ports.Listening)
+	writeJSON(w, http.StatusOK, map[string]int{"port": p})
+}
+
+// ── desktop integration ──────────────────────────────────────────────────
+
+type openBody struct {
+	Target string `json:"target"` // "folder", "editor", "terminal", "config", "logs"
+	Name   string `json:"name,omitempty"`
+}
+
+func (s *Server) open(w http.ResponseWriter, r *http.Request) {
+	var body openBody
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	cfg := s.sup.Config()
+	var target string
+	switch body.Target {
+	case "config":
+		target = s.opt.ConfigPath
+	case "logs":
+		target = filepath.Join(s.opt.StateDir, "logs")
+		if body.Name != "" {
+			target = filepath.Join(target, body.Name+".log")
+		}
+	default:
+		sv, ok := cfg.Server(body.Name)
+		if !ok {
+			fail(w, http.StatusNotFound, errors.New("unknown server"))
+			return
+		}
+		target = sv.Dir
+	}
+	var err error
+	switch body.Target {
+	case "folder", "logs":
+		err = reveal(target)
+	case "editor", "config":
+		err = s.openEditor(cfg.Editor, target)
+	case "terminal":
+		err = openTerminal(target)
+	default:
+		err = fmt.Errorf("unknown target %q", body.Target)
+	}
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// launch starts a desktop helper and reaps it in the background so finished
+// launchers do not linger as zombies.
+func launch(c *exec.Cmd) error {
+	if err := c.Start(); err != nil {
+		return err
+	}
+	go func() { _ = c.Wait() }()
+	return nil
+}
+
+func reveal(p string) error {
+	if runtime.GOOS == "darwin" {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return launch(exec.Command("open", "-R", p))
+		}
+		return launch(exec.Command("open", p))
+	}
+	if st, err := os.Stat(p); err == nil && !st.IsDir() {
+		p = filepath.Dir(p)
+	}
+	return launch(exec.Command("xdg-open", p))
+}
+
+// openEditor uses the configured editor command, else the first known GUI
+// editor on PATH, else the system default application.
+func (s *Server) openEditor(editor, target string) error {
+	if editor != "" {
+		parts := strings.Fields(editor)
+		return launch(exec.Command(s.sup.LookPath(parts[0]), append(parts[1:], target)...))
+	}
+	for _, cand := range []string{"cursor", "code", "zed", "subl"} {
+		if p := s.sup.LookPath(cand); p != "" {
+			return launch(exec.Command(p, target))
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if st, err := os.Stat(target); err == nil && !st.IsDir() {
+			return launch(exec.Command("open", "-t", target))
+		}
+		return launch(exec.Command("open", target))
+	}
+	return launch(exec.Command("xdg-open", target))
+}
+
+func openTerminal(dir string) error {
+	if runtime.GOOS == "darwin" {
+		return launch(exec.Command("open", "-a", "Terminal", dir))
+	}
+	for _, t := range []string{"x-terminal-emulator", "gnome-terminal", "konsole", "kitty", "alacritty"} {
+		if p, err := exec.LookPath(t); err == nil {
+			c := exec.Command(p)
+			c.Dir = dir
+			return launch(c)
+		}
+	}
+	return errors.New("no terminal emulator found")
+}
+
+func (s *Server) shutdown(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	if s.opt.Shutdown != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			s.opt.Shutdown()
+		}()
+	}
+}

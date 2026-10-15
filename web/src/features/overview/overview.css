@@ -1,0 +1,715 @@
+/* Overview: grouped cards or compact rows, scaled by how many servers there are. */
+
+.overview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  background: var(--canvas);
+}
+.overview-inner {
+  container: ov / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 2200px;
+  margin: 0 auto;
+  padding: 24px 32px 40px;
+}
+.filter-note {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: -12px;
+  color: var(--text-2);
+}
+
+/* Group header */
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-2);
+}
+.group-toggle:hover {
+  background: var(--hover);
+}
+.group-name {
+  color: var(--text);
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.group-count {
+  font-size: var(--fs-base);
+  color: var(--text-2);
+}
+.group-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Card grid. Columns depend on density, which follows the number of servers. */
+.cards {
+  display: grid;
+  gap: 20px;
+}
+.cards[data-density='solo'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.cards[data-density='roomy'] {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr));
+}
+.cards[data-density='cozy'] {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+}
+.cards[data-density='compact'] {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+}
+/* Two columns and an odd count: the last card takes the full row instead of leaving a hole. */
+@container ov (min-width: 1056px) and (max-width: 1555px) {
+  .cards[data-density='roomy'] > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+.card-cell {
+  container: card / inline-size;
+  display: flex;
+  min-width: 0;
+}
+.card {
+  --card-pad: 20px;
+  --name-fs: 18px;
+  --addr-fs: 17px;
+  --log-fs: 13px;
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: var(--card-pad);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  transition: border-color 120ms var(--ease);
+}
+.card:hover {
+  border-color: var(--border-strong);
+}
+.card[data-status='crashed'],
+.card[data-status='blocked'] {
+  border-color: color-mix(in srgb, var(--crashed) 55%, var(--border));
+}
+.card[data-cursor],
+.row[data-cursor] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.card:has(.card-open:focus-visible),
+.row:has(.card-open:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.card[data-density='solo'] {
+  --card-pad: 28px;
+  --name-fs: 28px;
+  --addr-fs: 24px;
+  --log-fs: 15px;
+  gap: 20px;
+  min-height: clamp(380px, calc(100dvh - 250px), 660px);
+}
+.card[data-density='roomy'] {
+  --card-pad: 22px;
+  --name-fs: 20px;
+  --addr-fs: 19px;
+  --log-fs: 13.5px;
+}
+.card[data-density='compact'] {
+  --card-pad: 16px;
+  --log-fs: 12.5px;
+  gap: 12px;
+}
+
+.card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.card-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+}
+.card-side {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.card-side .log {
+  flex: 1;
+}
+.card[data-density='solo'][data-alive] .card-side .log {
+  flex: 0 0 auto;
+}
+.card-charts {
+  display: flex;
+  flex: 1;
+  min-height: 150px;
+}
+.card-charts .charts {
+  --area-h: 100%;
+  flex: 1;
+  align-content: stretch;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+}
+.card-charts figure {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.card-charts .area {
+  flex: 1;
+  min-height: 80px;
+}
+.card-charts .area svg {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+/* Wide card: identity on the left, the log (and charts) on the right. A single server switches at 720px, other cards at 900px. */
+@container card (min-width: 720px) {
+  .card[data-density='solo'] {
+    display: grid;
+    grid-template-columns: minmax(300px, 5fr) minmax(0, 6fr);
+    grid-template-rows: 1fr auto;
+    column-gap: 28px;
+  }
+  .card[data-density='solo'] .card-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .card[data-density='solo'] .card-foot {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .card[data-density='solo'] .card-side {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+@container card (min-width: 900px) {
+  .card:not([data-density='solo']) {
+    display: grid;
+    grid-template-columns: minmax(300px, 5fr) minmax(0, 6fr);
+    grid-template-rows: 1fr auto;
+    column-gap: 28px;
+  }
+  .card:not([data-density='solo']) .card-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .card:not([data-density='solo']) .card-foot {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .card:not([data-density='solo']) .card-side {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.card-title {
+  flex: 1;
+  min-width: 0;
+}
+.card-title h3 {
+  min-width: 0;
+}
+.card-open {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--name-fs);
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.card-open:focus-visible {
+  outline: none;
+}
+.card a,
+.card button:not(.card-open),
+.row a,
+.row button:not(.card-open) {
+  position: relative;
+  z-index: 1;
+}
+.card-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.state-time {
+  margin-left: 4px;
+  color: var(--text-2);
+  font-weight: 400;
+}
+.card-flags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.card-menu {
+  margin-right: -6px;
+}
+
+/* Address: the direct link is the large item, the alias a quiet copy chip */
+.addr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+.addr--none {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.addr-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: var(--addr-fs);
+  font-weight: 560;
+  letter-spacing: -0.015em;
+}
+.addr-main--off {
+  color: var(--text-3);
+}
+.addr-alias {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.addr-alias::before {
+  content: '';
+  position: absolute;
+  inset: -5px 0;
+}
+.addr-alias:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Stats */
+.card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+}
+.stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.stat-label {
+  color: var(--text-3);
+}
+.stat-value {
+  color: var(--text);
+  font-weight: 550;
+}
+.stat-spark {
+  flex: none;
+}
+.stat-spark--cpu {
+  color: var(--running);
+}
+.stat-spark--mem {
+  color: var(--external);
+}
+.stat-idle {
+  color: var(--text-3);
+}
+.card[data-density='cozy'] .stat-spark--mem,
+.card[data-density='compact'] .stat-spark--mem,
+.card[data-density='cozy'] .stat--pid,
+.card[data-density='compact'] .stat--pid {
+  display: none;
+}
+.card[data-density='compact'] .stat-spark {
+  display: none;
+}
+
+/* Single server: vitals fill the left column, the charts the right */
+.card-vitals {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 4px 36px;
+  margin: 6px 0 0;
+}
+.card-vitals dt {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.card-vitals dd {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.card-vitals dd.mono {
+  font-size: 22px;
+}
+.card[data-density='solo'][data-alive] .card-stats {
+  display: none;
+}
+
+/* The command line, for the roomier densities */
+.card-cmd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.card[data-density='solo'] .state-time {
+  display: none;
+}
+.card[data-density='solo'] .card-cmd {
+  font-size: var(--fs-base);
+}
+.card[data-density='cozy'] .card-cmd,
+.card[data-density='compact'] .card-cmd {
+  display: none;
+}
+
+/* Log preview */
+.log {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: calc(var(--log-lines, 3) * 1.55em + 22px);
+  padding: 11px 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--well);
+  color: var(--text-2);
+  font: 400 var(--log-fs, 13px) / 1.55 var(--font-mono);
+}
+.log-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log[data-dim] .log-line {
+  color: var(--text-3);
+}
+.log-line[data-kind='marker'] {
+  color: var(--text-3);
+}
+.log-line[data-kind='error'] {
+  color: var(--crashed-text);
+}
+.log-line[data-kind='warn'] {
+  color: var(--starting-text);
+}
+.log-empty {
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+}
+
+/* Notes and actions */
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.note svg {
+  flex: none;
+  margin-top: 1px;
+}
+.note--crashed,
+.note--blocked {
+  color: var(--crashed-text);
+}
+.note--starting,
+.note--stopping {
+  color: var(--starting-text);
+}
+.note--external {
+  color: var(--external-text);
+}
+.note--running,
+.note--stopped,
+.note--exited {
+  color: var(--text-2);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-h-lg);
+}
+.actions-spacer {
+  flex: 1;
+}
+.actions-note {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.progress {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+.progress-label {
+  color: var(--starting-text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.progress-bar {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--starting-wash);
+}
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: 3px;
+  background: var(--starting);
+  animation: progress-run 1.5s ease-in-out infinite;
+}
+@keyframes progress-run {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
+/* Project tile */
+.tile {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 28%;
+  background: color-mix(in srgb, var(--tile) 8%, var(--card));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tile) 75%, transparent);
+  color: var(--text);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.tile--img {
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.tile img {
+  width: 100%;
+  height: 100%;
+  padding: 12%;
+  object-fit: contain;
+}
+
+/* List layout */
+.rows {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--card);
+}
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px 36px minmax(150px, 1.1fr) minmax(0, 1fr) minmax(0, 1.5fr) 210px 150px;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 8px 16px;
+}
+.row + .row {
+  border-top: 1px solid var(--border);
+}
+.row:hover {
+  background: var(--hover);
+}
+.row[data-cursor] {
+  outline-offset: -2px;
+  background: var(--selected);
+}
+.row-id {
+  min-width: 0;
+}
+.row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.row-name .card-open {
+  --name-fs: 16px;
+}
+.row-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+.row-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+.dim {
+  color: var(--text-3);
+}
+.row-sub .num.dim {
+  color: var(--text-2);
+  font-weight: 400;
+}
+.row-addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+.row-addr a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.row-log {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.row-stats {
+  display: grid;
+  grid-template-columns: 70px 56px 72px;
+  align-items: center;
+  justify-items: end;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.row-stats .stat-spark {
+  color: var(--running);
+  justify-self: start;
+}
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+@container ov (max-width: 1280px) {
+  .row {
+    grid-template-columns: 16px 36px minmax(150px, 1.1fr) minmax(0, 1fr) 210px 150px;
+  }
+  .row-log {
+    display: none;
+  }
+}
+@container ov (max-width: 900px) {
+  .row {
+    grid-template-columns: 16px 36px minmax(0, 1fr) 150px;
+  }
+  .row-addr,
+  .row-stats {
+    display: none;
+  }
+}
+@container ov (max-width: 560px) {
+  .card-flags {
+    display: none;
+  }
+}
+
+/* Ultrawide screens: scale the whole overview instead of leaving it small in a wide field. */
+@media (min-width: 2300px) {
+  .overview-inner {
+    zoom: 1.25;
+  }
+}
+@media (min-width: 3000px) {
+  .overview-inner {
+    zoom: 1.5;
+  }
+}

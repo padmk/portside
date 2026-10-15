@@ -1,0 +1,11 @@
+/bin/
+/dist/
+/.dev/
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+.DS_Store
+/design/originals/
+macos/.build/
+.swiftpm/
+*.xcuserstate

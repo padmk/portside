@@ -1,0 +1,109 @@
+import { useEffect, useState } from 'react'
+import { ExternalLink, Loader2 } from 'lucide-react'
+import { api } from '../../api/client'
+import { useT } from '../../i18n'
+import { applyState } from '../../state/live'
+import { closeDialog } from '../../state/ui'
+import { toast } from '../../state/toasts'
+import { Dialog, DialogFoot, DialogMain } from '../../ui/Dialog'
+import { ConfirmDialog } from '../dialogs/ConfirmDialog'
+import { openOnDesktop } from '../servers/actions'
+import './config.css'
+
+export function ConfigDialog() {
+  const t = useT()
+  const [saved, setSaved] = useState<string | null>(null)
+  const [text, setText] = useState('')
+  const [path, setPath] = useState('')
+  const [revision, setRevision] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [discard, setDiscard] = useState(false)
+  const dirty = saved !== null && text !== saved
+
+  useEffect(() => {
+    let live = true
+    api
+      .config()
+      .then((c) => {
+        if (!live) return
+        setSaved(c.text)
+        setText(c.text)
+        setPath(c.path)
+        setRevision(c.revision)
+      })
+      .catch((e) => live && setError(e instanceof Error ? e.message : String(e)))
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      applyState(await api.saveConfig(text, revision))
+      // The next save must be based on what is on disk now.
+      const fresh = await api.config()
+      setRevision(fresh.revision)
+      setSaved(text)
+      toast(t('config.saved'))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const close = () => (dirty ? setDiscard(true) : closeDialog())
+
+  return (
+    <Dialog title={t('config.title')} size="full" onClose={close} plain>
+      <DialogMain className="config-main">
+        <p className="config-path mono" title={path}>{path}</p>
+        {saved === null && !error ? (
+          <p className="scan-state"><Loader2 size={15} className="spin" aria-hidden="true" /> {t('common.loading')}</p>
+        ) : (
+          <textarea
+            className="textarea textarea--mono config-text"
+            value={text}
+            spellCheck={false}
+            aria-label={t('config.title')}
+            aria-invalid={!!error}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault()
+                if (dirty && !saving) void save()
+              }
+            }}
+          />
+        )}
+        {error && <pre className="form-error form-error--block config-error" role="alert">{error}</pre>}
+      </DialogMain>
+      <DialogFoot>
+        <button type="button" className="btn" onClick={() => openOnDesktop('config')}>
+          <ExternalLink size={14} aria-hidden="true" />
+          {t('config.openEditor')}
+        </button>
+        <span className="foot-spacer" />
+        <button type="button" className="btn" onClick={close}>
+          {t('common.close')}
+        </button>
+        <button type="button" className="btn btn--primary" disabled={!dirty || saving} onClick={save}>
+          {saving && <Loader2 size={14} className="spin" aria-hidden="true" />}
+          {t('common.save')}
+        </button>
+      </DialogFoot>
+      {discard && (
+        <ConfirmDialog
+          title={t('config.discardTitle')}
+          message={t('config.discardBody')}
+          confirmLabel={t('config.discard')}
+          onConfirm={closeDialog}
+          onClose={() => setDiscard(false)}
+        />
+      )}
+    </Dialog>
+  )
+}

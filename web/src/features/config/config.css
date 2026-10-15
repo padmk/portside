@@ -1,0 +1,28 @@
+.config-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.config-path {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.config-text {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+.config-error {
+  flex: none;
+  max-height: 140px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
