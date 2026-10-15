@@ -1,0 +1,28 @@
+# Rendered by .github/workflows/release.yml into the tap as Casks/portside.rb.
+cask "portside" do
+  version "__VERSION__"
+  sha256 "__SHA256__"
+
+  url "https://github.com/padmk/portside/releases/download/v#{version}/Portside-#{version}.zip"
+  name "Portside"
+  desc "Keep your local dev servers running, in one place"
+  homepage "https://github.com/padmk/portside"
+
+  depends_on macos: ">= :sonoma"
+
+  app "Portside.app"
+  binary "#{appdir}/Portside.app/Contents/Helpers/portside"
+
+  # The app is not notarized yet; without this Gatekeeper blocks the first launch.
+  postflight do
+    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Portside.app"]
+  end
+
+  uninstall quit: "app.foreverbeta.portside.app"
+
+  zap trash: [
+    "~/.config/portside",
+    "~/.local/state/portside",
+    "~/Library/Preferences/app.foreverbeta.portside.app.plist",
+  ]
+end
