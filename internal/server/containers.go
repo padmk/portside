@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -290,6 +291,10 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		s.containerLogText(w, r, first)
+		return
+	}
 	name := first.Name
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
@@ -400,6 +405,85 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 		case <-time.After(5 * time.Second):
 		}
 	}
+}
+
+// containerLogText answers a plain request for a container's logs with
+// text, like a server's logs. A search covers the last searchTail lines,
+// and at most maxLogRead bytes of the newest output are read.
+func (s *Server) containerLogText(w http.ResponseWriter, r *http.Request, c docker.Container) {
+	q, err := parseLogQuery(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	cl, err := s.opt.Docker.Client()
+	if err != nil {
+		fail(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	const searchTail = 20000
+	tail := q.lines
+	if q.match != nil {
+		tail = searchTail
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	stream, err := cl.Logs(ctx, c.ID, c.TTY, strconv.Itoa(tail+q.context), time.Time{}, false)
+	if err != nil {
+		fail(w, http.StatusBadGateway, err)
+		return
+	}
+	defer stream.Close()
+	data, cut, err := readTail(stream, maxLogRead)
+	var notes []string
+	if q.match != nil {
+		notes = append(notes, fmt.Sprintf("searched the last %d lines", searchTail))
+	}
+	if cut {
+		notes = append(notes, fmt.Sprintf("only the newest %d MiB of output were read", maxLogRead>>20))
+	}
+	if err != nil {
+		if len(data) == 0 {
+			fail(w, http.StatusBadGateway, err)
+			return
+		}
+		notes = append(notes, "the log stream broke off: "+err.Error())
+	}
+	writeLines(w, q, supervisor.PlainLines(data, 0), notes...)
+}
+
+// maxLogRead bounds how much container output one plain request reads.
+const maxLogRead = 16 << 20
+
+// readTail reads rd to the end and keeps its last limit bytes, reporting
+// whether anything earlier was dropped.
+func readTail(rd io.Reader, limit int) ([]byte, bool, error) {
+	var buf []byte
+	cut := false
+	chunk := make([]byte, 64<<10)
+	for {
+		n, err := rd.Read(chunk)
+		buf = append(buf, chunk[:n]...)
+		if len(buf) > 2*limit {
+			buf = append(buf[:0], buf[len(buf)-limit:]...)
+			cut = true
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return trim(buf, limit, &cut), cut, err
+		}
+	}
+	return trim(buf, limit, &cut), cut, nil
+}
+
+func trim(buf []byte, limit int, cut *bool) []byte {
+	if len(buf) > limit {
+		*cut = true
+		buf = buf[len(buf)-limit:]
+	}
+	return buf
 }
 
 // pump copies a log stream to send in chunks, turning bare line feeds into

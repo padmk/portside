@@ -111,6 +111,8 @@ export interface ContainerView {
   finishedAt?: string
   exitCode?: number
   oomKilled?: boolean
+  /** Exited in failure (not finished or stopped on request), or dead. */
+  failed?: boolean
   restarts?: number
   ports?: ContainerPort[]
   cpu: number

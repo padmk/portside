@@ -2,12 +2,8 @@ import type { ContainerView, DockerState, ServerView } from '../../api/types'
 import type { Key } from '../../i18n'
 import type { DisplayStatus } from '../../ui/Lamp'
 
-/** Exit codes of a container stopped on request (Ctrl-C, SIGTERM) rather than failing. */
-const STOPPED_CODES = new Set([0, 130, 143])
-
-/** An exited container that failed rather than finished or was stopped. */
-export const failed = (c: ContainerView) =>
-  (c.state === 'exited' && ((c.exitCode !== undefined && !STOPPED_CODES.has(c.exitCode)) || !!c.oomKilled)) || c.state === 'dead'
+/** An exited container that failed rather than finished or was stopped; the daemon decides. */
+export const failed = (c: ContainerView) => !!c.failed
 
 /** The lamp and label a container is shown with. Health refines a running container. */
 export function containerStatus(c: ContainerView): { lamp: DisplayStatus; label: Key } {

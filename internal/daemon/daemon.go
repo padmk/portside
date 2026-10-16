@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/padmk/portside/internal/agentskill"
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/docker"
@@ -97,6 +98,13 @@ func Run(cfgPath string) error {
 	portFile := filepath.Join(stateDir, "daemon.port")
 	_ = os.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"), 0o644)
 	defer os.Remove(portFile)
+	// Keep an installed agent skill in step with this binary. Instances with
+	// their own config or state (tests, development) leave it alone.
+	if os.Getenv(app.Env("CONFIG")) == "" && os.Getenv(app.Env("STATE_DIR")) == "" {
+		if err := agentskill.Refresh(cfg.Port, cfgPath); err != nil {
+			log.Printf("agent skill: %v", err)
+		}
+	}
 
 	go sup.Run(ctx)
 	go dock.Run(ctx)

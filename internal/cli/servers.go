@@ -10,12 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/coder/websocket"
 
 	"github.com/padmk/portside/internal/client"
+	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/supervisor"
 )
@@ -267,24 +270,42 @@ func cmdLogs(e *env, args []string) error {
 	n := fs.Int("n", 200, "")
 	follow := fs.Bool("f", false, "")
 	raw := fs.Bool("raw", false, "")
+	match := fs.String("grep", "", "")
+	around := fs.Int("C", 0, "")
 	names, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(names) != 1 {
-		return usageError{"logs takes exactly one server name"}
+		return usageError{"logs takes exactly one server or container name"}
+	}
+	if *match != "" && (*follow || *raw) {
+		return usageError{"--grep cannot be combined with -f or --raw"}
 	}
 	c, err := e.client()
 	if err != nil {
 		return err
 	}
+	var st server.State
+	if err := c.Do(e.ctx, http.MethodGet, "/api/state", nil, &st); err != nil {
+		return err
+	}
 	name := names[0]
+	base := "/api/servers/" + url.PathEscape(name)
+	if !slices.ContainsFunc(st.Servers, func(v supervisor.View) bool { return v.Name == name }) &&
+		slices.ContainsFunc(st.Docker.Containers, func(d docker.Container) bool { return d.Name == name }) {
+		return containerLogs(e, c, name, *n, *match, *around, *follow)
+	}
 	if !*follow {
-		q := fmt.Sprintf("/api/servers/%s/logs?lines=%d", url.PathEscape(name), *n)
+		q := url.Values{"lines": {strconv.Itoa(*n)}}
 		if *raw {
-			q += "&raw=1"
+			q.Set("raw", "1")
 		}
-		return c.Do(e.ctx, http.MethodGet, q, nil, e.out)
+		if *match != "" {
+			q.Set("match", *match)
+			q.Set("context", strconv.Itoa(*around))
+		}
+		return c.Do(e.ctx, http.MethodGet, base+"/logs?"+q.Encode(), nil, e.out)
 	}
 	// Follow: scrollback and live output come over one subscription, so
 	// nothing printed in between is lost. The first message is the scrollback.

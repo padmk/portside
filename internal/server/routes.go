@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -358,14 +357,12 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(lb.Raw())
 		return
 	}
-	n, _ := strconv.Atoi(r.URL.Query().Get("lines"))
-	if n <= 0 {
-		n = 200
+	q, err := parseLogQuery(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	for _, l := range lb.Lines(n) {
-		fmt.Fprintln(w, l)
-	}
+	writeLines(w, q, lb.Lines(0))
 }
 
 func (s *Server) clearLogs(w http.ResponseWriter, r *http.Request) {

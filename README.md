@@ -29,7 +29,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **A dashboard that scales with your setup.** One server fills the screen with its output and charts, a few get large cards with a live log preview, and long lists switch to compact rows (`c` and `l` toggle them). Click a card for a full-size terminal, with every server one click away in a side rail. Everything else (ports, config, add server) stays in the menu and the `⌘K` palette; `?` lists the keyboard shortcuts.
 - **Themes.** Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme.
 - **Project discovery.** `portside scan` finds Next.js, Vite, Astro, Nuxt, Remix, Django, Rails and Compose projects and proposes commands with the right port flags.
-- **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes the same to Claude Code, Codex and other MCP clients.
+- **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes servers, containers and searchable logs to Claude Code, Codex and other MCP clients, and `portside skill install` teaches agents how to use them.
 - **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with OrbStack, Docker Desktop, Colima, Rancher Desktop or a Linux daemon. Compose containers appear next to the server whose directory is their project directory, including ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. A server warns when one of its containers is unhealthy, restarting or crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate** and **Rebuild and recreate**. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
 - **Ports overview.** Every listening TCP port on the machine with its process and working directory, the container a published port belongs to, and a safe way to kill strays.
 
@@ -150,7 +150,9 @@ portside up <name|group>... | --all      start (dependencies first); --wait, --t
 portside down <name|group>... | --all    stop gracefully
 portside restart <name|group>...
 portside ensure <name> [--json]          start if needed, wait until ready, print the URL
-portside logs <name> [-n 200] [-f]       print or follow output
+portside logs <name> [-n 200] [-f]       print or follow a server's or container's output;
+                                         --grep <regexp> [-C N] searches it
+portside containers [server] [--json]    containers, their state and server
 portside attach <name>                   interactive terminal, Ctrl-] detaches
 portside open [name] [--alias]           open the dashboard or a server
 portside ports [--json]                  every listening TCP port and its owner
@@ -164,6 +166,7 @@ portside config [path|edit|check]
 portside daemon [start|stop|restart|status|logs]
 portside service install|uninstall|status
 portside mcp                             MCP server on stdio
+portside skill install|print             agent skill for Claude Code and Codex
 portside doctor                          check the setup
 ```
 
@@ -178,7 +181,15 @@ claude mcp add portside -- portside mcp
 codex mcp add portside -- portside mcp
 ```
 
-Agents get `list_servers`, `ensure_server`, `restart_server`, `stop_server`, `server_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Without MCP, `portside ensure <name> --json` and `portside status --json` give the same information.
+Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server), `restart_server`, `stop_server`, `server_logs`, `list_containers`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Both log tools take `match`, a case-insensitive regular expression, and `context`, lines around each match; a container search covers its last 20,000 lines. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
+
+Install the agent skill too:
+
+```sh
+portside skill install
+```
+
+It writes `SKILL.md` to `~/.claude/skills/portside/` and `~/.codex/skills/portside/` (once when one links to the other) for the agents set up on the account. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file.
 
 ## How it works
 

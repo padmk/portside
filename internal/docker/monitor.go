@@ -55,14 +55,17 @@ type Container struct {
 	FinishedAt *time.Time `json:"finishedAt,omitempty"`
 	ExitCode   *int       `json:"exitCode,omitempty"`
 	OOMKilled  bool       `json:"oomKilled,omitempty"`
-	Restarts   int        `json:"restarts,omitempty"`
-	Ports      []Port     `json:"ports,omitempty"`
-	CPU        float64    `json:"cpu"`
-	Mem        int64      `json:"mem"`
-	MemLimit   int64      `json:"memLimit,omitempty"`
-	CPUHistory []float64  `json:"cpuHistory,omitempty"`
-	MemHistory []int64    `json:"memHistory,omitempty"`
-	TTY        bool       `json:"-"`
+	// Failed marks an exited container that failed rather than finished or
+	// was stopped on request, and a dead one.
+	Failed     bool      `json:"failed,omitempty"`
+	Restarts   int       `json:"restarts,omitempty"`
+	Ports      []Port    `json:"ports,omitempty"`
+	CPU        float64   `json:"cpu"`
+	Mem        int64     `json:"mem"`
+	MemLimit   int64     `json:"memLimit,omitempty"`
+	CPUHistory []float64 `json:"cpuHistory,omitempty"`
+	MemHistory []int64   `json:"memHistory,omitempty"`
+	TTY        bool      `json:"-"`
 	// Server is the configured server this container belongs to; the HTTP
 	// layer fills it in.
 	Server string   `json:"server,omitempty"`
@@ -543,6 +546,21 @@ func (m *Monitor) stopStats() {
 	}
 }
 
+// failed reports whether a container ended in failure. Exit codes 0, 130
+// (Ctrl-C) and 143 (SIGTERM) mean it finished or was stopped on request.
+func failed(c Container) bool {
+	if c.State == "dead" {
+		return true
+	}
+	if c.State != "exited" {
+		return false
+	}
+	if c.OOMKilled {
+		return true
+	}
+	return c.ExitCode != nil && *c.ExitCode != 0 && *c.ExitCode != 130 && *c.ExitCode != 143
+}
+
 func build(it apiContainer, in *Inspect) Container {
 	labels := in.Config.Labels
 	if labels == nil {
@@ -581,6 +599,7 @@ func build(it apiContainer, in *Inspect) Container {
 			c.FinishedAt = &t
 		}
 	}
+	c.Failed = failed(c)
 	c.configFiles = splitList(labels[labelConfigFiles])
 	c.envFiles = splitList(labels[labelEnvFiles])
 	seen := map[string]bool{}
