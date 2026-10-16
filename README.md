@@ -30,7 +30,8 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **Themes.** Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme.
 - **Project discovery.** `portside scan` finds Next.js, Vite, Astro, Nuxt, Remix, Django, Rails and Compose projects and proposes commands with the right port flags.
 - **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes the same to Claude Code, Codex and other MCP clients.
-- **Ports overview.** Every listening TCP port on the machine with its process and working directory, and a safe way to kill strays.
+- **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with OrbStack, Docker Desktop, Colima, Rancher Desktop or a Linux daemon. Compose containers appear next to the server whose directory is their project directory, including ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. A server warns when one of its containers is unhealthy, restarting or crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate** and **Rebuild and recreate**. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
+- **Ports overview.** Every listening TCP port on the machine with its process and working directory, the container a published port belongs to, and a safe way to kill strays.
 
 <table>
   <tr>
@@ -90,6 +91,7 @@ root = "~/dev"                      # base for relative dirs
 # notify = true                     # desktop notification on crash
 # stop_timeout = "10s"              # grace period after Ctrl-C
 # editor = "code"                   # used by "Open in editor"
+# docker_start = "colima start"     # how "Start Docker" starts the engine; detected by default
 
 [servers.shop-web]
 dir = "shop/apps/web"
@@ -184,6 +186,7 @@ Agents get `list_servers`, `ensure_server`, `restart_server`, `stop_server`, `se
 - Each server runs as `bash -c <cmd>` in its own pseudo-terminal and process group. Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log` (rotated at 10 MiB).
 - State (which servers you want running, and the process groups in flight) is saved to `~/.local/state/portside/state.json`. After a crash of the daemon itself, leftover process groups are verified by start time and stopped before servers are restored.
 - The macOS app (`macos/`, Swift) bundles the same binary in `Portside.app/Contents/Helpers/portside`, starts the daemon if needed and follows its event stream. Quitting the app leaves the daemon and your servers running; **Stop Daemon and Servers** in its menu stops them. **Launch at Login** registers the app as a login item.
+- Containers come from the Docker Engine API on the socket of the active Docker context (`DOCKER_HOST`, `DOCKER_CONTEXT`, then `currentContext` in `~/.docker/config.json`), read from your login-shell environment. An event stream keeps the list current and a stats stream per running container feeds CPU and memory. A container belongs to the server whose `dir` is its `com.docker.compose.project.working_dir`; when several servers share that directory, the one running `docker compose` wins, else the first. Recreate and rebuild run `docker compose up --detach --no-deps --force-recreate [--build] <service>` with the project's own files, because the engine API has no notion of Compose projects.
 - `portside service install` writes a launchd agent (`~/Library/LaunchAgents/app.foreverbeta.portside.plist`) or a systemd user unit.
 
 ### Security model

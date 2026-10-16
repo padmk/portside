@@ -73,6 +73,82 @@ export interface State {
   config: ConfigInfo
   servers: ServerView[]
   groups: string[]
+  docker: DockerState
+}
+
+export type ContainerState = 'created' | 'running' | 'paused' | 'restarting' | 'removing' | 'exited' | 'dead'
+
+export interface ContainerPort {
+  private: number
+  public: number
+  proto: string
+  ip?: string
+}
+
+/** The last compose recreate or rebuild run for a container. */
+export interface ContainerJob {
+  kind: 'recreate' | 'rebuild'
+  running: boolean
+  error?: string
+  startedAt: string
+  endedAt?: string
+}
+
+export interface ContainerView {
+  id: string
+  name: string
+  image: string
+  project?: string
+  service?: string
+  oneOff?: boolean
+  /** The compose project directory, shortened with ~. */
+  workingDir?: string
+  state: ContainerState | string
+  health?: 'healthy' | 'unhealthy' | 'starting' | string
+  /** The engine's own summary, for example "Up 3 hours (healthy)". */
+  status: string
+  startedAt?: string
+  finishedAt?: string
+  exitCode?: number
+  oomKilled?: boolean
+  restarts?: number
+  ports?: ContainerPort[]
+  cpu: number
+  mem: number
+  memLimit?: number
+  cpuHistory?: number[]
+  memHistory?: number[]
+  /** The server whose directory is this container's compose project directory. */
+  server?: string
+  job?: ContainerJob
+}
+
+export interface DockerState {
+  status: 'connecting' | 'ready' | 'unavailable'
+  error?: string
+  host?: string
+  context?: string
+  /** The product behind the endpoint: OrbStack, Docker Desktop, Colima, Rancher Desktop or Docker. */
+  engine: string
+  version?: string
+  /** A start was requested and the engine has not answered yet. */
+  starting?: boolean
+  containers: ContainerView[]
+}
+
+export interface ContainerDetails {
+  name: string
+  id: string
+  image: string
+  command: string
+  created: string
+  restartPolicy?: string
+  health?: { status: string; failingStreak: number; output?: string; exitCode: number }
+  error?: string
+  env: { key: string; value: string }[]
+  mounts: { type: string; name?: string; source: string; destination: string; readOnly?: boolean }[]
+  networks: { name: string; ip?: string; aliases?: string[] }[]
+  configFiles?: string[]
 }
 
 export interface Spec {
@@ -97,6 +173,8 @@ export interface ListenerView extends Listener {
   server?: string
   managed: boolean
   protected?: string
+  /** The container whose published port this is. */
+  container?: { name: string; service?: string; server?: string }
 }
 
 export interface Suggestion {

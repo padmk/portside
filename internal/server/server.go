@@ -23,12 +23,14 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
 // Options configure a Server.
 type Options struct {
 	Supervisor *supervisor.Supervisor
+	Docker     *docker.Monitor
 	ConfigPath string
 	StateDir   string
 	Port       int

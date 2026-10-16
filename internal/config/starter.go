@@ -47,6 +47,10 @@ root = %[2]s
 # Command used by "Open in editor"; defaults to the first of cursor, code, zed, subl.
 # editor = "code"
 
+# Command that starts the container engine; by default the engine behind the
+# active Docker context (OrbStack, Docker Desktop, Colima, Rancher) is started.
+# docker_start = "colima start"
+
 # Example server. {PORT} is replaced with the port; $PORT is set as well.
 #
 # [servers.web]

@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ArrowDownToLine, ChevronDown, ChevronUp, Eraser, Search } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
-import { api, wsUrl } from '../../api/client'
+import { wsUrl } from '../../api/client'
 import { useT } from '../../i18n'
 import { usePrefs } from '../../state/prefs'
 import { toastError } from '../../state/toasts'
@@ -14,14 +14,25 @@ import { searchDecorations, terminalBackground, terminalTheme } from '../../them
 import './terminal.css'
 
 interface Props {
-  name: string
-  /** The process is alive, so keystrokes have somewhere to go. */
+  /** WebSocket path of the output stream. */
+  source: string
+  /** Something is alive, so keystrokes have somewhere to go. */
   interactive: boolean
+  /** `toggle` asks the user to switch typing on; `always` sends keystrokes right away, as a shell does. */
+  input?: 'toggle' | 'always' | 'none'
+  /** Clears the output on the daemon too; without it only the screen is cleared. */
+  onClear?: () => Promise<void>
+  /** Reconnects when the stream closes. Without it the stream ends, as a shell session does. */
+  reconnect?: boolean
+  /** Shown over the screen once a stream that does not reconnect has ended. */
+  ended?: ReactNode
+  emptyText: string
+  waitingText: string
 }
 
 const FONT = '"Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace'
 
-export function TerminalPane({ name, interactive }: Props) {
+export function TerminalPane({ source, interactive, input = 'toggle', onClear, reconnect = true, ended, emptyText, waitingText }: Props) {
   const t = useT()
   const { mode, themeId } = usePrefs()
   const { focusTerminal } = useUi()
@@ -33,6 +44,7 @@ export function TerminalPane({ name, interactive }: Props) {
   const [typing, setTyping] = useState(false)
   const [following, setFollowing] = useState(true)
   const [hasOutput, setHasOutput] = useState(false)
+  const [closed, setClosed] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ index: number; count: number } | null>(null)
   const modeRef = useRef(mode)
@@ -40,7 +52,7 @@ export function TerminalPane({ name, interactive }: Props) {
   const themeRef = useRef(themeId)
   themeRef.current = themeId
 
-  const canType = typing && interactive
+  const canType = input === 'always' ? interactive && !closed : input === 'toggle' && typing && interactive
   typingRef.current = canType
 
   useEffect(() => {
@@ -81,7 +93,7 @@ export function TerminalPane({ name, interactive }: Props) {
       }
 
       const connect = () => {
-        const sock = new WebSocket(wsUrl(`/api/servers/${encodeURIComponent(name)}/terminal`))
+        const sock = new WebSocket(wsUrl(source))
         ws = sock
         sock.binaryType = 'arraybuffer'
         sock.onopen = () => {
@@ -97,6 +109,10 @@ export function TerminalPane({ name, interactive }: Props) {
         }
         sock.onclose = () => {
           if (disposed || ws !== sock) return
+          if (!reconnect) {
+            setClosed(true)
+            return
+          }
           timer = window.setTimeout(connect, Math.min(8000, 400 * 2 ** retry++))
         }
       }
@@ -138,6 +154,7 @@ export function TerminalPane({ name, interactive }: Props) {
       ro.observe(el)
       cleanups.push(() => ro.disconnect(), () => tm.dispose())
       connect()
+      if (input === 'always') tm.focus()
     }
 
     // The font must be loaded before xterm measures a character cell.
@@ -154,7 +171,7 @@ export function TerminalPane({ name, interactive }: Props) {
       term.current = null
       search.current = null
     }
-  }, [name])
+  }, [source, reconnect, input])
 
   useEffect(() => {
     if (term.current) term.current.options.theme = terminalTheme(themeId)
@@ -183,9 +200,12 @@ export function TerminalPane({ name, interactive }: Props) {
 
   const clear = async () => {
     try {
-      await api.clearLogs(name)
-      term.current?.reset()
-      setHasOutput(false)
+      await onClear?.()
+      term.current?.clear()
+      if (onClear) {
+        term.current?.reset()
+        setHasOutput(false)
+      }
     } catch (e) {
       toastError(e)
     }
@@ -241,25 +261,28 @@ export function TerminalPane({ name, interactive }: Props) {
         <button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={clear}>
           <Eraser size={16} />
         </button>
-        <button
-          type="button"
-          role="switch"
-          className="switch"
-          aria-checked={canType}
-          disabled={!interactive}
-          title={interactive ? t('terminal.typeHint') : t('terminal.typeOff')}
-          onClick={() => {
-            setTyping((v) => !v)
-            if (!typing) term.current?.focus()
-          }}
-        >
-          <span className="track" aria-hidden="true" />
-          {t('terminal.type')}
-        </button>
+        {input === 'toggle' && (
+          <button
+            type="button"
+            role="switch"
+            className="switch"
+            aria-checked={canType}
+            disabled={!interactive}
+            title={interactive ? t('terminal.typeHint') : t('terminal.typeOff')}
+            onClick={() => {
+              setTyping((v) => !v)
+              if (!typing) term.current?.focus()
+            }}
+          >
+            <span className="track" aria-hidden="true" />
+            {t('terminal.type')}
+          </button>
+        )}
       </div>
       <div className="term-screen" style={{ background: terminalBackground(themeId) }}>
         <div className="term-host" ref={host} data-typing={canType || undefined} />
-        {!hasOutput && <p className="term-empty">{interactive ? t('terminal.waiting') : t('terminal.empty')}</p>}
+        {!hasOutput && !closed && <p className="term-empty">{interactive ? waitingText : emptyText}</p>}
+        {closed && ended && <div className="term-ended">{ended}</div>}
       </div>
     </div>
   )

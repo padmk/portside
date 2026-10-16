@@ -92,6 +92,9 @@ type Config struct {
 	Notify      bool
 	Editor      string
 	StopTimeout time.Duration
+	// DockerStart is the command that starts the container engine; empty
+	// means the engine behind the active Docker context is detected.
+	DockerStart string
 	Servers     []Server
 	// Warnings are non-fatal problems such as duplicate ports.
 	Warnings []string
@@ -169,6 +172,7 @@ type rawConfig struct {
 	Notify      *bool                `toml:"notify"`
 	Editor      string               `toml:"editor"`
 	StopTimeout *Duration            `toml:"stop_timeout"`
+	DockerStart string               `toml:"docker_start"`
 	Servers     map[string]rawServer `toml:"servers"`
 }
 
@@ -204,6 +208,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		Notify:      raw.Notify == nil || *raw.Notify,
 		Editor:      raw.Editor,
 		StopTimeout: 10 * time.Second,
+		DockerStart: strings.TrimSpace(raw.DockerStart),
 	}
 	if cfg.Root == "" {
 		cfg.Root = filepath.Dir(path)

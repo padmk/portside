@@ -9,7 +9,7 @@ const niceMax = (values: number[], floor: number, step: number) =>
   Math.max(floor, Math.ceil((Math.max(0, ...values) * 1.15) / step) * step)
 
 /** CPU and memory history, labelled with the time the samples really cover. */
-export function Charts({ server: v }: { server: ServerView }) {
+export function Charts({ server: v }: { server: Pick<ServerView, 'cpu' | 'mem' | 'cpuHistory' | 'memHistory'> }) {
   const t = useT()
   const sampleMs = useLive().state?.daemon.sampleIntervalMs ?? 2000
   const cpu = v.cpuHistory ?? []

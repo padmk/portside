@@ -19,6 +19,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/supervisor"
@@ -56,6 +57,7 @@ func Run(cfgPath string) error {
 		return fmt.Errorf("auth token: %w", err)
 	}
 	sup := supervisor.New(cfg, stateDir)
+	dock := docker.NewMonitor(sup, supervisor.SampleInterval, func() string { return sup.Config().DockerStart })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -65,6 +67,7 @@ func Run(cfgPath string) error {
 
 	srv := server.New(server.Options{
 		Supervisor: sup,
+		Docker:     dock,
 		ConfigPath: cfgPath,
 		StateDir:   stateDir,
 		Port:       cfg.Port,
@@ -96,6 +99,7 @@ func Run(cfgPath string) error {
 	defer os.Remove(portFile)
 
 	go sup.Run(ctx)
+	go dock.Run(ctx)
 	go srv.WatchConfig(ctx)
 
 	sig := make(chan os.Signal, 2)

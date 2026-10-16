@@ -265,3 +265,18 @@
 .cli-line code span {
   color: var(--text-3);
 }
+
+.top-containers {
+  position: relative;
+}
+.top-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--sidebar);
+  border-radius: 50%;
+  background: var(--crashed);
+  box-sizing: content-box;
+}

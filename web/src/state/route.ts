@@ -37,3 +37,19 @@ export function useSelectedName(): string | null {
     read,
   )
 }
+
+const CONTAINERS = '#containers'
+
+/** Opens the containers page. */
+export function openContainers() {
+  if (location.hash === CONTAINERS) return
+  history.pushState(null, '', CONTAINERS)
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+}
+
+export function useContainersPage(): boolean {
+  return useSyncExternalStore(
+    (cb) => (window.addEventListener('hashchange', cb), () => window.removeEventListener('hashchange', cb)),
+    () => location.hash === CONTAINERS,
+  )
+}

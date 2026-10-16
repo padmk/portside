@@ -1,8 +1,8 @@
-import { FileCog, Keyboard, LayoutGrid, List, Menu as MenuIcon, Network, Play, Plus, Power, Search, Settings, Square } from 'lucide-react'
+import { Container, FileCog, Keyboard, LayoutGrid, List, Menu as MenuIcon, Network, Play, Plus, Power, Search, Settings, Square } from 'lucide-react'
 import { useState } from 'react'
-import type { ServerView } from '../api/types'
+import type { DockerState, ServerView } from '../api/types'
 import { useT } from '../i18n'
-import { closeServer } from '../state/route'
+import { closeServer, openContainers } from '../state/route'
 import { openAddServer, openDialog } from '../state/ui'
 import { Lamp } from '../ui/Lamp'
 import { Menu, MenuItem, MenuSeparator } from '../ui/Menu'
@@ -11,6 +11,7 @@ import { countsOf } from '../features/overview/status'
 import { STATUS_GROUPS, type StatusGroupId } from '../features/overview/status'
 import { layoutFor, setFilter, setLayout, toggleStatusFilter, useOverviewState } from '../features/overview/overviewState'
 import { bulk, stopDaemon } from '../features/servers/actions'
+import { containerIssues, containersOf, usesDocker } from '../features/containers/status'
 import type { Connection } from '../state/live'
 import { brand } from '../brand'
 import { filterInputId } from './shortcuts'
@@ -18,6 +19,7 @@ import { Mark } from './Mark'
 
 interface Props {
   servers: ServerView[]
+  docker?: DockerState
   connection: Connection
   /** A server's detail page is open: the filter and layout toggle belong to the overview. */
   inDetail: boolean
@@ -25,12 +27,15 @@ interface Props {
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
-export function TopBar({ servers, connection, inDetail }: Props) {
+export function TopBar({ servers, docker, connection, inDetail }: Props) {
   const t = useT()
   const { filter, status, layoutChoice } = useOverviewState()
   const [confirmStop, setConfirmStop] = useState(false)
   const counts = countsOf(servers)
   const layout = layoutFor(layoutChoice, servers.length)
+  // Without an engine and without servers that need one, containers are not part of the picture.
+  const showContainers = docker?.status === 'ready' || servers.some(usesDocker)
+  const containerTrouble = docker?.status === 'unavailable' ? servers.some(usesDocker) : servers.some((v) => containerIssues(v, containersOf(docker, v.name)).length > 0)
 
   const pickStatus = (id: StatusGroupId) => {
     toggleStatusFilter(id)
@@ -113,12 +118,19 @@ export function TopBar({ servers, connection, inDetail }: Props) {
           </button>
         </div>
       )}
+      {showContainers && (
+        <button type="button" className="icon-btn icon-btn--boxed top-containers" aria-label={t('containers.title')} title={t('containers.title')} onClick={openContainers}>
+          <Container size={18} />
+          {containerTrouble && <span className="top-dot" aria-hidden="true" />}
+        </button>
+      )}
       <Menu label={t('top.menu')} trigger={<MenuIcon size={19} />} className="icon-btn icon-btn--boxed">
         <MenuItem icon={<Plus size={16} />} onSelect={() => openAddServer()}>{t('menu.addServer')}</MenuItem>
         <MenuItem icon={<Play size={16} />} onSelect={() => void bulk('all', 'start', { all: true })}>{t('menu.startAll')}</MenuItem>
         <MenuItem icon={<Square size={15} />} onSelect={() => void bulk('all', 'stop', { all: true })}>{t('menu.stopAll')}</MenuItem>
         <MenuSeparator />
         <MenuItem icon={<Network size={16} />} onSelect={() => openDialog({ kind: 'ports' })}>{t('menu.ports')}</MenuItem>
+        <MenuItem icon={<Container size={16} />} onSelect={openContainers}>{t('containers.title')}</MenuItem>
         <MenuItem icon={<FileCog size={16} />} onSelect={() => openDialog({ kind: 'config' })}>{t('menu.editConfig')}</MenuItem>
         <MenuSeparator />
         <MenuItem icon={<Settings size={16} />} onSelect={() => openDialog({ kind: 'settings' })}>{t('menu.settings')}</MenuItem>

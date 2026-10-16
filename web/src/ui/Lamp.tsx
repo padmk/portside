@@ -9,15 +9,25 @@ export function displayStatus(v: Pick<ServerView, 'status' | 'external'>): Displ
   return v.status
 }
 
-export function Lamp({ status, className = '', decorative, large }: { status: DisplayStatus; className?: string; decorative?: boolean; large?: boolean }) {
+interface LampProps {
+  status: DisplayStatus
+  /** Replaces the status name as the accessible label and tooltip. */
+  label?: string
+  className?: string
+  decorative?: boolean
+  large?: boolean
+}
+
+export function Lamp({ status, label, className = '', decorative, large }: LampProps) {
   const t = useT()
+  const text = label ?? t(`status.${status}`)
   return (
     <span
       className={`lamp lamp--${status}${large ? ' lamp--lg' : ''} ${className}`}
       role={decorative ? undefined : 'img'}
       aria-hidden={decorative || undefined}
-      aria-label={decorative ? undefined : t(`status.${status}`)}
-      title={t(`status.${status}`)}
+      aria-label={decorative ? undefined : text}
+      title={text}
     />
   )
 }

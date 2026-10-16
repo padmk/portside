@@ -2,6 +2,7 @@ import { AlertTriangle, Info, Plug } from 'lucide-react'
 import type { ServerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { translateNote } from '../../i18n/notes'
+import { useLive } from '../../state/live'
 import { usePrefs } from '../../state/prefs'
 import { selectServer } from '../../state/route'
 import { displayStatus, Lamp } from '../../ui/Lamp'
@@ -12,6 +13,8 @@ import { formatAgo, formatBytes, formatCpu, formatUptime, hasProcess } from '../
 import { ProjectTile } from '../servers/ProjectTile'
 import { ServerMenu } from '../servers/ServerMenu'
 import { StateActions } from '../servers/StateActions'
+import { ContainerStrip } from '../containers/ContainerStrip'
+import { containerIssues, containersOf, containerStatus, shortName } from '../containers/status'
 import { LogPreview } from './LogPreview'
 import type { Density } from './overviewState'
 
@@ -38,6 +41,8 @@ export function ServerCard({ server: v, density, now, cursor }: Props) {
     ? t('banner.portUsed', { port: v.port, process: v.external.command, pid: v.external.pid })
     : ''
   const ago = !alive ? formatAgo(v.exitedAt, now) : ''
+  const containers = containersOf(useLive().state?.docker, v.name)
+  const issue = containerIssues(v, containers)[0]
 
   return (
     <div className="card-cell">
@@ -68,6 +73,7 @@ export function ServerCard({ server: v, density, now, cursor }: Props) {
           <div className="card-addr">
             <Address server={v} />
           </div>
+          <ContainerStrip server={v} containers={containers} />
 
           {density === 'solo' && alive && (
             <dl className="card-vitals">
@@ -132,7 +138,13 @@ export function ServerCard({ server: v, density, now, cursor }: Props) {
               <span>{note}</span>
             </p>
           )}
-          {held && !note && (
+          {issue && !note && (
+            <p className="note note--crashed">
+              <AlertTriangle size={16} aria-hidden="true" />
+              <span>{t('containers.issueOne', { name: shortName(issue), status: t(containerStatus(issue).label) })}</span>
+            </p>
+          )}
+          {held && !note && !issue && (
             <p className="note note--external">
               <Plug size={16} aria-hidden="true" />
               <span>{held}</span>

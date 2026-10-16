@@ -1,6 +1,7 @@
 import type {
   BulkAction,
   BulkResult,
+  ContainerDetails,
   DiscoverResponse,
   ListenerView,
   OpenTarget,
@@ -48,6 +49,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 const enc = encodeURIComponent
 const server = (name: string) => `/api/servers/${enc(name)}`
+const container = (name: string) => `/api/containers/${enc(name)}`
 
 export const api = {
   state: () => request<State>('GET', '/api/state'),
@@ -78,6 +80,15 @@ export const api = {
       suggestions: r.suggestions ?? [],
     })),
   freePort: () => request<{ port: number }>('GET', '/api/free-port'),
+
+  container: (name: string) => request<ContainerDetails>('GET', container(name)),
+  containerAction: (name: string, action: 'start' | 'stop' | 'restart') => request<{ ok: boolean }>('POST', `${container(name)}/${action}`, {}),
+  recreate: (name: string, build: boolean) => request<{ ok: boolean }>('POST', `${container(name)}/recreate`, { build }),
+  dismissJob: (name: string) => request<{ ok: boolean }>('DELETE', `${container(name)}/job`),
+  startEngine: () => request<{ ok: boolean }>('POST', '/api/docker/start', {}),
+  containerLogsPath: (name: string) => `${container(name)}/logs`,
+  containerShellPath: (name: string) => `${container(name)}/shell`,
+  containerJobPath: (name: string) => `${container(name)}/job/terminal?always=1`,
 
   open: (target: OpenTarget, name?: string) => request<{ ok: boolean }>('POST', '/api/open', { target, name }),
   shutdown: () => request<{ ok: boolean }>('POST', '/api/shutdown', {}),

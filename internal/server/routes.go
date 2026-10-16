@@ -20,6 +20,7 @@ import (
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/discover"
+	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
 	"github.com/padmk/portside/internal/supervisor"
@@ -59,6 +60,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/free-port", s.freePort)
 	m.HandleFunc("POST /api/open", s.open)
 	m.HandleFunc("POST /api/shutdown", s.shutdown)
+	s.containerRoutes(m)
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("no such endpoint"))
@@ -96,6 +98,7 @@ type State struct {
 	Config  ConfigInfo        `json:"config"`
 	Servers []supervisor.View `json:"servers"`
 	Groups  []string          `json:"groups"`
+	Docker  docker.State      `json:"docker"`
 }
 
 // ConfigInfo describes the loaded configuration file.
@@ -128,6 +131,7 @@ func (s *Server) snapshot() State {
 		},
 		Servers: s.sup.Snapshot(s.opt.Port),
 		Groups:  cfg.Groups(),
+		Docker:  s.dockerState(),
 	}
 }
 
@@ -149,6 +153,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	ch := s.sup.Subscribe()
 	defer s.sup.Unsubscribe(ch)
+	dch := s.opt.Docker.Subscribe()
+	defer s.opt.Docker.Unsubscribe(dch)
 	send := func() error {
 		data, err := json.Marshal(s.snapshot())
 		if err != nil {
@@ -166,6 +172,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-ch:
+		case <-dch:
 		}
 		select {
 		case <-ctx.Done():
@@ -373,8 +380,8 @@ type termMsg struct {
 	Rows uint16 `json:"r,omitempty"`
 }
 
-// terminal streams raw output as binary messages (scrollback first) and
-// accepts keystrokes and resize requests as JSON text messages.
+// terminal streams a server's raw output as binary messages (scrollback
+// first) and accepts keystrokes and resize requests as JSON text messages.
 func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	lb, ok := s.sup.Logs(name)
@@ -382,6 +389,22 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("unknown server"))
 		return
 	}
+	readOnly := r.URL.Query().Get("readonly") == "1"
+	streamBuffer(w, r, lb, func(m termMsg) {
+		switch m.T {
+		case "i":
+			if !readOnly {
+				_ = s.sup.Input(name, []byte(m.D))
+			}
+		case "r":
+			s.sup.Resize(name, m.Cols, m.Rows)
+		}
+	})
+}
+
+// streamBuffer sends a log buffer over a WebSocket: the scrollback, then
+// live output, coalescing bursts. Text messages from the client go to input.
+func streamBuffer(w http.ResponseWriter, r *http.Request, lb *supervisor.LogBuffer, input func(termMsg)) {
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return
@@ -400,34 +423,12 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	readOnly := r.URL.Query().Get("readonly") == "1"
-	go func() {
-		defer cancel()
-		for {
-			_, data, err := c.Read(ctx)
-			if err != nil {
-				return
-			}
-			var m termMsg
-			if json.Unmarshal(data, &m) != nil {
-				continue
-			}
-			switch m.T {
-			case "i":
-				if !readOnly {
-					_ = s.sup.Input(name, []byte(m.D))
-				}
-			case "r":
-				s.sup.Resize(name, m.Cols, m.Rows)
-			}
-		}
-	}()
+	go readTermMsgs(ctx, cancel, c, input)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case chunk := <-ch:
-			// Coalesce bursts into one message.
 			buf := chunk
 		drain:
 			for len(buf) < 256<<10 {
@@ -444,6 +445,21 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
+		}
+	}
+}
+
+// readTermMsgs decodes client messages until the socket closes, then cancels.
+func readTermMsgs(ctx context.Context, cancel context.CancelFunc, c *websocket.Conn, input func(termMsg)) {
+	defer cancel()
+	for {
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			return
+		}
+		var m termMsg
+		if json.Unmarshal(data, &m) == nil && input != nil {
+			input(m)
 		}
 	}
 }
@@ -609,6 +625,15 @@ type ListenerView struct {
 	Managed    bool   `json:"managed"`             // process started by Portside
 	Via        string `json:"via,omitempty"`       // "containers" when a runtime publishes a managed compose port
 	Protected  string `json:"protected,omitempty"` // why it may not be killed
+	// Container is the container whose published port this is.
+	Container *ContainerRef `json:"container,omitempty"`
+}
+
+// ContainerRef names a container and the server it belongs to.
+type ContainerRef struct {
+	Name    string `json:"name"`
+	Service string `json:"service,omitempty"`
+	Server  string `json:"server,omitempty"`
 }
 
 func (s *Server) listeners(w http.ResponseWriter, r *http.Request) {
@@ -625,9 +650,20 @@ func (s *Server) listeners(w http.ResponseWriter, r *http.Request) {
 			live[v.Name] = true
 		}
 	}
+	published := map[int]*ContainerRef{}
+	for _, c := range s.dockerState().Containers {
+		for _, p := range c.Ports {
+			if p.Proto == "tcp" {
+				published[p.Public] = &ContainerRef{Name: c.Name, Service: c.Service, Server: c.Server}
+			}
+		}
+	}
 	var out []ListenerView
 	for _, l := range ports.List(r.Context()) {
 		v := ListenerView{Listener: l, CwdDisplay: paths.ShortenHome(l.Cwd), Server: byPort[l.Port]}
+		if supervisor.IsContainerRuntime(l.Command) {
+			v.Container = published[l.Port]
+		}
 		if l.PID == os.Getpid() {
 			v.Server = app.ID
 			v.Managed = true

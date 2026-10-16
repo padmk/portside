@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
 
-export type DetailTab = 'terminal' | 'details'
+export type DetailTab = 'terminal' | 'containers' | 'details'
+
+export type ContainerTab = 'logs' | 'shell' | 'details' | 'job'
 
 export type DialogState =
   | { kind: 'server'; mode: 'discover' | 'manual'; edit?: string }
@@ -16,9 +18,12 @@ interface Ui {
   tab: DetailTab
   /** Incremented to ask the terminal to take keyboard focus. */
   focusTerminal: number
+  /** The container shown in each containers view, keyed by server name ('' for the containers page). */
+  picked: Record<string, string>
+  containerTab: ContainerTab
 }
 
-let snapshot: Ui = { dialog: null, tab: 'terminal', focusTerminal: 0 }
+let snapshot: Ui = { dialog: null, tab: 'terminal', focusTerminal: 0, picked: {}, containerTab: 'logs' }
 const listeners = new Set<() => void>()
 
 function publish(next: Partial<Ui>) {
@@ -30,6 +35,8 @@ export const openDialog = (dialog: Exclude<DialogState, null>) => publish({ dial
 export const closeDialog = () => publish({ dialog: null })
 export const setTab = (tab: DetailTab) => publish({ tab })
 export const showTerminal = () => publish({ tab: 'terminal', focusTerminal: snapshot.focusTerminal + 1 })
+export const pickContainer = (scope: string, name: string) => publish({ picked: { ...snapshot.picked, [scope]: name } })
+export const setContainerTab = (containerTab: ContainerTab) => publish({ containerTab })
 export const openAddServer = (mode: 'discover' | 'manual' = 'discover') => openDialog({ kind: 'server', mode })
 
 export function useUi(): Ui {

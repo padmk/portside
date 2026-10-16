@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { ConfigBanners } from '../features/config/ConfigBanners'
 import { ConfigDialog } from '../features/config/ConfigDialog'
+import { ContainersPage } from '../features/containers/ContainersPage'
 import { ServerDialog } from '../features/dialogs/ServerDialog'
 import { Overview } from '../features/overview/Overview'
 import { countsOf } from '../features/overview/status'
@@ -13,7 +14,7 @@ import { DetailRail } from '../features/servers/DetailRail'
 import { EmptyState } from '../features/servers/EmptyState'
 import { useT } from '../i18n'
 import { useLive } from '../state/live'
-import { closeServer, takeTerminalLink, useSelectedName } from '../state/route'
+import { closeServer, takeTerminalLink, useContainersPage, useSelectedName } from '../state/route'
 import { showTerminal } from '../state/ui'
 import { useUi } from '../state/ui'
 import { Toasts } from '../ui/Toasts'
@@ -29,6 +30,7 @@ export function App() {
   const { state, connection } = useLive()
   const { dialog } = useUi()
   const selectedName = useSelectedName()
+  const containersPage = useContainersPage()
 
   const servers = state?.servers ?? []
   const groups = state?.groups ?? []
@@ -63,7 +65,7 @@ export function App() {
 
   return (
     <div className="app">
-      <TopBar servers={servers} connection={connection} inDetail={!!selected} />
+      <TopBar servers={servers} docker={state?.docker} connection={connection} inDetail={!!selected || containersPage} />
       {state && <ConfigBanners config={state.config} />}
       <main className="main">
         {connection === 'unauthorized' ? (
@@ -78,12 +80,14 @@ export function App() {
             <Mark className="boot-mark" />
             <p>{connection === 'connecting' ? t('top.connecting') : t('boot.unreachable')}</p>
           </div>
+        ) : containersPage ? (
+          <ContainersPage docker={state.docker} />
         ) : servers.length === 0 ? (
           <EmptyState />
         ) : selected ? (
           <div className="detail-layout">
             <DetailRail servers={servers} groups={groups} selected={selected.name} />
-            <DetailPane key={selected.name} server={selected} servers={servers} />
+            <DetailPane key={selected.name} server={selected} servers={servers} docker={state.docker} />
           </div>
         ) : (
           <Overview servers={servers} groups={groups} />

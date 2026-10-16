@@ -11,7 +11,8 @@ interface Live {
 
 /** The daemon encodes empty lists as null. */
 function normalize(s: State): State {
-  return { ...s, servers: s.servers ?? [], groups: s.groups ?? [] }
+  const docker = s.docker ?? { status: 'connecting', engine: 'Docker', containers: [] }
+  return { ...s, servers: s.servers ?? [], groups: s.groups ?? [], docker: { ...docker, containers: docker.containers ?? [] } }
 }
 
 let snapshot: Live = { state: null, connection: 'connecting' }

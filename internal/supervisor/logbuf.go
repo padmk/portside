@@ -35,6 +35,9 @@ func newLogBuffer(dir, name string) *LogBuffer {
 	return lb
 }
 
+// NewMemoryLog returns a buffer that is kept only in memory.
+func NewMemoryLog() *LogBuffer { return newLogBuffer("", "") }
+
 func (lb *LogBuffer) openFile() {
 	f, err := os.OpenFile(lb.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {

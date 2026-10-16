@@ -2,6 +2,7 @@ import { ExternalLink, Play, RotateCw, Square, Unplug } from 'lucide-react'
 import type { ServerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { translateNote } from '../../i18n/notes'
+import { useLive } from '../../state/live'
 import { usePrefs } from '../../state/prefs'
 import { selectServer } from '../../state/route'
 import { displayStatus, Lamp } from '../../ui/Lamp'
@@ -10,6 +11,8 @@ import { restartServer, startServer, stopServer, useBusy } from '../servers/acti
 import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess } from '../servers/format'
 import { useProtectedReason } from '../servers/holder'
 import { ProjectTile } from '../servers/ProjectTile'
+import { ContainerCount } from '../containers/ContainerStrip'
+import { containersOf } from '../containers/status'
 
 interface Props {
   server: ServerView
@@ -29,6 +32,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
   const note = v.note && v.note.toLowerCase() !== status ? translateNote(locale, v.note) : ''
   const lastLine = v.tail?.[v.tail.length - 1] ?? ''
   const open = () => selectServer(v.name)
+  const containers = containersOf(useLive().state?.docker, v.name)
 
   return (
     <li className="row" data-status={status} data-cursor={cursor || undefined} data-card-name={v.name}>
@@ -41,6 +45,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
           </button>
           {v.stale && <span className="chip chip--warn" title={t('badge.staleHint')}>{t('badge.stale')}</span>}
           {!v.enabled && <span className="chip">{t('badge.disabled')}</span>}
+          <ContainerCount server={v} containers={containers} />
         </h3>
         <p className="row-sub">
           <span className={`status-text--${status}`}>{t(`status.${status}`)}</span>

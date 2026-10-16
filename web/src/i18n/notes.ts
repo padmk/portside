@@ -12,6 +12,11 @@ const pl: Rule[] = [
   [/^directory not found: (.+)$/, (m) => `brak katalogu: ${m[1]}`],
   [/^failed to start: (.+)$/, (m) => `nie udało się uruchomić: ${m[1]}`],
   [/^dependency (\S+) failed: (.+)$/, (m) => `zależność ${m[1]} nie wystartowała: ${m[2]}`],
+  [/^no permission to use the Docker socket$/, () => 'brak uprawnień do gniazda Dockera'],
+  [/^start failed: the start command did not finish in 5 minutes$/, () => 'nie udało się uruchomić: polecenie startu nie skończyło się w 5 minut'],
+  [/^start failed: ([\s\S]+)$/, (m) => `nie udało się uruchomić: ${m[1]}`],
+  [/^docker context (\S+) not found$/, (m) => `nie znaleziono kontekstu Dockera ${m[1]}`],
+  [/^no container engine found; set docker_start in the config$/, () => 'nie znaleziono silnika kontenerów; ustaw docker_start w konfiguracji'],
   [/^dependency (\S+) did not become ready: (.+)$/, (m) => `zależność ${m[1]} nie była gotowa: ${m[2]}`],
 ]
 

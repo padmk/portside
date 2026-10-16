@@ -1,11 +1,12 @@
 import { lazy, Suspense } from 'react'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
-import type { ServerView } from '../../api/types'
+import { api } from '../../api/client'
+import type { DockerState, ServerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { translateNote } from '../../i18n/notes'
 import { usePrefs } from '../../state/prefs'
 import { closeServer } from '../../state/route'
-import { setTab, useUi } from '../../state/ui'
+import { pickContainer, setTab, useUi, type DetailTab } from '../../state/ui'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { useNow } from '../../ui/hooks'
 import { restartServer, useBusy } from './actions'
@@ -16,6 +17,9 @@ import { PortBanner } from './PortBanner'
 import { ProjectTile } from './ProjectTile'
 import { ServerMenu } from './ServerMenu'
 import { StateActions } from './StateActions'
+import { ContainersView } from '../containers/ContainersView'
+import { EngineNotice } from '../containers/EngineNotice'
+import { containerIssues, containersOf, containerStatus, shortName, usesDocker } from '../containers/status'
 import './detail.css'
 
 const TerminalPane = lazy(() => import('../terminal/TerminalPane').then((m) => ({ default: m.TerminalPane })))
@@ -23,17 +27,23 @@ const TerminalPane = lazy(() => import('../terminal/TerminalPane').then((m) => (
 interface Props {
   server: ServerView
   servers: ServerView[]
+  docker: DockerState
 }
 
-export function DetailPane({ server: v, servers }: Props) {
+export function DetailPane({ server: v, servers, docker }: Props) {
   const t = useT()
-  const { tab } = useUi()
+  const ui = useUi()
   const busy = useBusy(v.name)
   const now = useNow(1000)
   const status = displayStatus(v)
   const alive = hasProcess(v)
   const { locale } = usePrefs()
   const note = v.note && v.note.toLowerCase() !== status ? translateNote(locale, v.note) : ''
+  const containers = containersOf(docker, v.name)
+  const issues = containerIssues(v, containers)
+  const dockerDown = docker.status === 'unavailable' && usesDocker(v)
+  const tabs: DetailTab[] = containers.length > 0 || usesDocker(v) ? ['terminal', 'containers', 'details'] : ['terminal', 'details']
+  const tab = tabs.includes(ui.tab) ? ui.tab : 'terminal'
 
   return (
     <section className="detail" aria-label={t('detail.title', { name: v.name })}>
@@ -86,8 +96,30 @@ export function DetailPane({ server: v, servers }: Props) {
         </div>
       )}
 
+      {dockerDown && tab !== 'containers' && <EngineNotice docker={docker} compact />}
+      {issues.length > 0 && tab !== 'containers' && (
+        <div className="banner banner--bad" role="status">
+          <AlertTriangle size={18} aria-hidden="true" />
+          <div className="body">
+            {issues.length === 1
+              ? t('containers.issueOne', { name: shortName(issues[0]!), status: t(containerStatus(issues[0]!).label) })
+              : t('containers.issueMany', { names: issues.map(shortName).join(', ') })}
+          </div>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              pickContainer(v.name, issues[0]!.name)
+              setTab('containers')
+            }}
+          >
+            {t('containers.show')}
+          </button>
+        </div>
+      )}
+
       <div className="tabs" role="tablist" aria-label={t('detail.title', { name: v.name })}>
-        {(['terminal', 'details'] as const).map((id) => (
+        {tabs.map((id) => (
           <button
             key={id}
             type="button"
@@ -103,21 +135,32 @@ export function DetailPane({ server: v, servers }: Props) {
                 // Handled here: the global shortcuts must not also switch servers.
                 e.preventDefault()
                 e.stopPropagation()
-                const next = id === 'terminal' ? 'details' : 'terminal'
+                const i = tabs.indexOf(id) + (e.key === 'ArrowRight' ? 1 : -1)
+                const next = tabs[(i + tabs.length) % tabs.length]!
                 setTab(next)
                 requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus())
               }
             }}
           >
             {t(`tab.${id}`)}
+            {id === 'containers' && containers.length > 0 && <span className={`tab-count${issues.length ? ' tab-count--issue' : ''}`}>{containers.length}</span>}
           </button>
         ))}
       </div>
       <div className="tabpanel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
         {tab === 'terminal' ? (
           <Suspense fallback={null}>
-            <TerminalPane key={v.name} name={v.name} interactive={v.status === 'running' || v.status === 'starting'} />
+            <TerminalPane
+              key={v.name}
+              source={`/api/servers/${encodeURIComponent(v.name)}/terminal`}
+              interactive={v.status === 'running' || v.status === 'starting'}
+              onClear={async () => void (await api.clearLogs(v.name))}
+              emptyText={t('terminal.empty')}
+              waitingText={t('terminal.waiting')}
+            />
           </Suspense>
+        ) : tab === 'containers' ? (
+          <ContainersView docker={docker} containers={containers} scope={v.name} />
         ) : (
           <DetailsTab server={v} servers={servers} />
         )}

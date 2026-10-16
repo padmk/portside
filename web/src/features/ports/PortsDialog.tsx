@@ -8,6 +8,9 @@ import { selectServer } from '../../state/route'
 import { toast, toastError } from '../../state/toasts'
 import { Dialog } from '../../ui/Dialog'
 import { ConfirmDialog } from '../dialogs/ConfirmDialog'
+import { showContainer } from '../containers/ContainerStrip'
+import { pickContainer } from '../../state/ui'
+import { openContainers } from '../../state/route'
 import './ports.css'
 
 export function PortsDialog() {
@@ -124,6 +127,28 @@ function Owner({ row }: { row: ListenerView }) {
       {name}
     </button>
   )
+  const ct = row.container
+  if (ct)
+    return (
+      <span className="chip chip--info">
+        {t('ports.container')}{' '}
+        <button
+          type="button"
+          className="link"
+          onClick={() => {
+            closeDialog()
+            if (ct.server) showContainer(ct.server, ct.name)
+            else {
+              pickContainer('', ct.name)
+              openContainers()
+            }
+          }}
+        >
+          {ct.service ?? ct.name}
+        </button>
+        {ct.server && <> ({link(ct.server)})</>}
+      </span>
+    )
   if (row.managed && row.server) return <span className="chip chip--ok">{t('ports.managed')} {link(row.server)}</span>
   if (row.server) return <span className="chip chip--warn">{t('ports.blocks')} {link(row.server)}</span>
   return <span className="chip">{t('ports.unmanaged')}</span>

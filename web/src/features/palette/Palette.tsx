@@ -16,13 +16,14 @@ import {
   Square,
   SquareTerminal,
   Network,
+  Container,
 } from 'lucide-react'
 import type { State } from '../../api/types'
 import { useT, type Translate } from '../../i18n'
 import { setLocale, setThemeFamily, toggleThemeMode, usePrefs } from '../../state/prefs'
 import { FAMILIES } from '../../theme/registry'
 import { setLayout } from '../overview/overviewState'
-import { selectServer } from '../../state/route'
+import { openContainers, selectServer } from '../../state/route'
 import { closeDialog, openAddServer, openDialog } from '../../state/ui'
 import { Dialog } from '../../ui/Dialog'
 import { bulk, restartServer, startServer, stopServer } from '../servers/actions'
@@ -45,6 +46,7 @@ function buildCommands(state: State, t: Translate, locale: string): Command[] {
     { id: 'startAll', label: t('menu.startAll'), icon: <Play size={15} />, run: () => void bulk('all', 'start', { all: true }) },
     { id: 'stopAll', label: t('menu.stopAll'), icon: <Square size={14} />, run: () => void bulk('all', 'stop', { all: true }) },
     { id: 'ports', label: t('menu.ports'), icon: <Network size={15} />, run: () => openDialog({ kind: 'ports' }) },
+    { id: 'containers', label: t('containers.title'), icon: <Container size={15} />, run: openContainers },
     { id: 'config', label: t('menu.editConfig'), icon: <FileCog size={15} />, run: () => openDialog({ kind: 'config' }) },
     { id: 'settings', label: t('menu.settings'), icon: <Settings size={15} />, run: () => openDialog({ kind: 'settings' }) },
     { id: 'shortcuts', label: t('menu.shortcuts'), icon: <Keyboard size={15} />, run: () => openDialog({ kind: 'shortcuts' }) },

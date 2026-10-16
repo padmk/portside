@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -502,6 +503,20 @@ func (s *Supervisor) LookPath(name string) string {
 	return findInPath(name, pathEnv)
 }
 
+// Environ is the login-shell environment with the configured path entries,
+// for helper commands the daemon runs on the user's behalf.
+func (s *Supervisor) Environ() []string {
+	s.mu.Lock()
+	prepend := s.cfg.PathPrepend
+	s.mu.Unlock()
+	base := slices.Clone(s.env.get())
+	if len(prepend) == 0 {
+		return base
+	}
+	path := strings.Join(prepend, string(os.PathListSeparator)) + string(os.PathListSeparator) + lookupEnv(base, "PATH")
+	return mergeEnv(base, map[string]string{"PATH": path})
+}
+
 func (s *Supervisor) buildEnv(sv config.Server, prepend []string, global map[string]string) []string {
 	base := s.env.get()
 	over := map[string]string{
@@ -746,7 +761,7 @@ func (s *Supervisor) Stop(name string) error {
 	s.saveLocked()
 	s.mu.Unlock()
 
-	terminate(pid, done, grace)
+	Terminate(pid, done, grace)
 	return nil
 }
 
@@ -757,10 +772,10 @@ func waitGroupGone(pgid int, d time.Duration) {
 	}
 }
 
-// terminate signals a process group and escalates until the leader and
+// Terminate signals a process group and escalates until the leader and
 // every other member have exited, so a restart never finds the port taken
 // by a child that was still shutting down.
-func terminate(pgid int, done <-chan struct{}, grace time.Duration) {
+func Terminate(pgid int, done <-chan struct{}, grace time.Duration) {
 	if grace <= 0 {
 		grace = 10 * time.Second
 	}
@@ -1052,7 +1067,7 @@ func (s *Supervisor) Shutdown() {
 		wg.Add(1)
 		go func(pid int, done chan struct{}, grace time.Duration) {
 			defer wg.Done()
-			terminate(pid, done, grace)
+			Terminate(pid, done, grace)
 		}(p.pid, p.done, p.running.Stop)
 	}
 	s.changedLocked()

@@ -80,3 +80,9 @@
   color: var(--text-2);
   pointer-events: none;
 }
+
+.term-ended {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+}

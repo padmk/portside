@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ServerView } from '../api/types'
 import type { Key } from '../i18n'
-import { closeServer, selectServer } from '../state/route'
+import { closeServer, openContainers, selectServer } from '../state/route'
 import { closeDialog, openAddServer, openDialog, showTerminal } from '../state/ui'
 import { restartServer, toggleServer } from '../features/servers/actions'
 import { hasProcess } from '../features/servers/format'
@@ -46,6 +46,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: ['c'], label: 'shortcuts.cards' },
       { keys: ['l'], label: 'shortcuts.list' },
       { keys: ['g', 'p'], label: 'shortcuts.ports', chord: true },
+      { keys: ['g', 'd'], label: 'shortcuts.containers', chord: true },
       { keys: ['g', 'c'], label: 'shortcuts.config', chord: true },
       { keys: ['g', 's'], label: 'shortcuts.settings', chord: true },
       { keys: ['g', 'a'], label: 'shortcuts.add', chord: true },
@@ -104,6 +105,7 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
         chord = 0
         const dialogs: Record<string, () => void> = {
           p: () => openDialog({ kind: 'ports' }),
+          d: openContainers,
           c: () => openDialog({ kind: 'config' }),
           s: () => openDialog({ kind: 'settings' }),
           a: () => openAddServer(),
@@ -164,7 +166,8 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
           e.preventDefault()
           break
         case 'Escape':
-          if (inDetail) {
+          if (location.hash === '#containers') closeServer()
+          else if (inDetail) {
             setCursor(selectedName)
             closeServer()
           } else if (filtering) clearFilters()
