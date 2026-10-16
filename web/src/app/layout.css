@@ -280,3 +280,19 @@
   background: var(--crashed);
   box-sizing: content-box;
 }
+
+/* Another computer is shown: a frame in the remote accent around the whole
+   window and a tinted top bar, so the place is never mistaken for this one. */
+.app--remote {
+  border: 3px solid var(--remote);
+  animation: remote-frame-in 420ms var(--ease);
+}
+.app--remote .topbar {
+  border-bottom-color: color-mix(in srgb, var(--remote) 40%, var(--sidebar));
+  background: linear-gradient(var(--remote-wash), var(--remote-wash)), var(--sidebar);
+}
+@keyframes remote-frame-in {
+  from {
+    border-color: transparent;
+  }
+}

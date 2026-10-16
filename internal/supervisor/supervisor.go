@@ -94,6 +94,9 @@ type Supervisor struct {
 	closing  bool
 	notifier func(title, msg string)
 	selfPID  int
+	// release frees a port this daemon holds for another purpose before a
+	// server that needs it starts.
+	release func(port int)
 	// desktopClients counts connected apps that show crash notifications
 	// themselves; while any is connected the daemon stays quiet.
 	desktopClients int
@@ -127,6 +130,13 @@ func New(cfg *config.Config, stateDir string) *Supervisor {
 	}
 	s.applyLocked(cfg)
 	return s
+}
+
+// SetPortRelease registers fn, called with a server's port before it starts.
+func (s *Supervisor) SetPortRelease(fn func(port int)) {
+	s.mu.Lock()
+	s.release = fn
+	s.mu.Unlock()
 }
 
 // Config returns the configuration currently applied.
@@ -341,8 +351,12 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	shell := s.cfg.Shell
 	prepend := s.cfg.PathPrepend
 	globalEnv := s.cfg.Env
+	release := s.release
 	s.mu.Unlock()
 
+	if sv.Port > 0 && release != nil {
+		release(sv.Port)
+	}
 	if sv.Port > 0 && ports.Listening(sv.Port) {
 		s.mu.Lock()
 		recent := !p.exitedAt.IsZero() && time.Since(p.exitedAt) < 10*time.Second

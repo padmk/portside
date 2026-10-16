@@ -1,6 +1,6 @@
 import { Container, FileCog, Keyboard, LayoutGrid, List, Menu as MenuIcon, Network, Play, Plus, Power, Search, Settings, Square } from 'lucide-react'
 import { useState } from 'react'
-import type { DockerState, ServerView } from '../api/types'
+import type { DockerState, RemoteConnection, ServerView } from '../api/types'
 import { useT } from '../i18n'
 import { closeServer, openContainers } from '../state/route'
 import { openAddServer, openDialog } from '../state/ui'
@@ -13,6 +13,7 @@ import { layoutFor, setFilter, setLayout, toggleStatusFilter, useOverviewState }
 import { bulk, stopDaemon } from '../features/servers/actions'
 import { containerIssues, containersOf, usesDocker } from '../features/containers/status'
 import type { Connection } from '../state/live'
+import { ComputersButton, RemotePill } from '../features/remote/RemotePill'
 import { brand } from '../brand'
 import { filterInputId } from './shortcuts'
 import { Mark } from './Mark'
@@ -21,13 +22,15 @@ interface Props {
   servers: ServerView[]
   docker?: DockerState
   connection: Connection
+  /** The other computer shown, or null for this one. */
+  remote: RemoteConnection | null
   /** A server's detail page is open: the filter and layout toggle belong to the overview. */
   inDetail: boolean
 }
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
-export function TopBar({ servers, docker, connection, inDetail }: Props) {
+export function TopBar({ servers, docker, connection, remote, inDetail }: Props) {
   const t = useT()
   const { filter, status, layoutChoice } = useOverviewState()
   const [confirmStop, setConfirmStop] = useState(false)
@@ -48,6 +51,7 @@ export function TopBar({ servers, docker, connection, inDetail }: Props) {
         <Mark />
         <span className="wordmark">{brand.name}</span>
       </a>
+      {remote && <RemotePill remote={remote} />}
 
       <ul className="counts" aria-label={t('top.counts')}>
         {STATUS_GROUPS.filter((g) => g.id === 'running' || counts[g.id] > 0 || status === g.id).map((g) => (
@@ -118,6 +122,7 @@ export function TopBar({ servers, docker, connection, inDetail }: Props) {
           </button>
         </div>
       )}
+      {!remote && <ComputersButton />}
       {showContainers && (
         <button type="button" className="icon-btn icon-btn--boxed top-containers" aria-label={t('containers.title')} title={t('containers.title')} onClick={openContainers}>
           <Container size={18} />
@@ -135,8 +140,12 @@ export function TopBar({ servers, docker, connection, inDetail }: Props) {
         <MenuSeparator />
         <MenuItem icon={<Settings size={16} />} onSelect={() => openDialog({ kind: 'settings' })}>{t('menu.settings')}</MenuItem>
         <MenuItem icon={<Keyboard size={16} />} onSelect={() => openDialog({ kind: 'shortcuts' })}>{t('menu.shortcuts')}</MenuItem>
-        <MenuSeparator />
-        <MenuItem icon={<Power size={16} />} danger onSelect={() => setConfirmStop(true)}>{t('menu.stopDaemon')}</MenuItem>
+        {!remote && (
+          <>
+            <MenuSeparator />
+            <MenuItem icon={<Power size={16} />} danger onSelect={() => setConfirmStop(true)}>{t('menu.stopDaemon')}</MenuItem>
+          </>
+        )}
       </Menu>
       {confirmStop && (
         <ConfirmDialog

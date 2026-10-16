@@ -22,8 +22,11 @@ import (
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
+	"github.com/padmk/portside/internal/remote"
 	"github.com/padmk/portside/internal/server"
+	"github.com/padmk/portside/internal/share"
 	"github.com/padmk/portside/internal/supervisor"
+	"github.com/padmk/portside/internal/tailnet"
 	"github.com/padmk/portside/web"
 )
 
@@ -66,6 +69,11 @@ func Run(cfgPath string) error {
 	stop := make(chan struct{})
 	shutdown := func() { once.Do(func() { close(stop) }) }
 
+	ts := tailnet.NewCache(time.Minute)
+	rem := remote.New(cfg.Port, stateDir, ts)
+	sup.SetPortRelease(rem.Release)
+	sh := share.New(cfg.Port, stateDir, ts)
+
 	srv := server.New(server.Options{
 		Supervisor: sup,
 		Docker:     dock,
@@ -75,7 +83,10 @@ func Run(cfgPath string) error {
 		UI:         web.Assets(),
 		Token:      token,
 		Shutdown:   shutdown,
+		Remote:     rem,
+		Share:      sh,
 	})
+	sh.SetHandler(srv.PeerHandler())
 
 	listeners, err := listen(cfg.Port)
 	if err != nil {
@@ -109,6 +120,16 @@ func Run(cfgPath string) error {
 	go sup.Run(ctx)
 	go dock.Run(ctx)
 	go srv.WatchConfig(ctx)
+	// Sharing is applied in the background (it runs the tailscale CLI); with
+	// it off this also withdraws a Serve entry left by a crashed daemon.
+	go func() {
+		if st := sh.Apply(ctx); st.Error != "" {
+			log.Printf("share: %s", st.Error)
+		} else if st.Active {
+			log.Printf("shared with your other devices at %s", st.URL)
+		}
+		sh.Run(ctx)
+	}()
 
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -125,6 +146,10 @@ func Run(cfgPath string) error {
 		os.Exit(1)
 	}()
 	cancel()
+	rem.Disconnect()
+	cctx, ccancel := context.WithTimeout(context.Background(), 5*time.Second)
+	sh.Close(cctx)
+	ccancel()
 	sup.Shutdown()
 	sctx, scancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer scancel()

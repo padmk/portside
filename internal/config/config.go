@@ -95,7 +95,9 @@ type Config struct {
 	// DockerStart is the command that starts the container engine; empty
 	// means the engine behind the active Docker context is detected.
 	DockerStart string
-	Servers     []Server
+	// Share lets the owner's other devices on Tailscale connect to this daemon.
+	Share   bool
+	Servers []Server
 	// Warnings are non-fatal problems such as duplicate ports.
 	Warnings []string
 }
@@ -173,6 +175,7 @@ type rawConfig struct {
 	Editor      string               `toml:"editor"`
 	StopTimeout *Duration            `toml:"stop_timeout"`
 	DockerStart string               `toml:"docker_start"`
+	Share       bool                 `toml:"share"`
 	Servers     map[string]rawServer `toml:"servers"`
 }
 
@@ -209,6 +212,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		Editor:      raw.Editor,
 		StopTimeout: 10 * time.Second,
 		DockerStart: strings.TrimSpace(raw.DockerStart),
+		Share:       raw.Share,
 	}
 	if cfg.Root == "" {
 		cfg.Root = filepath.Dir(path)

@@ -24,6 +24,8 @@ import (
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/docker"
+	"github.com/padmk/portside/internal/remote"
+	"github.com/padmk/portside/internal/share"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
@@ -39,6 +41,10 @@ type Options struct {
 	Token string
 	// Shutdown is called when a client asks the daemon to exit.
 	Shutdown func()
+	// Remote connects to the daemon on another of the owner's devices.
+	Remote *remote.Manager
+	// Share lets the owner's other devices connect to this daemon.
+	Share *share.Manager
 }
 
 // Server is the daemon's HTTP surface.
@@ -52,6 +58,7 @@ type Server struct {
 	cfgMod     time.Time
 	cfgRev     string
 	devOrigins map[string]bool
+	shareWant  bool // the share setting last handed to Options.Share
 	mux        *http.ServeMux
 	codes      codes
 }
@@ -70,6 +77,8 @@ func New(opt Options) *Server {
 	if data, err := os.ReadFile(opt.ConfigPath); err == nil {
 		s.cfgRev = config.Revision(data)
 	}
+	s.shareWant = opt.Supervisor.Config().Share
+	opt.Share.Set(s.shareWant)
 	s.routes()
 	return s
 }
@@ -80,7 +89,7 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := hostname(r.Host)
 		if sub, ok := strings.CutSuffix(host, ".localhost"); ok && sub != app.ID && sub != "" {
-			s.proxy(w, r, sub)
+			s.route(w, r, sub)
 			return
 		}
 		if !s.dashboardHost(host) {
@@ -144,6 +153,27 @@ func isWebSocket(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
+// route picks the server for <sub>.localhost: <name>.<computer> is a server
+// on the connected remote device; a plain <name> is a local server, else a
+// remote one of that name, so links copied on the other device work here.
+func (s *Server) route(w http.ResponseWriter, r *http.Request, sub string) {
+	name, label, onRemote := strings.Cut(sub, ".")
+	if onRemote {
+		if !s.proxyRemote(w, r, name, label) {
+			msg := "There is no server called " + name + " on " + label + "."
+			if _, err := s.opt.Remote.Route(name, label); errors.Is(err, remote.ErrNotConnected) {
+				msg = app.Name + " is not connected to " + label + "."
+			}
+			s.proxyError(w, name, http.StatusNotFound, msg)
+		}
+		return
+	}
+	if _, local := s.sup.ActivePort(name); !local && s.proxyRemote(w, r, name, "") {
+		return
+	}
+	s.proxy(w, r, name)
+}
+
 // proxy forwards a request for <name>.localhost to that server's port.
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, name string) {
 	port, ok := s.sup.ActivePort(name)
@@ -199,7 +229,11 @@ func (s *Server) WatchConfig(ctx context.Context) {
 		changed := !st.ModTime().Equal(s.cfgMod)
 		s.cfgMu.Unlock()
 		if changed {
+			// Serialised with edits, so a reload never applies a file
+			// older than one an edit has already applied.
+			s.editMu.Lock()
 			s.reload()
+			s.editMu.Unlock()
 		}
 	}
 }
@@ -222,7 +256,13 @@ func (s *Server) reload() error {
 		return err
 	}
 	s.cfgErr = ""
+	shareChanged := cfg.Share != s.shareWant
+	s.shareWant = cfg.Share
+	s.opt.Share.Set(cfg.Share)
 	s.cfgMu.Unlock()
+	if shareChanged {
+		go s.opt.Share.Apply(context.Background())
+	}
 	if cfg.Port != s.opt.Port {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("port changed to %d; restart the daemon to apply", cfg.Port))
 		cfg.Port = s.opt.Port

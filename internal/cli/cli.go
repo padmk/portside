@@ -114,6 +114,7 @@ func init() {
 
 		{names: []string{"daemon"}, section: "Daemon", usage: "daemon [start|stop|restart|status|info|logs]", summary: "Run the daemon in the foreground, or control it", run: cmdDaemon},
 		{names: []string{"service"}, section: "Daemon", usage: "service install|uninstall|status", summary: "Start the daemon at login (launchd / systemd)", run: cmdService},
+		{names: []string{"share"}, section: "Daemon", usage: "share [on|off|code|devices|revoke <device>]", summary: "Let your paired devices on Tailscale connect to this computer", run: cmdShare},
 		{names: []string{"mcp"}, section: "Daemon", usage: "mcp", summary: "MCP server on stdio for coding agents", run: cmdMCP},
 		{names: []string{"skill"}, section: "Daemon", usage: "skill install [--force] | print", summary: "Install the agent skill for Claude Code and Codex", run: cmdSkill},
 		{names: []string{"doctor"}, section: "Daemon", usage: "doctor", summary: "Check the setup and explain problems", run: cmdDoctor},

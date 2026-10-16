@@ -51,6 +51,10 @@ root = %[2]s
 # active Docker context (OrbStack, Docker Desktop, Colima, Rancher) is started.
 # docker_start = "colima start"
 
+# Let your other devices signed in to the same Tailscale account connect to
+# this computer from their %[1]s dashboard and manage its servers.
+# share = false
+
 # Example server. {PORT} is replaced with the port; $PORT is set as well.
 #
 # [servers.web]

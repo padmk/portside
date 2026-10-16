@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
-import { api } from '../../api/client'
+import { api, errorText } from '../../api/client'
 import type { ContainerDetails, ContainerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { selectServer } from '../../state/route'
@@ -21,7 +21,7 @@ export function ContainerDetailsTab({ container: c }: { container: ContainerView
     api
       .container(c.name)
       .then((r) => live && (setD(r), setError('')))
-      .catch((e: Error) => live && setError(e.message))
+      .catch((e) => live && setError(errorText(e) ?? ''))
     return () => {
       live = false
     }

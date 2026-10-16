@@ -13,6 +13,9 @@ const (
 	ServiceLabel = "app.foreverbeta.portside"
 	// DefaultPort is where the daemon serves the dashboard, API and *.localhost proxy.
 	DefaultPort = 7878
+	// PeerHeader marks requests between daemons on the owner's devices.
+	// Browsers cannot add it without a CORS preflight, which is never granted.
+	PeerHeader = "X-" + Name + "-Peer"
 )
 
 // Version is set at build time with -ldflags "-X .../internal/app.Version=v1.2.3".

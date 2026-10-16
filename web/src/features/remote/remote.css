@@ -1,0 +1,410 @@
+/* The computer pill: names the remote in the top bar and leads back home. */
+.remote-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+  height: var(--control-h);
+  margin-left: -4px;
+  border-radius: 19px;
+  background: var(--remote);
+  color: var(--remote-fg);
+  box-shadow: 0 0 0 4px var(--remote-wash);
+}
+.remote-pill button {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: none;
+  color: inherit;
+  transition: background 120ms var(--ease);
+}
+.remote-pill button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--remote-fg) 12%, transparent);
+}
+.remote-pill-main {
+  gap: 8px;
+  padding: 0 12px 0 13px;
+  border-radius: 19px 0 0 19px;
+  font-size: var(--fs-base);
+  white-space: nowrap;
+}
+.remote-pill-name {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.remote-pill-os,
+.remote-pill-state {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.remote-pill-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.remote-lamp {
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+}
+.remote-pill--pending .remote-lamp {
+  animation: remote-pulse 1.1s var(--ease) infinite alternate;
+}
+.remote-pill .remote-pill-end {
+  justify-content: center;
+  width: 36px;
+  border-left: 1px solid color-mix(in srgb, var(--remote-fg) 22%, transparent);
+  border-radius: 0 19px 19px 0;
+}
+.remote-pill-end:disabled {
+  opacity: 0.7;
+}
+@keyframes remote-pulse {
+  to {
+    opacity: 0.25;
+  }
+}
+@media (max-width: 1280px) {
+  .remote-pill-os {
+    display: none;
+  }
+}
+
+/* Computers dialog */
+.computers .dialog-main {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+}
+
+.here {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--remote) 45%, transparent);
+  border-radius: var(--r-lg);
+  background: var(--remote-wash);
+}
+.here-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.here-icon,
+.peer-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-md);
+}
+.here-icon {
+  background: var(--remote);
+  color: var(--remote-fg);
+}
+.here-id {
+  flex: 1;
+  min-width: 0;
+}
+.here-id h3 {
+  font-size: var(--fs-md);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.here-id p {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.here-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.here-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.mirrors {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--remote) 25%, transparent);
+}
+.mirrors h4 {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.mirrors ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mirror {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--card);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.mirror .num {
+  color: var(--text);
+  font-weight: 600;
+}
+.mirror--busy {
+  border-color: transparent;
+  background: var(--starting-wash);
+  color: var(--starting-text);
+}
+.mirror--busy .num {
+  color: inherit;
+}
+.mirrors-hint {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+
+.peers-state {
+  padding: 28px 0;
+}
+.peers {
+  display: grid;
+}
+.peer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 12px 2px;
+  border-top: 1px solid var(--border);
+}
+.peer:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.peer-icon {
+  border: 1px solid var(--border);
+  background: var(--well);
+  color: var(--text-2);
+}
+.peer--current .peer-icon {
+  border-color: transparent;
+  background: var(--remote);
+  color: var(--remote-fg);
+}
+.peer-id {
+  display: grid;
+  min-width: 0;
+}
+.peer-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.peer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.peer-servers {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.peer-error {
+  grid-column: 2 / -1;
+}
+.peers-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 22px 0 6px;
+  text-align: center;
+}
+.peers-detail {
+  max-width: 52ch;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.peers-cmd {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--well);
+}
+
+.share {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.share h3 {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.share-note {
+  max-width: 62ch;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.share-url {
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Pairing with a peer: the code from the other computer, under its row. */
+.pair-form {
+  display: grid;
+  grid-column: 2 / -1;
+  gap: 6px;
+}
+.pair-note {
+  color: var(--starting-text);
+  font-size: var(--fs-sm);
+}
+.pair-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pair-input {
+  width: 15ch;
+  font-size: var(--fs-base);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pair-hint {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+
+/* Pairing a device with this computer: the code to enter there. */
+.pair-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--well);
+}
+.pair-code-value {
+  color: var(--text);
+  font-size: var(--fs-2xl);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+.pair-code-value--expired {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.pair-code-text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 22ch;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.pair-code-expiry {
+  font-size: var(--fs-xs);
+}
+
+.devices {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+}
+.devices h4 {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.device {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.device:first-child {
+  border-top: 0;
+}
+.device-icon {
+  display: grid;
+  flex: none;
+  color: var(--text-2);
+}
+.device-id {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 12px;
+  min-width: 0;
+}
+.device-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.device-meta {
+  display: flex;
+  gap: 0 10px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.device-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.device-confirm-text {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+@media (max-width: 560px) {
+  .peer {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .peer-servers {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .pair-form {
+    grid-column: 1 / -1;
+  }
+}

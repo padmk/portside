@@ -59,6 +59,21 @@ for (const { id, mode } of THEMES) {
   check('--text on --primary-soft over card', c('--text'), soft)
   check('--text-2 on --primary-soft over card', solid('--text-2', soft), soft)
 
+  // Another computer is shown: frame, tinted top bar, solid pill, connection card.
+  for (const bn of ['canvas', 'sidebar', 'card'] as const) check(`--remote frame on ${bn}`, solid('--remote', bgs[bn]!), bgs[bn]!, 3)
+  check('--remote-fg on --remote (pill)', c('--remote-fg'), c('--remote'))
+  const topbar = over(c('--remote-wash'), bgs.sidebar!)
+  check('--text on remote top bar', c('--text'), topbar)
+  for (const s of STATUSES) check(`--${s}-text on remote top bar`, solid(`--${s}-text`, topbar), topbar)
+  check('--focus ring on remote top bar', solid('--focus', topbar), topbar, 3)
+  const remoteCard = over(c('--remote-wash'), bgs.card!)
+  for (const t of ['--text', '--text-2']) check(`${t} on remote wash over card`, solid(t, remoteCard), remoteCard)
+  check('--remote icon on remote wash over card', solid('--remote', remoteCard), remoteCard, 3)
+
+  // Pairing: the code card sits on the well inside a dialog (card); an expired code fades to --text-3.
+  const pairCard = over(c('--well'), bgs.card!)
+  for (const t of ['--text', '--text-2', '--text-3']) check(`${t} on pairing code card (well over card)`, solid(t, pairCard), pairCard)
+
   for (let n = 1; n <= 6; n++) {
     for (const bn of ['card', 'canvas'] as const) {
       const tile = over(mixed(`color-mix(in srgb, var(--project-${n}) 8%, transparent)`), bgs[bn]!)

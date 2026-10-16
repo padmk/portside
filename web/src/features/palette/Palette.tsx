@@ -17,6 +17,8 @@ import {
   SquareTerminal,
   Network,
   Container,
+  MonitorSmartphone,
+  Unplug,
 } from 'lucide-react'
 import type { State } from '../../api/types'
 import { useT, type Translate } from '../../i18n'
@@ -28,6 +30,7 @@ import { closeDialog, openAddServer, openDialog } from '../../state/ui'
 import { Dialog } from '../../ui/Dialog'
 import { bulk, restartServer, startServer, stopServer } from '../servers/actions'
 import { viewLogs } from '../servers/StateActions'
+import { disconnectRemote } from '../remote/actions'
 import { hasProcess } from '../servers/format'
 import { fuzzy } from './fuzzy'
 import './palette.css'
@@ -47,6 +50,10 @@ function buildCommands(state: State, t: Translate, locale: string): Command[] {
     { id: 'stopAll', label: t('menu.stopAll'), icon: <Square size={14} />, run: () => void bulk('all', 'stop', { all: true }) },
     { id: 'ports', label: t('menu.ports'), icon: <Network size={15} />, run: () => openDialog({ kind: 'ports' }) },
     { id: 'containers', label: t('containers.title'), icon: <Container size={15} />, run: openContainers },
+    { id: 'computers', label: t('remote.open'), icon: <MonitorSmartphone size={15} />, run: () => openDialog({ kind: 'computers' }) },
+    ...(state.remote
+      ? [{ id: 'disconnect', label: t('remote.disconnectFrom', { name: state.remote.peer.name }), icon: <Unplug size={15} />, run: () => void disconnectRemote() }]
+      : []),
     { id: 'config', label: t('menu.editConfig'), icon: <FileCog size={15} />, run: () => openDialog({ kind: 'config' }) },
     { id: 'settings', label: t('menu.settings'), icon: <Settings size={15} />, run: () => openDialog({ kind: 'settings' }) },
     { id: 'shortcuts', label: t('menu.shortcuts'), icon: <Keyboard size={15} />, run: () => openDialog({ kind: 'shortcuts' }) },

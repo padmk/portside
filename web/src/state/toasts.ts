@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { errorText } from '../api/client'
 
 export type ToastKind = 'error' | 'info'
 
@@ -27,7 +28,11 @@ export function toast(message: string, kind: ToastKind = 'info') {
   window.setTimeout(() => dismissToast(id), kind === 'error' ? 7000 : 3500)
 }
 
-export const toastError = (e: unknown) => toast(e instanceof Error ? e.message : String(e), 'error')
+/** Reports a failure; a response from a computer no longer shown is dropped. */
+export function toastError(e: unknown) {
+  const message = errorText(e)
+  if (message !== null) toast(message, 'error')
+}
 
 export function useToasts(): Toast[] {
   return useSyncExternalStore(

@@ -31,6 +31,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **Project discovery.** `portside scan` finds Next.js, Vite, Astro, Nuxt, Remix, Django, Rails and Compose projects and proposes commands with the right port flags.
 - **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes servers, containers and searchable logs to Claude Code, Codex and other MCP clients, and `portside skill install` teaches agents how to use them.
 - **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with OrbStack, Docker Desktop, Colima, Rancher Desktop or a Linux daemon. Compose containers appear next to the server whose directory is their project directory, including ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. Servers that share a directory share its containers. A server warns when one of its containers is unhealthy, restarting or crashed while it runs; a container stopped on purpose (a stop signal from `docker stop`, `compose stop` or `docker kill`, or an exit the engine did not restart under an `always` or `unless-stopped` policy without an error) does not count as crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate** and **Rebuild and recreate**. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
+- **Other computers.** With Tailscale on both machines, the dashboard connects to Portside on another of your computers and manages its servers, containers, logs and terminals as if you sat at it. Its sites open in your local browser: running servers' ports are forwarded to the same ports here, and every server is also at `http://<name>.<computer>.localhost:7878`. See [Other computers](#other-computers).
 - **Ports overview.** Every listening TCP port on the machine with its process and working directory, the container a published port belongs to, and a safe way to kill strays.
 
 <table>
@@ -95,6 +96,7 @@ root = "~/dev"                      # base for relative dirs
 # stop_timeout = "10s"              # grace period after Ctrl-C
 # editor = "code"                   # used by "Open in editor"
 # docker_start = "colima start"     # how "Start Docker" starts the engine; detected by default
+# share = false                     # let your other devices on Tailscale connect (see Other computers)
 
 [servers.shop-web]
 dir = "shop/apps/web"
@@ -169,6 +171,9 @@ portside config [path|edit|check]
 
 portside daemon [start|stop|restart|status|logs]
 portside service install|uninstall|status
+portside share [on|off]                  let your paired devices on Tailscale connect;
+                                         on prints a pairing code
+portside share code|devices|revoke <device>   new pairing code, paired devices, unpair one
 portside mcp                             MCP server on stdio
 portside skill install|print             agent skill for Claude Code and Codex
 portside doctor                          check the setup
@@ -195,6 +200,25 @@ portside skill install
 
 It writes `SKILL.md` to `~/.claude/skills/portside/` and `~/.codex/skills/portside/` (once when one links to the other) for the agents set up on the account. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file, and `portside doctor` reports, for each agent on the account, whether it has the MCP server and the current skill, with the command that fixes it.
 
+## Other computers
+
+Work on one computer while the projects run on another, for example a laptop driving a desktop.
+
+1. Install Tailscale on both and sign both in to the same Tailscale account.
+2. On the computer that runs the projects, turn sharing on: **Computers** in the top bar, then **Let my other devices connect**, or `portside share on` (it sets `share = true` in the config). Either shows a one-time pairing code, valid for 10 minutes.
+3. On the computer you work on, open **Computers**, choose **Pair** next to the other computer and enter the code. Pairing is needed once per device; afterwards **Connect** is enough.
+
+`portside share code` prints a new code, `portside share devices` lists paired devices and `portside share revoke <device>` unpairs one, which also ends its connection. The **Computers** window on the shared computer does the same.
+
+The window changes color and shows the other computer's name in the top bar. Everything in the dashboard then acts on that computer: servers, logs and terminals, containers, ports, adding servers and editing its config. Opening a folder, an editor or a terminal is not offered, because it would happen on the other computer's screen. **Disconnect** returns to this computer; the connection belongs to the daemon, so every dashboard window follows it, and it ends when the daemon stops.
+
+Sites open as if they ran here:
+
+- While connected, the port of each running remote server (and each published container port, such as a database) is forwarded to the same port on this computer, so `http://127.0.0.1:5173` and `psql -p 5432` reach the other computer. A port already in use here, on any address, is left alone and listed as busy. Starting a local server on a forwarded port takes the port back. Like any local server, a forwarded port can be reached by every account on this computer.
+- Every remote server is also at `http://<name>.<computer>.localhost:7878`, for example `http://web.devbox.localhost:7878`. A link to `http://<name>.localhost:7878` copied from the other computer works too when this computer has no server of that name.
+
+Only devices signed in to the same Tailscale user that are not tagged appear in the list. Sharing uses Tailscale Serve with HTTPS: the daemon publishes `https://<computer>.<tailnet>.ts.net:7878` inside your tailnet, which `tailscale serve status` lists, and withdraws it when sharing is turned off or the daemon stops. It refuses to replace a Serve entry on that port that it did not create. The tailnet must have HTTPS certificates enabled (Tailscale admin console, DNS page). On Linux, allow Serve for your account once with `sudo tailscale set --operator=$USER`. Discovery checks each online device on ports 7878 and this daemon's own port.
+
 ## How it works
 
 - `portside daemon` owns every server process. It listens on `127.0.0.1:7878` (and `[::1]`) and serves the API, the dashboard (embedded in the binary) and the `*.localhost` proxy, routed by the `Host` header.
@@ -214,6 +238,7 @@ The daemon runs arbitrary commands from your config, so its API must only be rea
 - state-changing requests and WebSockets from browsers must come from the dashboard's own origin;
 - killing a foreign process is limited to processes currently listening on a port, and refuses Docker, OrbStack, launchd, systemd and the AirPlay receiver.
 
+- sharing is off by default. When it is on, Tailscale Serve forwards tailnet requests to a loopback listener that answers only under a random path known to the Serve configuration. A request is accepted only when all of these hold: it comes from another device of the user who owns this computer's node, not tagged (Tailscale sets `Tailscale-User-Login` and the source address itself); it does not come from this computer, so other accounts, apps and containers here cannot use the tailnet way in; it carries a header that web pages cannot send without a CORS preflight, which is never granted; and it is signed with the key this daemon issued to that same device when it was paired with a one-time code. Tailscale identifies devices, not accounts or processes, so the key is what keeps other accounts on your other devices out. It is never sent after pairing: each request carries an HMAC of its method, URI, time, a single-use nonce and body. Every connection goes over HTTPS with the certificate Tailscale holds for the shared computer's tailnet name, and every reply, WebSocket upgrades included, must also prove with the same key that it comes from the paired daemon, so a program posing as the shared daemon gets neither the code nor anything reusable, and its answers are refused. Keys are stored in `share-devices.json` on the shared computer and `remote-tokens.json` on the connecting one, both mode `0600` in the state directory. A paired device has the same control you have here, which includes running any command through a server definition; the dashboard does not offer it stopping the daemon, opening desktop apps or changing sharing, but that is a convenience, not a security boundary. Pair only devices you trust as much as this one;
 - project icons are served only as images, with a sandboxing Content-Security-Policy, so an SVG in a project cannot run script on the dashboard's origin.
 
 Programs running as your own user can read the token, just as they could run the commands themselves. The `*.localhost` proxy needs no token: it only forwards to dev servers that already listen on loopback.

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, Loader2 } from 'lucide-react'
-import { api } from '../../api/client'
+import { api, errorText } from '../../api/client'
 import { useT } from '../../i18n'
-import { applyState } from '../../state/live'
+import { applyState, useRemote } from '../../state/live'
 import { closeDialog } from '../../state/ui'
 import { toast } from '../../state/toasts'
 import { Dialog, DialogFoot, DialogMain } from '../../ui/Dialog'
@@ -26,6 +26,7 @@ export function ConfigDialog() {
   const [saving, setSaving] = useState(false)
   const [discard, setDiscard] = useState(false)
   const dirty = saved !== null && text !== saved
+  const remote = useRemote()
 
   useEffect(() => {
     let live = true
@@ -38,7 +39,7 @@ export function ConfigDialog() {
         setPath(c.path)
         setRevision(c.revision)
       })
-      .catch((e) => live && setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => live && setError(errorText(e) ?? ''))
     return () => {
       live = false
     }
@@ -55,7 +56,7 @@ export function ConfigDialog() {
       setSaved(text)
       toast(t('config.saved'))
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorText(e) ?? '')
     } finally {
       setSaving(false)
     }
@@ -88,10 +89,12 @@ export function ConfigDialog() {
         {error && <pre className="form-error form-error--block config-error" role="alert">{error}</pre>}
       </DialogMain>
       <DialogFoot>
-        <button type="button" className="btn" onClick={() => openOnDesktop('config')}>
-          <ExternalLink size={14} aria-hidden="true" />
-          {t('config.openEditor')}
-        </button>
+        {!remote && (
+          <button type="button" className="btn" onClick={() => openOnDesktop('config')}>
+            <ExternalLink size={14} aria-hidden="true" />
+            {t('config.openEditor')}
+          </button>
+        )}
         <span className="foot-spacer" />
         <button type="button" className="btn" onClick={close}>
           {t('common.close')}

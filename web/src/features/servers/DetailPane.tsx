@@ -152,7 +152,7 @@ export function DetailPane({ server: v, servers, docker }: Props) {
           <Suspense fallback={null}>
             <TerminalPane
               key={v.name}
-              source={`/api/servers/${encodeURIComponent(v.name)}/terminal`}
+              source={api.terminalPath(v.name)}
               interactive={v.status === 'running' || v.status === 'starting'}
               onClear={async () => void (await api.clearLogs(v.name))}
               emptyText={t('terminal.empty')}

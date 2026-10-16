@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2, Plus, Shuffle, X } from 'lucide-react'
-import { api } from '../../api/client'
+import { api, errorText } from '../../api/client'
 import type { Spec, State } from '../../api/types'
 import { useT } from '../../i18n'
 import { applyState } from '../../state/live'
@@ -113,7 +113,7 @@ export function ManualForm({ state, edit, formId }: Props) {
       if (!edit || edit !== spec.name) selectServer(spec.name)
       closeDialog()
     } catch (e) {
-      setServerError(e instanceof Error ? e.message : String(e))
+      setServerError(errorText(e) ?? '')
       setSaving(false)
     }
   }

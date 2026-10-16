@@ -149,3 +149,15 @@ func TestParseRejectsInvalid(t *testing.T) {
 		}
 	}
 }
+
+func TestParseShare(t *testing.T) {
+	for text, want := range map[string]bool{"": false, "share = true\n": true, "share = false\n": false} {
+		cfg, err := Parse("/tmp/portside.toml", []byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Share != want {
+			t.Errorf("%q: Share = %v, want %v", text, cfg.Share, want)
+		}
+	}
+}

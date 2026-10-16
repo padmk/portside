@@ -74,6 +74,8 @@ export interface State {
   servers: ServerView[]
   groups: string[]
   docker: DockerState
+  /** Set while this computer shows another computer's dashboard. */
+  remote?: RemoteConnection | null
 }
 
 export type ContainerState = 'created' | 'running' | 'paused' | 'restarting' | 'removing' | 'exited' | 'dead'
@@ -207,4 +209,76 @@ export type BulkAction = 'start' | 'stop' | 'restart'
 export interface BulkResult {
   name: string
   error?: string
+}
+
+/** Another device of the same Tailscale user that shares its dashboard. */
+export interface Peer {
+  /** Tailscale host name, shown as the label; two devices may share it. */
+  name: string
+  /** DNS label used in *.localhost URLs. */
+  label: string
+  /** Identifies the peer for connect and pair. */
+  dnsName: string
+  os: string
+  version: string
+  /** A pairing with this peer is stored here; connecting needs no code. */
+  paired: boolean
+  /** Present only once paired. */
+  servers?: { total: number; running: number }
+  connected: boolean
+}
+
+export interface PeersResponse {
+  tailnet: { available: boolean; error?: string; self?: string }
+  peers: Peer[]
+}
+
+/** Sharing of this computer with the tailnet. */
+export interface RemoteShare {
+  enabled: boolean
+  /** Reachable on the tailnet right now. */
+  active: boolean
+  url?: string
+  error?: string
+  /** Devices paired with this computer; each has full control while sharing is on. */
+  devices: PairedDevice[]
+}
+
+/** A device that paired with this computer using a pairing code. */
+export interface PairedDevice {
+  id: string
+  name: string
+  dnsName: string
+  os?: string
+  pairedAt: string
+}
+
+/** A one-time code another device enters to pair with this computer. */
+export interface PairingCode {
+  code: string
+  expiresAt: string
+}
+
+/** A remote port forwarded to the same port on this computer, or busy here. */
+export interface Mirror {
+  port: number
+  server?: string
+  container?: string
+  state: 'mirrored' | 'busy'
+}
+
+export interface RemoteConnection {
+  peer: { name: string; label: string; dnsName: string; os: string }
+  status: 'connecting' | 'open' | 'reconnecting'
+  error?: string
+  version?: string
+  /** Port of the local daemon, which proxies *.<label>.localhost to the remote. */
+  localPort: number
+  mirrors: Mirror[]
+  since: string
+}
+
+export interface RemoteOverview {
+  share: RemoteShare
+  connection: RemoteConnection | null
 }

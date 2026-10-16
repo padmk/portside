@@ -13,6 +13,10 @@
  *   same palette).
  * - Status is never color alone: lamps differ in shape and every status has a
  *   text label.
+ * - --remote marks a dashboard that shows another computer: the frame, the top
+ *   bar tint and the computer pill. It is the palette's violet (or the hue left
+ *   over once status and action colors are taken), so it never reads as a
+ *   status or an action. --remote-fg is the text on a solid --remote.
  *
  * `node scripts/check-contrast.mjs` verifies every pairing used by the
  * interface against WCAG AA for each theme.
@@ -44,6 +48,10 @@ html {
   --crashed-wash: color-mix(in srgb, var(--crashed) 9%, transparent);
   --external-wash: color-mix(in srgb, var(--external) 9%, transparent);
   --stopped-wash: color-mix(in srgb, var(--text) 6%, transparent);
+
+  /* Another computer is shown */
+  --remote-wash: color-mix(in srgb, var(--remote) 8%, transparent);
+  --remote-fg: var(--bg);
 }
 
 /* Elevation and overlays depend on the mode, not the palette. */
@@ -80,6 +88,7 @@ html[data-theme='rose-pine'] {
   --project-4: #9ccfd8;
   --project-5: #ea9a97;
   --project-6: #eb6f92;
+  --remote: color-mix(in srgb, #3e8fb0 72%, var(--text));
 }
 
 html[data-theme='rose-pine-dawn'] {
@@ -104,6 +113,7 @@ html[data-theme='rose-pine-dawn'] {
   --project-4: #56949f;
   --project-5: #d7827e;
   --project-6: #b4637a;
+  --remote: #286983;
 }
 
 /* Everforest: the accent is red in the dark palette, so actions use the palette's green. */
@@ -129,6 +139,7 @@ html[data-theme='everforest-dark'] {
   --project-4: #a7c080;
   --project-5: #83c092;
   --project-6: #dbbc7f;
+  --remote: #d699b6;
 }
 
 html[data-theme='everforest-light'] {
@@ -154,6 +165,7 @@ html[data-theme='everforest-light'] {
   --project-4: #8da101;
   --project-5: #35a77c;
   --project-6: #dfa000;
+  --remote: color-mix(in srgb, #df69ba 50%, var(--text));
 }
 
 html[data-theme='tokyo-night'] {
@@ -180,6 +192,7 @@ html[data-theme='tokyo-night'] {
   --project-4: #9ece6a;
   --project-5: #73daca;
   --project-6: #e0af68;
+  --remote: #bb9af7;
 }
 
 /* The light accent is a maroon that reads as an error, so actions use the palette's blue. */
@@ -206,6 +219,7 @@ html[data-theme='tokyo-night-light'] {
   --project-4: #385f0d;
   --project-5: #33635c;
   --project-6: #8c4351;
+  --remote: #5a4a78;
 }
 
 html[data-theme='catppuccin-macchiato'] {
@@ -230,6 +244,7 @@ html[data-theme='catppuccin-macchiato'] {
   --project-4: #a6da95;
   --project-5: #8bd5ca;
   --project-6: #f5bde6;
+  --remote: #f5bde6;
 }
 
 html[data-theme='catppuccin-latte'] {
@@ -254,6 +269,7 @@ html[data-theme='catppuccin-latte'] {
   --project-4: #40a02b;
   --project-5: #179299;
   --project-6: #ea76cb;
+  --remote: color-mix(in srgb, #ea76cb 38%, var(--text));
 }
 
 html[data-theme='nord'] {
@@ -275,6 +291,7 @@ html[data-theme='nord'] {
   --project-4: #a3be8c;
   --project-5: #8fbcbb;
   --project-6: #ebcb8b;
+  --remote: color-mix(in srgb, #b48ead 86%, var(--text));
 }
 
 /* The light accent is orange, which reads as a warning, so actions use Nord frost. */
@@ -301,6 +318,7 @@ html[data-theme='nord-light'] {
   --project-4: #a3be8c;
   --project-5: #8fbcbb;
   --project-6: #ebcb8b;
+  --remote: color-mix(in srgb, #b48ead 50%, var(--text));
 }
 
 /* Neutral: the accent is red, so actions use the palette's blue. */
@@ -326,6 +344,7 @@ html[data-theme='dark'] {
   --project-4: #5fc48a;
   --project-5: #4dc4c0;
   --project-6: #e0b450;
+  --remote: #b58be8;
 }
 
 html[data-theme='light'] {
@@ -351,4 +370,5 @@ html[data-theme='light'] {
   --project-4: #1d7a46;
   --project-5: #17757a;
   --project-6: #8a6100;
+  --remote: #7b4fb0;
 }

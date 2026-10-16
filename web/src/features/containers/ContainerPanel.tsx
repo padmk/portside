@@ -4,6 +4,7 @@ import { api } from '../../api/client'
 import type { ContainerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { translateNote } from '../../i18n/notes'
+import { isMirrored, useRemote } from '../../state/live'
 import { usePrefs } from '../../state/prefs'
 import { setContainerTab, useUi, type ContainerTab } from '../../state/ui'
 import { Lamp } from '../../ui/Lamp'
@@ -31,6 +32,13 @@ export function ContainerPanel({ container: c }: { container: ContainerView }) {
   const tabs: ContainerTab[] = ['logs', 'shell', 'details', ...(c.job ? (['job'] as const) : [])]
   const tab = tabs.includes(containerTab) ? containerTab : 'logs'
   const web = (c.ports ?? []).filter((p) => p.proto === 'tcp')
+  const remote = useRemote()
+  // On another computer, localhost:<port> opens this computer's service unless the port is forwarded.
+  const opensHere = (port: number) => !remote || isMirrored(remote, port)
+  const portHint = (p: { public: number; private: number }) =>
+    opensHere(p.public)
+      ? t('container.portHint', { public: p.public, private: p.private })
+      : t('container.portRemote', { public: p.public, private: p.private, name: remote?.peer.name ?? '' })
 
   let when = ''
   if (running && c.startedAt) when = t('container.upFor', { time: formatUptime(c.startedAt, now) })
@@ -61,13 +69,13 @@ export function ContainerPanel({ container: c }: { container: ContainerView }) {
           <ul className="ct-ports" aria-label={t('container.ports')}>
             {web.map((p) => (
               <li key={`${p.public}/${p.proto}`}>
-                {running ? (
-                  <a className="chip chip--mono chip--link" href={`http://localhost:${p.public}`} target="_blank" rel="noreferrer" title={t('container.portHint', { public: p.public, private: p.private })}>
+                {running && opensHere(p.public) ? (
+                  <a className="chip chip--mono chip--link" href={`http://localhost:${p.public}`} target="_blank" rel="noreferrer" title={portHint(p)}>
                     {p.public}
                     <ExternalLink size={12} aria-hidden="true" />
                   </a>
                 ) : (
-                  <span className="chip chip--mono" title={t('container.portHint', { public: p.public, private: p.private })}>{p.public}</span>
+                  <span className="chip chip--mono" title={portHint(p)}>{p.public}</span>
                 )}
               </li>
             ))}

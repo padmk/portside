@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Search } from 'lucide-react'
-import { api } from '../../api/client'
+import { api, errorText, isStale } from '../../api/client'
 import type { State, Suggestion } from '../../api/types'
 import { useT } from '../../i18n'
 import { applyState } from '../../state/live'
@@ -39,7 +39,8 @@ export function DiscoverPanel({ state, onManual }: Props) {
         setScanned(r.root)
         setPicks(r.suggestions.map((s) => ({ s, checked: true, name: s.name, port: s.port ? String(s.port) : '' })))
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        if (isStale(e)) return
+        setError(errorText(e) ?? '')
         setPicks([])
       }
     },
@@ -90,7 +91,9 @@ export function DiscoverPanel({ state, onManual }: Props) {
           }),
         )
       } catch (e) {
-        remaining.push({ ...p, error: e instanceof Error ? e.message : String(e) })
+        // The dashboard shows another computer now; this dialog's work is moot.
+        if (isStale(e)) return
+        remaining.push({ ...p, error: errorText(e) ?? '' })
       }
     }
     setAdding(false)

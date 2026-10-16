@@ -12,7 +12,7 @@ import { Charts } from './Charts'
 export function DetailsTab({ server: v, servers }: { server: ServerView; servers: ServerView[] }) {
   const t = useT()
   const [spec, setSpec] = useState<Spec | null>(null)
-  const { state } = useLive()
+  const { state, remote } = useLive()
   // Any edit to the file (env, health, dependencies) changes the revision.
   const sig = `${v.name}|${state?.config.revision ?? ''}`
 
@@ -41,9 +41,11 @@ export function DetailsTab({ server: v, servers }: { server: ServerView; servers
         <dt>{t('detail.directory')}</dt>
         <dd className="dir">
           <code>{v.dirDisplay}</code>
-          <button type="button" className="icon-btn icon-btn--sm" aria-label={t('menu.openFolder')} title={t('menu.openFolder')} onClick={() => openOnDesktop('folder', v.name)}>
-            <FolderOpen size={16} />
-          </button>
+          {!remote && (
+            <button type="button" className="icon-btn icon-btn--sm" aria-label={t('menu.openFolder')} title={t('menu.openFolder')} onClick={() => openOnDesktop('folder', v.name)}>
+              <FolderOpen size={16} />
+            </button>
+          )}
         </dd>
 
         <dt>{t('detail.port')}</dt>

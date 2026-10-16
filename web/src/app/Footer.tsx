@@ -1,10 +1,10 @@
-import type { State } from '../api/types'
+import type { RemoteConnection, State } from '../api/types'
 import { useT } from '../i18n'
 import type { Connection } from '../state/live'
 import { Lamp } from '../ui/Lamp'
 import { formatBytes, formatCpu, hasProcess } from '../features/servers/format'
 
-export function Footer({ state, connection }: { state: State; connection: Connection }) {
+export function Footer({ state, connection, remote }: { state: State; connection: Connection; remote: RemoteConnection | null }) {
   const t = useT()
   const alive = state.servers.filter(hasProcess)
   const cpu = alive.reduce((n, s) => n + s.cpu, 0)
@@ -12,7 +12,8 @@ export function Footer({ state, connection }: { state: State; connection: Connec
   return (
     <footer className="footer">
       <span className="mono">
-        <Lamp status={connection === 'open' ? 'running' : 'starting'} decorative /> 127.0.0.1:{state.daemon.port}
+        <Lamp status={connection === 'open' && (!remote || remote.status === 'open') ? 'running' : 'starting'} decorative />
+        {remote ? `${remote.peer.dnsName}:${state.daemon.port}` : `127.0.0.1:${state.daemon.port}`}
       </span>
       <span className="spacer" />
       <span>{t('footer.cpu')} <span className="num">{formatCpu(cpu)}</span></span>

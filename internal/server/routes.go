@@ -22,6 +22,7 @@ import (
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
+	"github.com/padmk/portside/internal/remote"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
@@ -60,6 +61,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/open", s.open)
 	m.HandleFunc("POST /api/shutdown", s.shutdown)
 	s.containerRoutes(m)
+	s.remoteRoutes(m)
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, errors.New("no such endpoint"))
@@ -98,6 +100,8 @@ type State struct {
 	Servers []supervisor.View `json:"servers"`
 	Groups  []string          `json:"groups"`
 	Docker  docker.State      `json:"docker"`
+	// Remote is the connection to another device, null when there is none.
+	Remote *remote.Info `json:"remote"`
 }
 
 // ConfigInfo describes the loaded configuration file.
@@ -132,6 +136,7 @@ func (s *Server) snapshot() State {
 		Servers: views,
 		Groups:  cfg.Groups(),
 		Docker:  s.dockerState(views),
+		Remote:  s.opt.Remote.Info(),
 	}
 }
 
@@ -155,6 +160,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	defer s.sup.Unsubscribe(ch)
 	dch := s.opt.Docker.Subscribe()
 	defer s.opt.Docker.Unsubscribe(dch)
+	rch := s.opt.Remote.SubscribeInfo()
+	defer s.opt.Remote.Unsubscribe(rch)
 	send := func() error {
 		data, err := json.Marshal(s.snapshot())
 		if err != nil {
@@ -173,6 +180,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ch:
 		case <-dch:
+		case <-rch:
 		}
 		select {
 		case <-ctx.Done():
@@ -597,6 +605,13 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.editMu.Lock()
+	// Sharing is controlled on this computer only: compared with the file
+	// being replaced, under the edit lock, so no concurrent edit slips in.
+	if fromPeer(r) && s.changesShare(body.Text) {
+		s.editMu.Unlock()
+		fail(w, http.StatusForbidden, errors.New("sharing can only be changed on this computer"))
+		return
+	}
 	err := config.ReplaceIfUnchanged(s.opt.ConfigPath, []byte(body.Text), body.Revision)
 	if err == nil {
 		err = s.reload()
@@ -611,6 +626,17 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.snapshot())
+}
+
+// changesShare reports whether text sets share differently from the file on
+// disk (or, when that does not parse, from the applied config).
+func (s *Server) changesShare(text string) bool {
+	cur := s.sup.Config().Share
+	if old, err := config.Load(s.opt.ConfigPath); err == nil {
+		cur = old.Share
+	}
+	next, err := config.Parse(s.opt.ConfigPath, []byte(text))
+	return err == nil && next.Share != cur
 }
 
 // ── ports and discovery ──────────────────────────────────────────────────

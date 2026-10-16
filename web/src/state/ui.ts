@@ -11,6 +11,7 @@ export type DialogState =
   | { kind: 'palette' }
   | { kind: 'settings' }
   | { kind: 'shortcuts' }
+  | { kind: 'computers' }
   | null
 
 interface Ui {
@@ -38,6 +39,9 @@ export const showTerminal = () => publish({ tab: 'terminal', focusTerminal: snap
 export const pickContainer = (scope: string, name: string) => publish({ picked: { ...snapshot.picked, [scope]: name } })
 export const setContainerTab = (containerTab: ContainerTab) => publish({ containerTab })
 export const openAddServer = (mode: 'discover' | 'manual' = 'discover') => openDialog({ kind: 'server', mode })
+
+/** The current UI state, for code outside React render. */
+export const getUi = () => snapshot
 
 export function useUi(): Ui {
   return useSyncExternalStore(
