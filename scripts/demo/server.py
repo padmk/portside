@@ -1,5 +1,5 @@
 """Fake dev server for screenshots and demos: prints framework-like logs and
-optionally serves HTTP. Usage: server.py --kind next|vite|api|worker|docs --name NAME [--port N] [--crash-after S]"""
+optionally serves HTTP. Usage: server.py --kind next|vite|api|worker|docs --name NAME [--port N] [--crash-after S] [--mem MB]"""
 import argparse, http.server, random, socketserver, sys, threading, time
 
 ap = argparse.ArgumentParser()
@@ -7,11 +7,25 @@ ap.add_argument("--kind", default="api")
 ap.add_argument("--name", default="app")
 ap.add_argument("--port", type=int, default=0)
 ap.add_argument("--crash-after", type=float, default=0)
+ap.add_argument("--mem", type=int, default=0, help="resident memory to hold, so usage looks like a real dev server")
 a = ap.parse_args()
 
 G, Y, R, D, C, M, B, X = "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[36m", "\033[35m", "\033[1m", "\033[0m"
 random.seed(a.name)
 say = lambda s: print(s, flush=True)
+
+# Touch every page so the memory counts as resident.
+ballast = bytearray(a.mem * 1024 * 1024)
+for i in range(0, len(ballast), 4096):
+    ballast[i] = 1
+
+
+def work(ms):
+    """Burn a little CPU per request so the CPU sparkline is not flat."""
+    end = time.perf_counter() + ms / 1000
+    while time.perf_counter() < end:
+        pass
+
 
 if a.kind == "next":
     say(f"   {M}{B}▲ Next.js 16.2.1{X}")
@@ -54,14 +68,20 @@ routes = {
     "docs": ["/guides/getting-started/", "/reference/cli/", "/"],
     "worker": ["welcome", "receipt", "password-reset"],
 }[a.kind if a.kind in ("next", "vite", "api", "docs") else "worker"]
+routes = {
+    "blog": ["/", "/posts/shipping-v2/", "/posts/postgres-tips/", "/tags/go/", "/feed.xml"],
+    "storefront": ["/", "/products/", "/cart", "/checkout"],
+}.get(a.name, routes)
 start = time.time()
 while True:
     time.sleep(random.uniform(0.6, 1.6))
     if a.crash_after and time.time() - start > a.crash_after:
-        say(f"{R}Error{X}: connect ECONNREFUSED 127.0.0.1:6379")
-        say(f"    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1636:16)")
+        say(f"{R}Error{X}: Missing environment variable CONTENT_API_TOKEN")
+        say(f"    at loadPosts (src/lib/content.ts:14:11)")
+        say(f"    at async Page (src/app/page.tsx:8:17)")
         sys.exit(1)
     r, path, ms = random.random(), random.choice(routes), random.randint(4, 120)
+    work(ms / 4)
     t = time.strftime("%H:%M:%S")
     if a.kind == "next":
         say(f" GET {path} {G if r > 0.08 else Y}{200 if r > 0.08 else 404}{X} in {ms}ms" if r > 0.15 else f" {G}✓{X} Compiled {path} in {ms * 3}ms")

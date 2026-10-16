@@ -74,13 +74,25 @@ if (set === 'portfolio') {
   // Pairs for a site that swaps images with its own light and dark theme.
   for (const [mode, suffix] of [['dark', ''], ['light', '-light']]) {
     await theme('rose-pine', mode)
+    // Cards with the stopped shop group collapsed, so one screen shows every state.
+    await evaluate(`localStorage.removeItem('portside.layout'); localStorage.setItem('portside.collapsed', '["shop"]')`)
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1080, deviceScaleFactor: 2, mobile: false })
     await open(); await shot(`portside-overview${suffix}.png`)
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
+    await evaluate("localStorage.setItem('portside.layout', 'list'); localStorage.removeItem('portside.collapsed')")
+    await open(); await shot(`portside-list${suffix}.png`)
+    await evaluate("localStorage.removeItem('portside.layout')")
     await open('#/web', 3500); await shot(`portside-detail${suffix}.png`)
     await open('#/blog', 3000); await shot(`portside-crashed${suffix}.png`)
   }
 } else {
+  await evaluate(`localStorage.setItem('portside.collapsed', '["shop"]')`)
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1080, deviceScaleFactor: 2, mobile: false })
   await theme('rose-pine', 'dark'); await open(); await shot('overview-dark.png')
-  await theme('everforest', 'light'); await open(); await shot('overview-light.png')
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
+  await evaluate("localStorage.setItem('portside.layout', 'list'); localStorage.removeItem('portside.collapsed')")
+  await theme('everforest', 'light'); await open(); await shot('list.png')
+  await evaluate("localStorage.removeItem('portside.layout')")
   await theme('tokyo-night', 'dark'); await open('#/web', 3500); await shot('detail.png')
   await theme('catppuccin', 'light'); await open('#/blog', 3000); await shot('crashed.png')
 }

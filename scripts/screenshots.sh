@@ -25,19 +25,19 @@ else
   go build -o "$PS" ./cmd/portside # before HOME changes, so the module cache is reused
 fi
 
-for p in acme/web acme/api acme/worker acme/docs studio/app blog; do mkdir -p "$HOMEDIR/code/$p"; done
+for p in acme/web acme/api acme/worker shop/storefront shop/admin studio/app blog landing; do mkdir -p "$HOMEDIR/code/$p"; done
 # Simple project logos, picked up as favicons.
 logo() { mkdir -p "$HOMEDIR/code/$1/public"; printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="%s"/><text x="16" y="22" font-family="Helvetica" font-weight="700" font-size="17" text-anchor="middle" fill="#fff">%s</text></svg>' "$2" "$3" > "$HOMEDIR/code/$1/public/favicon.svg"; }
 logo acme/web '#6d5bd0' 'A'
-logo acme/docs '#2e8c94' 'D'
 logo studio/app '#d96350' 'S'
 logo blog '#e3a33b' 'B'
+logo landing '#c2577a' 'L'
 
 # Stand-ins for pnpm and uv so the commands read like real projects; each
 # runs the fake server configured through DEMO_* variables.
 mkdir -p "$DEMO/bin"
 for tool in pnpm uv; do
-  printf '#!/bin/sh\nexec python3 %s --kind "$DEMO_KIND" --name "$DEMO_NAME" --port "${PORT:-0}" --crash-after "${DEMO_CRASH:-0}"\n' "$REPO/scripts/demo/server.py" > "$DEMO/bin/$tool"
+  printf '#!/bin/sh\nexec python3 %s --kind "$DEMO_KIND" --name "$DEMO_NAME" --port "${PORT:-0}" --crash-after "${DEMO_CRASH:-0}" --mem "${DEMO_MEM:-0}"\n' "$REPO/scripts/demo/server.py" > "$DEMO/bin/$tool"
   chmod +x "$DEMO/bin/$tool"
 done
 
@@ -54,40 +54,53 @@ cmd = "pnpm dev --port {PORT}"
 port = 3101
 group = "acme"
 depends_on = ["api"]
-env = { DEMO_KIND = "next", DEMO_NAME = "web" }
+env = { DEMO_KIND = "next", DEMO_NAME = "web", DEMO_MEM = "410" }
 
 [servers.api]
 dir = "acme/api"
 cmd = "uv run uvicorn api.main:app --reload --port {PORT}"
 port = 3102
 group = "acme"
-env = { DEMO_KIND = "api", DEMO_NAME = "api" }
+env = { DEMO_KIND = "api", DEMO_NAME = "api", DEMO_MEM = "120" }
 
 [servers.worker]
 dir = "acme/worker"
 cmd = "pnpm worker"
 port = 0
 group = "acme"
-env = { DEMO_KIND = "worker", DEMO_NAME = "worker" }
+env = { DEMO_KIND = "worker", DEMO_NAME = "worker", DEMO_MEM = "85" }
 
-[servers.docs]
-dir = "acme/docs"
-cmd = "pnpm astro dev --port {PORT}"
-port = 3103
-group = "acme"
-env = { DEMO_KIND = "docs", DEMO_NAME = "docs" }
+[servers.storefront]
+dir = "shop/storefront"
+cmd = "pnpm dev --port {PORT}"
+port = 3201
+group = "shop"
+env = { DEMO_KIND = "next", DEMO_NAME = "storefront", DEMO_MEM = "380" }
+
+[servers.admin]
+dir = "shop/admin"
+cmd = "pnpm dev --port {PORT} --strictPort"
+port = 3202
+group = "shop"
+env = { DEMO_KIND = "vite", DEMO_NAME = "admin", DEMO_MEM = "140" }
 
 [servers.studio]
 dir = "studio/app"
 cmd = "pnpm dev --port {PORT} --strictPort"
 port = 3104
-env = { DEMO_KIND = "vite", DEMO_NAME = "studio" }
+env = { DEMO_KIND = "vite", DEMO_NAME = "studio", DEMO_MEM = "150" }
 
 [servers.blog]
 dir = "blog"
 cmd = "pnpm dev --port {PORT}"
 port = 3105
-env = { DEMO_KIND = "next", DEMO_NAME = "blog", DEMO_CRASH = "5" }
+env = { DEMO_KIND = "next", DEMO_NAME = "blog", DEMO_CRASH = "5", DEMO_MEM = "260" }
+
+[servers.landing]
+dir = "landing"
+cmd = "pnpm astro dev --port {PORT}"
+port = 3106
+env = { DEMO_KIND = "docs", DEMO_NAME = "landing", DEMO_MEM = "120" }
 TOML
 
 export HOME="$HOMEDIR" SHELL=/bin/bash PORTSIDE_CONFIG="$DEMO/portside.toml" PORTSIDE_STATE_DIR="$DEMO/state"
@@ -99,7 +112,8 @@ cleanup() {
 trap cleanup EXIT
 
 "$PS" daemon start >/dev/null
-"$PS" up --all >/dev/null || true
+# The shop group and landing stay stopped, so every state is on screen.
+"$PS" up web api worker studio blog >/dev/null || true
 sleep 14 # let logs, sparklines and the crash happen
 
 MODE="${1:-}"

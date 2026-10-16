@@ -7,7 +7,7 @@
 <p align="center">Keep your local dev servers running, in one place.</p>
 
 <p align="center">
-  <img src="design/screenshots/overview-dark.png" width="900" alt="Portside dashboard in Rosé Pine: one card per server with status, address, CPU and memory, and a live preview of its output">
+  <img src="design/screenshots/overview-dark.png" width="900" alt="Portside dashboard in Rosé Pine: server cards grouped by project, with running, stopped and crashed servers">
 </p>
 
 Portside is a small daemon, a CLI and a web dashboard for the dev servers you run every day: Next.js, Vite, Python APIs, `docker compose` stacks, workers. It starts them in real pseudo-terminals, keeps their ports stable, shows status, logs and resource use on one calm page, and lets coding agents reuse the same servers instead of launching duplicates.
@@ -36,6 +36,9 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
   <tr>
     <td><img src="design/screenshots/detail.png" alt="A server's live terminal with every server one click away in the side rail (Tokyo Night)"></td>
     <td><img src="design/screenshots/crashed.png" alt="A crashed server with its exit code and the error that caused it (Catppuccin Latte)"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="design/screenshots/list.png" alt="The list layout with every server grouped by project (Everforest Light)"></td>
   </tr>
 </table>
 
