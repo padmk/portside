@@ -151,7 +151,8 @@ portside down <name|group>... | --all    stop gracefully
 portside restart <name|group>...
 portside ensure <name> [--json]          start if needed, wait until ready, print the URL
 portside logs <name> [-n 200] [-f]       print or follow a server's or container's output;
-                                         --grep <regexp> [-C N] searches it
+                                         --grep <regexp> [-C N] searches it,
+                                         -t adds times, --since 10m limits it
 portside containers [server] [--json]    containers, their state and server
 portside attach <name>                   interactive terminal, Ctrl-] detaches
 portside open [name] [--alias]           open the dashboard or a server
@@ -181,7 +182,7 @@ claude mcp add portside -- portside mcp
 codex mcp add portside -- portside mcp
 ```
 
-Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server), `restart_server`, `stop_server`, `server_logs`, `list_containers`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Both log tools take `match`, a case-insensitive regular expression, and `context`, lines around each match; a container search covers its last 20,000 lines. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
+Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server), `restart_server`, `stop_server`, `server_logs`, `list_containers`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
 
 Install the agent skill too:
 

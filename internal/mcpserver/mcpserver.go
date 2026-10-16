@@ -279,6 +279,7 @@ type logsIn struct {
 	Lines   int    `json:"lines,omitempty" jsonschema:"number of trailing lines (default 150, max 2000)"`
 	Match   string `json:"match,omitempty" jsonschema:"case-insensitive regular expression; returns only matching lines, searched across the whole output"`
 	Context int    `json:"context,omitempty" jsonschema:"with match, lines to include before and after each match (max 20), e.g. for stack traces"`
+	Since   string `json:"since,omitempty" jsonschema:"only lines since then: a duration such as 10m, or an RFC 3339 time"`
 }
 
 type containerLogsIn struct {
@@ -286,18 +287,19 @@ type containerLogsIn struct {
 	Lines   int    `json:"lines,omitempty" jsonschema:"number of trailing lines (default 150, max 2000)"`
 	Match   string `json:"match,omitempty" jsonschema:"case-insensitive regular expression; returns only matching lines among the last 20000"`
 	Context int    `json:"context,omitempty" jsonschema:"with match, lines to include before and after each match (max 20)"`
+	Since   string `json:"since,omitempty" jsonschema:"only lines since then: a duration such as 10m, or an RFC 3339 time"`
 }
 
 func (t *tools) logs(ctx context.Context, _ *mcp.CallToolRequest, in logsIn) (*mcp.CallToolResult, any, error) {
-	return t.text(ctx, "/api/servers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context)
+	return t.text(ctx, "/api/servers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context, in.Since)
 }
 
 func (t *tools) containerLogs(ctx context.Context, _ *mcp.CallToolRequest, in containerLogsIn) (*mcp.CallToolResult, any, error) {
-	return t.text(ctx, "/api/containers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context)
+	return t.text(ctx, "/api/containers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context, in.Since)
 }
 
-// text fetches plain log lines from path.
-func (t *tools) text(ctx context.Context, path string, lines int, match string, around int) (*mcp.CallToolResult, any, error) {
+// text fetches plain log lines from path, each with its local time.
+func (t *tools) text(ctx context.Context, path string, lines int, match string, around int, since string) (*mcp.CallToolResult, any, error) {
 	if err := t.ready(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -308,7 +310,10 @@ func (t *tools) text(ctx context.Context, path string, lines int, match string, 
 	if n > 2000 {
 		n = 2000
 	}
-	q := url.Values{"lines": {strconv.Itoa(n)}}
+	q := url.Values{"lines": {strconv.Itoa(n)}, "timestamps": {"1"}}
+	if since != "" {
+		q.Set("since", since)
+	}
 	if match != "" {
 		q.Set("match", match)
 		if around > 0 {
@@ -320,13 +325,28 @@ func (t *tools) text(ctx context.Context, path string, lines int, match string, 
 		return nil, nil, err
 	}
 	text := b.String()
-	if strings.TrimSpace(text) == "" {
-		text = "(no output yet)"
-		if match != "" {
-			text = "(no matching lines)"
+	if onlyNotes(text) {
+		switch {
+		case match != "":
+			text += "(no matching lines)"
+		case since != "":
+			text += "(no output in that time)"
+		default:
+			text += "(no output yet)"
 		}
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+// onlyNotes reports whether a logs reply holds nothing but its bracketed
+// notes.
+func onlyNotes(text string) bool {
+	for _, l := range strings.Split(text, "\n") {
+		if l != "" && !(strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]")) {
+			return false
+		}
+	}
+	return true
 }
 
 type containersOut struct {

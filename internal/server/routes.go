@@ -362,7 +362,7 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	writeLines(w, q, lb.Lines(0))
+	writeLines(w, q, lb.TimedLines())
 }
 
 func (s *Server) clearLogs(w http.ResponseWriter, r *http.Request) {

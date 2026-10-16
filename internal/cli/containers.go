@@ -88,14 +88,9 @@ func containsAny(names []string, values ...string) bool {
 
 // containerLogs prints, searches or follows a container's output for the
 // logs command.
-func containerLogs(e *env, c *client.Client, name string, n int, match string, around int, follow bool) error {
+func containerLogs(e *env, c *client.Client, name string, q url.Values, follow bool) error {
 	path := "/api/containers/" + url.PathEscape(name) + "/logs"
 	if !follow {
-		q := url.Values{"lines": {strconv.Itoa(n)}}
-		if match != "" {
-			q.Set("match", match)
-			q.Set("context", strconv.Itoa(around))
-		}
 		return c.Do(e.ctx, http.MethodGet, path+"?"+q.Encode(), nil, e.out)
 	}
 	ws, _, err := websocket.Dial(e.ctx, "ws://127.0.0.1:"+strconv.Itoa(c.Port)+path, &websocket.DialOptions{HTTPHeader: c.Header()})

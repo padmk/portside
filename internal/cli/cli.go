@@ -97,7 +97,7 @@ func init() {
 		{names: []string{"down", "stop"}, section: "Servers", usage: "down <name|group>... | --all", summary: "Stop servers gracefully", run: cmdDown},
 		{names: []string{"restart"}, section: "Servers", usage: "restart <name|group>...", summary: "Restart servers", run: cmdRestart},
 		{names: []string{"ensure"}, section: "Servers", usage: "ensure <name> [--timeout 90s] [--json]", summary: "Start if needed, wait until ready, print the URL", run: cmdEnsure},
-		{names: []string{"logs", "log"}, section: "Servers", usage: "logs <name> [-n 200] [-f] [--raw] [--grep <regexp> [-C N]]", summary: "Print, search or follow a server's or container's output", run: cmdLogs},
+		{names: []string{"logs", "log"}, section: "Servers", usage: "logs <name> [-n 200] [-f] [--raw] [--grep <regexp> [-C N]] [-t] [--since 10m]", summary: "Print, search or follow a server's or container's output", run: cmdLogs},
 		{names: []string{"attach", "a"}, section: "Servers", usage: "attach <name>", summary: "Interactive terminal of a server (Ctrl-] detaches)", run: cmdAttach},
 		{names: []string{"open"}, section: "Servers", usage: "open [name] [--alias]", summary: "Open the dashboard or a server in the browser", run: cmdOpen},
 		{names: []string{"containers"}, section: "Servers", usage: "containers [server|project]... [--json]", summary: "List containers, their state and the server each belongs to", run: cmdContainers},

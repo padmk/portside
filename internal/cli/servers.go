@@ -272,6 +272,8 @@ func cmdLogs(e *env, args []string) error {
 	raw := fs.Bool("raw", false, "")
 	match := fs.String("grep", "", "")
 	around := fs.Int("C", 0, "")
+	stamped := fs.Bool("t", false, "")
+	since := fs.String("since", "", "")
 	names, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -279,8 +281,19 @@ func cmdLogs(e *env, args []string) error {
 	if len(names) != 1 {
 		return usageError{"logs takes exactly one server or container name"}
 	}
-	if *match != "" && (*follow || *raw) {
-		return usageError{"--grep cannot be combined with -f or --raw"}
+	if (*match != "" || *stamped || *since != "") && (*follow || *raw) {
+		return usageError{"--grep, -t and --since cannot be combined with -f or --raw"}
+	}
+	q := url.Values{"lines": {strconv.Itoa(*n)}}
+	if *match != "" {
+		q.Set("match", *match)
+		q.Set("context", strconv.Itoa(*around))
+	}
+	if *stamped {
+		q.Set("timestamps", "1")
+	}
+	if *since != "" {
+		q.Set("since", *since)
 	}
 	c, err := e.client()
 	if err != nil {
@@ -294,16 +307,11 @@ func cmdLogs(e *env, args []string) error {
 	base := "/api/servers/" + url.PathEscape(name)
 	if !slices.ContainsFunc(st.Servers, func(v supervisor.View) bool { return v.Name == name }) &&
 		slices.ContainsFunc(st.Docker.Containers, func(d docker.Container) bool { return d.Name == name }) {
-		return containerLogs(e, c, name, *n, *match, *around, *follow)
+		return containerLogs(e, c, name, q, *follow)
 	}
 	if !*follow {
-		q := url.Values{"lines": {strconv.Itoa(*n)}}
 		if *raw {
 			q.Set("raw", "1")
-		}
-		if *match != "" {
-			q.Set("match", *match)
-			q.Set("context", strconv.Itoa(*around))
 		}
 		return c.Do(e.ctx, http.MethodGet, base+"/logs?"+q.Encode(), nil, e.out)
 	}

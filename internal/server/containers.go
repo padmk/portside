@@ -341,7 +341,7 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 				tail = "2000"
 			}
 			opened := time.Now()
-			stream, err := cl.Logs(ctx, c.ID, c.TTY, tail, since, true)
+			stream, err := cl.Logs(ctx, c.ID, c.TTY, tail, since, true, false)
 			if err != nil {
 				// Try again on the next change or tick.
 				shownState = ""
@@ -428,7 +428,7 @@ func (s *Server) containerLogText(w http.ResponseWriter, r *http.Request, c dock
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	stream, err := cl.Logs(ctx, c.ID, c.TTY, strconv.Itoa(tail+q.context), time.Time{}, false)
+	stream, err := cl.Logs(ctx, c.ID, c.TTY, strconv.Itoa(tail+q.context), q.since, false, true)
 	if err != nil {
 		fail(w, http.StatusBadGateway, err)
 		return
@@ -449,7 +449,28 @@ func (s *Server) containerLogText(w http.ResponseWriter, r *http.Request, c dock
 		}
 		notes = append(notes, "the log stream broke off: "+err.Error())
 	}
-	writeLines(w, q, supervisor.PlainLines(data, 0), notes...)
+	writeLines(w, q, stampedLines(data), notes...)
+}
+
+// stampedLines splits engine output requested with timestamps into plain
+// lines and their times.
+func stampedLines(data []byte) []supervisor.Line {
+	raw := strings.Split(string(data), "\n")
+	out := make([]supervisor.Line, 0, len(raw))
+	for _, l := range raw {
+		var line supervisor.Line
+		if stamp, rest, ok := strings.Cut(l, " "); ok {
+			if at, err := time.Parse(time.RFC3339Nano, stamp); err == nil {
+				line.At, l = at.Local(), rest
+			}
+		}
+		line.Text = supervisor.PlainLine(l)
+		out = append(out, line)
+	}
+	for len(out) > 0 && strings.TrimSpace(out[len(out)-1].Text) == "" {
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 // maxLogRead bounds how much container output one plain request reads.

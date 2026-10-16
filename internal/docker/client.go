@@ -308,12 +308,16 @@ func (c *Client) stats(ctx context.Context, id string, fn func(*statsSample)) er
 }
 
 // Logs streams a container's output. tail limits the backlog ("all" or a
-// number); since, when set, starts after that time. Output of containers
-// without a TTY is demultiplexed into one stream.
-func (c *Client) Logs(ctx context.Context, id string, tty bool, tail string, since time.Time, follow bool) (io.ReadCloser, error) {
+// number); since, when set, starts after that time; stamped prefixes each
+// line with its RFC 3339 time and a space. Output of containers without a
+// TTY is demultiplexed into one stream.
+func (c *Client) Logs(ctx context.Context, id string, tty bool, tail string, since time.Time, follow, stamped bool) (io.ReadCloser, error) {
 	q := url.Values{"stdout": {"1"}, "stderr": {"1"}, "tail": {tail}}
 	if follow {
 		q.Set("follow", "1")
+	}
+	if stamped {
+		q.Set("timestamps", "1")
 	}
 	if !since.IsZero() {
 		q.Set("since", strconv.FormatFloat(float64(since.UnixNano())/1e9, 'f', 9, 64))
