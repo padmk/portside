@@ -123,6 +123,7 @@ var iconCandidates = []string{
 	"public/favicon.svg", "public/icon.svg", "public/logo.svg",
 	"public/favicon.png", "public/icon.png", "public/apple-touch-icon.png",
 	"public/favicon.ico",
+	"public/icons/favicon.svg", "public/icons/favicon-32.png", "public/icons/icon-192.png",
 	"app/icon.svg", "app/icon.png", "app/favicon.ico",
 	"src/app/icon.svg", "src/app/icon.png", "src/app/favicon.ico",
 	"static/favicon.svg", "static/favicon.png", "static/favicon.ico",

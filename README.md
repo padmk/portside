@@ -41,6 +41,8 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 
 ## Install
 
+Requirements: macOS 14 or later on Apple Silicon (M1 or newer); Linux on x86-64 or arm64.
+
 macOS, with Homebrew (planned; the tap is not published yet). This will install `Portside.app` and the `portside` command:
 
 ```sh
@@ -59,6 +61,8 @@ cd portside
 make install            # builds the dashboard and installs ~/.local/bin/portside
 make app-install        # macOS: builds Portside.app and installs it in /Applications
 ```
+
+To update an installed app, quit it, run `make app-install`, reopen it and run `portside daemon restart` so the daemon runs the new binary. Servers that were running are restored.
 
 ## Quick start
 
@@ -131,7 +135,7 @@ stop_timeout = "30s"
 
 Server names are lowercase letters, digits and dashes, because they double as `<name>.localhost` hostnames.
 
-The daemon is often started by launchd or systemd with a bare environment, so it reads `PATH` and the rest of your environment from your login shell (bash, zsh or fish) and refreshes it every 10 minutes. Ports 5000 and 7000 (macOS AirPlay) and browser-blocked ports are skipped when assigning ports.
+The daemon is often started by launchd or systemd with a bare environment, so it reads `PATH` and the rest of your environment from your account's login shell (bash, zsh or fish; the one set for your user, not `$SHELL`) and refreshes it every 10 minutes. Ports 5000 and 7000 (macOS AirPlay) and browser-blocked ports are skipped when assigning ports.
 
 ## CLI
 
@@ -213,7 +217,7 @@ make snapshot       # release archives in ./dist (goreleaser)
 make app            # macOS app in dist/macos/Portside.app (scripts/build-macos-app.sh)
 ```
 
-A `v*` tag runs `.github/workflows/release.yml`: GoReleaser publishes the CLI archives for macOS and Linux, then the app is built and attached to the release as `Portside-<version>.zip`. When a `HOMEBREW_TAP_TOKEN` secret exists, the cask `Casks/portside.rb` is also published to `padmk/homebrew-tap`; without it that step is skipped. CI builds on Linux for every push; the macOS build runs from the Actions tab (`ci` workflow, "Run workflow") and on release tags. The app is signed ad hoc unless `SIGN_IDENTITY` is set; notarization needs an Apple Developer account.
+A `v*` tag runs `.github/workflows/release.yml`: GoReleaser publishes the CLI archives for macOS (arm64) and Linux (amd64, arm64), then the app is built and attached to the release as `Portside-<version>.zip`. When a `HOMEBREW_TAP_TOKEN` secret exists, the cask `Casks/portside.rb` is also published to `padmk/homebrew-tap`; without it that step is skipped. CI builds on Linux for every push; the macOS build runs from the Actions tab (`ci` workflow, "Run workflow") and on release tags. The app is signed ad hoc unless `SIGN_IDENTITY` is set; notarization needs an Apple Developer account.
 
 ## License
 

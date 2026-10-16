@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds dist/macos/Portside.app: the Swift menu bar app with the universal
+# Builds dist/macos/Portside.app: the Swift menu bar app with the arm64
 # portside binary (daemon + CLI + embedded dashboard) inside Contents/Helpers.
 #
 #   scripts/build-macos-app.sh            # build the app
@@ -24,16 +24,13 @@ if [ "${SKIP_UI:-0}" != 1 ]; then
   pnpm --dir web build >/dev/null
 fi
 
-echo "==> portside $VERSION (universal)"
+echo "==> portside $VERSION (arm64)"
 mkdir -p "$OUT/tmp"
-for arch in arm64 amd64; do
-  CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/tmp/portside-$arch" ./cmd/portside
-done
-lipo -create -output "$OUT/tmp/portside" "$OUT/tmp/portside-arm64" "$OUT/tmp/portside-amd64"
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/tmp/portside-arm64" ./cmd/portside
 
-echo "==> app (universal)"
-swift build --package-path macos -c release --arch arm64 --arch x86_64 >/dev/null
-BIN="$(swift build --package-path macos -c release --arch arm64 --arch x86_64 --show-bin-path)/Portside"
+echo "==> app (arm64)"
+swift build --package-path macos -c release --arch arm64 >/dev/null
+BIN="$(swift build --package-path macos -c release --arch arm64 --show-bin-path)/Portside"
 
 echo "==> bundle"
 if [ -e "$APP" ]; then
@@ -42,7 +39,7 @@ if [ -e "$APP" ]; then
 fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Portside"
-cp "$OUT/tmp/portside" "$APP/Contents/Helpers/portside"
+cp "$OUT/tmp/portside-arm64" "$APP/Contents/Helpers/portside"
 cp macos/Resources/AppIcon.icns macos/Resources/AppIconDark.png "$APP/Contents/Resources/"
 sed -e "s/__VERSION__/${VERSION%%-*}/" -e "s/__BUILD__/$BUILD/" macos/Resources/Info.plist > "$APP/Contents/Info.plist"
 

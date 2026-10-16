@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +42,10 @@ func (s *shellEnv) get() []string {
 }
 
 func loginShellEnv() []string {
-	sh := os.Getenv("SHELL")
+	sh := accountShell()
+	if sh == "" {
+		sh = os.Getenv("SHELL")
+	}
 	if sh == "" {
 		if _, err := os.Stat("/bin/zsh"); err == nil {
 			sh = "/bin/zsh"
@@ -85,6 +89,45 @@ func loginShellEnv() []string {
 		return nil
 	}
 	return env
+}
+
+// accountShell returns the login shell recorded for the current user. launchd
+// and systemd may set SHELL to a system default that differs from it.
+func accountShell() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	name := os.Getenv("USER")
+	if name == "" {
+		out, err := exec.CommandContext(ctx, "id", "-un").Output()
+		if err != nil {
+			return ""
+		}
+		name = strings.TrimSpace(string(out))
+	}
+	if runtime.GOOS == "darwin" {
+		out, err := exec.CommandContext(ctx, "dscl", ".", "-read", "/Users/"+name, "UserShell").Output()
+		if err != nil {
+			return ""
+		}
+		sh := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "UserShell:"))
+		return existingShell(sh)
+	}
+	out, err := exec.CommandContext(ctx, "getent", "passwd", name).Output()
+	if err != nil {
+		return ""
+	}
+	fields := strings.Split(strings.TrimSpace(string(out)), ":")
+	return existingShell(fields[len(fields)-1])
+}
+
+func existingShell(sh string) string {
+	if !filepath.IsAbs(sh) {
+		return ""
+	}
+	if _, err := os.Stat(sh); err != nil {
+		return ""
+	}
+	return sh
 }
 
 // mergeEnv returns base with overrides applied (later keys win).
