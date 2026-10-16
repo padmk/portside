@@ -62,6 +62,12 @@ enum L {
         return "\(n) " + plural(n, one: "awaria", few: "awarie", many: "awarii")
     }
 
+    /// "1 z problemem w kontenerach", "3 z problemami w kontenerach".
+    static func containerIssueCount(_ n: Int) -> String {
+        guard polish else { return "\(n) with container problems" }
+        return "\(n) " + plural(n, one: "z problemem w kontenerach", few: "z problemami w kontenerach", many: "z problemami w kontenerach")
+    }
+
     /// "1 startuje", "3 startują", "5 startuje".
     static func startingCount(_ n: Int) -> String {
         guard polish else { return "\(n) starting" }
@@ -166,6 +172,7 @@ struct MenuPanel: View {
         if s.total == 0 { return L.t("No servers yet", "Brak serwerów") }
         var parts = [L.t("\(s.running) of \(s.total) running", "\(s.running) z \(s.total) działa")]
         if s.crashed > 0 { parts.append(L.crashedCount(s.crashed)) }
+        if s.containerIssues > 0 { parts.append(L.containerIssueCount(s.containerIssues)) }
         if s.starting > 0 { parts.append(L.startingCount(s.starting)) }
         return parts.joined(separator: " · ")
     }
@@ -321,11 +328,15 @@ struct MenuPanel: View {
     private func row(_ v: Server) -> some View {
         let status = v.displayStatus
         let isHovered = hovered == v.name
+        let issues = store.containerIssues[v.name] ?? []
         return HStack(spacing: 9) {
             Lamp(status: status)
             VStack(alignment: .leading, spacing: 1) {
                 Text(v.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                Text(detail(v)).font(.system(size: 10.5)).foregroundStyle(status == "crashed" ? Color.red : Color.secondary).lineLimit(1)
+                Text(issues.isEmpty ? detail(v) : issues.map { "\($0.shortName) \($0.problem)" }.joined(separator: ", "))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(status == "crashed" || !issues.isEmpty ? Color.red : Color.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 6)
             if isHovered {

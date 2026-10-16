@@ -30,6 +30,7 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: make build
       - run: go vet ./...
+      - run: go test -race ./...
       - run: pnpm --dir web check:contrast
       - run: ./bin/portside version
 

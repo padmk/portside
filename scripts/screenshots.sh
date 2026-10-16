@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Regenerates design/screenshots/ from a throwaway demo: fake projects under a
 # temporary home directory (so paths read ~/code/acme/...), a daemon on :7990
-# and headless Chrome. Needs Google Chrome and Node 24; touches nothing else.
+# and headless Chrome. Needs Google Chrome and Node 24. With a running Docker
+# engine it also starts two small Compose projects, acme and studio
+# (postgres:17-alpine and redis:7-alpine, published on 127.0.0.1:55432 and
+# :56379), refusing to run when projects with those names exist, and removes
+# them, volumes included, on exit; it touches nothing else.
 #
 #   scripts/screenshots.sh                    # README screenshots in design/screenshots
 #   scripts/screenshots.sh --portfolio DIR    # light/dark pairs and the menu bar panel into DIR
@@ -103,14 +107,64 @@ port = 3106
 env = { DEMO_KIND = "docs", DEMO_NAME = "landing", DEMO_MEM = "120" }
 TOML
 
+# Compose projects for the containers views, when an engine is running: the
+# api's database and cache, and a studio database whose health check fails.
+# The docker CLI keeps the real Docker config, so it finds the active engine.
+export DOCKER_CONFIG="$REAL_HOME/.docker"
+unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
+DEMO_PROJECTS="acme:acme/api studio:studio/app"
+# compose_demo NAME DIR ARGS... runs Compose for one demo project only.
+compose_demo() { local name="$1" dir="$HOMEDIR/code/$2"; shift 2; docker compose -p "$name" -f "$dir/compose.yaml" --project-directory "$dir" "$@"; }
+DOCKER=0
+if docker info >/dev/null 2>&1; then
+  for entry in $DEMO_PROJECTS; do
+    if [ -n "$(docker ps -aq --filter "label=com.docker.compose.project=${entry%%:*}")" ]; then
+      echo "a Compose project named ${entry%%:*} already exists; the demo would reuse it, so stop" >&2
+      exit 1
+    fi
+  done
+  DOCKER=1
+  cat > "$HOMEDIR/code/acme/api/compose.yaml" <<'YAML'
+name: acme
+services:
+  db:
+    image: postgres:17-alpine
+    environment: { POSTGRES_PASSWORD: demo, POSTGRES_DB: acme }
+    ports: ["127.0.0.1:55432:5432"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 2s, retries: 15 }
+  cache:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:56379:6379"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 2s, retries: 15 }
+YAML
+  cat > "$HOMEDIR/code/studio/app/compose.yaml" <<'YAML'
+name: studio
+services:
+  db:
+    image: postgres:17-alpine
+    environment: { POSTGRES_PASSWORD: demo }
+    healthcheck: { test: ["CMD-SHELL", "psql -U postgres -d studio -c 'select 1'"], interval: 2s, retries: 2, start_period: 1s }
+YAML
+fi
+
 export HOME="$HOMEDIR" SHELL=/bin/bash PORTSIDE_CONFIG="$DEMO/portside.toml" PORTSIDE_STATE_DIR="$DEMO/state"
 cleanup() {
   # Demo app instances would start the demo daemon again, so they go first.
   pkill -f "$REPO/dist/macos/Portside.app/Contents/MacOS/Portside" 2>/dev/null || true
   "$PS" daemon stop >/dev/null 2>&1 || true
+  if [ "$DOCKER" = 1 ]; then
+    # Only projects whose containers all run from the demo directory.
+    for entry in $DEMO_PROJECTS; do
+      dirs="$(docker ps -aq --filter "label=com.docker.compose.project=${entry%%:*}" | xargs -r docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null | sort -u)"
+      case "$dirs" in "$DEMO"/*|"$(cd "$DEMO" && pwd -P)"/*) [ "$(printf '%s\n' "$dirs" | wc -l)" -eq 1 ] && compose_demo "${entry%%:*}" "${entry#*:}" down -v -t 0 >/dev/null 2>&1 || true ;; esac
+    done
+  fi
 }
 trap cleanup EXIT
 
+if [ "$DOCKER" = 1 ]; then
+  for entry in $DEMO_PROJECTS; do compose_demo "${entry%%:*}" "${entry#*:}" up -d >/dev/null 2>&1 || true; done
+fi
 "$PS" daemon start >/dev/null
 # The shop group and landing stay stopped, so every state is on screen.
 "$PS" up web api worker studio blog >/dev/null || true

@@ -2,7 +2,7 @@ import AppKit
 
 /// Menu bar icon: the tugboat from the app icon, with a status light on its mast.
 ///
-/// - something crashed: red light
+/// - something crashed, or a server's container needs attention: red light
 /// - something starting or stopping: amber light
 /// - something running: green light
 /// - nothing running: hollow light
@@ -16,7 +16,7 @@ enum StatusIcon {
     static func image(for s: Store.Summary) -> NSImage {
         let light: NSColor? = {
             if s.offline { return nil }
-            if s.crashed > 0 { return NSColor(srgbRed: 0.95, green: 0.25, blue: 0.22, alpha: 1) }
+            if s.crashed > 0 || s.containerIssues > 0 { return NSColor(srgbRed: 0.95, green: 0.25, blue: 0.22, alpha: 1) }
             if s.starting > 0 { return NSColor(srgbRed: 0.98, green: 0.65, blue: 0.15, alpha: 1) }
             if s.running > 0 { return NSColor(srgbRed: 0.20, green: 0.80, blue: 0.45, alpha: 1) }
             return nil
@@ -99,6 +99,7 @@ enum StatusIcon {
         if s.offline { return "\(Brand.name): daemon not running" }
         var parts = ["\(s.running) running"]
         if s.crashed > 0 { parts.append("\(s.crashed) crashed") }
+        if s.containerIssues > 0 { parts.append("\(s.containerIssues) with container problems") }
         if s.starting > 0 { parts.append("\(s.starting) starting") }
         return "\(Brand.name): " + parts.joined(separator: ", ")
     }

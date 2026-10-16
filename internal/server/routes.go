@@ -116,6 +116,7 @@ type ConfigInfo struct {
 
 func (s *Server) snapshot() State {
 	cfg := s.sup.Config()
+	views := s.sup.Snapshot(s.opt.Port)
 	return State{
 		Daemon: s.healthInfo(),
 		Config: ConfigInfo{
@@ -128,9 +129,9 @@ func (s *Server) snapshot() State {
 			Revision:    s.configRevision(),
 			Notify:      cfg.Notify,
 		},
-		Servers: s.sup.Snapshot(s.opt.Port),
+		Servers: views,
 		Groups:  cfg.Groups(),
-		Docker:  s.dockerState(),
+		Docker:  s.dockerState(views),
 	}
 }
 
@@ -648,7 +649,7 @@ func (s *Server) listeners(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	published := map[int]*ContainerRef{}
-	for _, c := range s.dockerState().Containers {
+	for _, c := range s.dockerState(nil).Containers {
 		for _, p := range c.Ports {
 			if p.Proto == "tcp" {
 				published[p.Public] = &ContainerRef{Name: c.Name, Service: c.Service, Server: c.Server}

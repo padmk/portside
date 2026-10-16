@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -84,6 +85,8 @@ type Container struct {
 	Service  string   `json:"service,omitempty" jsonschema:"compose service"`
 	Project  string   `json:"project,omitempty" jsonschema:"compose project"`
 	Server   string   `json:"server,omitempty" jsonschema:"the server it belongs to"`
+	Shared   []string `json:"sharedWith,omitempty" jsonschema:"other servers in the same directory that use it too"`
+	IssueFor []string `json:"issueFor,omitempty" jsonschema:"servers it needs attention for: unhealthy, restarting, or failed while the server ran"`
 	Image    string   `json:"image"`
 	State    string   `json:"state" jsonschema:"created, running, paused, restarting, removing, exited or dead"`
 	Status   string   `json:"status" jsonschema:"the engine's summary, e.g. Up 3 hours (healthy)"`
@@ -96,7 +99,7 @@ type Container struct {
 }
 
 func brief(c docker.Container) Container {
-	out := Container{Name: c.Name, Service: c.Service, Project: c.Project, Server: c.Server, Image: c.Image,
+	out := Container{Name: c.Name, Service: c.Service, Project: c.Project, Server: c.Server, Shared: c.SharedWith, IssueFor: c.IssueFor, Image: c.Image,
 		State: c.State, Status: c.Status, Health: c.Health, Failed: c.Failed, Restarts: c.Restarts, Dir: c.WorkingDir}
 	if c.State == "exited" || c.State == "dead" {
 		out.ExitCode = c.ExitCode
@@ -132,7 +135,7 @@ func (t *tools) state(ctx context.Context) (server.State, error) {
 func (t *tools) withContainers(ctx context.Context, s Server) Server {
 	if st, err := t.state(ctx); err == nil {
 		for _, c := range st.Docker.Containers {
-			if c.Server == s.Name {
+			if slices.Contains(c.Servers(), s.Name) {
 				s.Containers = append(s.Containers, brief(c))
 			}
 		}
@@ -200,8 +203,8 @@ func (t *tools) list(ctx context.Context, _ *mcp.CallToolRequest, in listIn) (*m
 	out := listOut{Dashboard: t.c.Base, Servers: []Server{}, Docker: engine(st.Docker)}
 	byServer := map[string][]Container{}
 	for _, c := range st.Docker.Containers {
-		if c.Server != "" {
-			byServer[c.Server] = append(byServer[c.Server], brief(c))
+		for _, name := range c.Servers() {
+			byServer[name] = append(byServer[name], brief(c))
 		}
 	}
 	want := ""
@@ -368,7 +371,7 @@ func (t *tools) containers(ctx context.Context, _ *mcp.CallToolRequest, in conta
 	}
 	out := containersOut{Containers: []Container{}, Docker: engine(st.Docker)}
 	for _, c := range st.Docker.Containers {
-		if in.Server == "" || c.Server == in.Server {
+		if in.Server == "" || slices.Contains(c.Servers(), in.Server) {
 			out.Containers = append(out.Containers, brief(c))
 		}
 	}

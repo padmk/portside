@@ -39,6 +39,7 @@ dev-ui:
 
 check:
 	go vet ./...
+	go test ./...
 	pnpm --dir web build
 
 ## snapshot: local release archives in ./dist (needs goreleaser)
@@ -49,8 +50,10 @@ snapshot:
 app:
 	scripts/build-macos-app.sh
 
-## app-install: build and install /Applications/Portside.app (old copy goes to the Trash)
+## app-install: build and install /Applications/Portside.app (old copy goes to the Trash); a running copy is quit and reopened
 app-install: app
-	@if [ -e /Applications/Portside.app ]; then osascript -e 'tell application "Finder" to delete POSIX file "/Applications/Portside.app"' >/dev/null; fi
-	ditto dist/macos/Portside.app /Applications/Portside.app
-	@echo "Installed /Applications/Portside.app"
+	@running=0; if pgrep -qf /Applications/Portside.app/Contents/MacOS/; then running=1; osascript -e 'quit app "Portside"' >/dev/null; sleep 1; fi; \
+	if [ -e /Applications/Portside.app ]; then osascript -e 'tell application "Finder" to delete POSIX file "/Applications/Portside.app"' >/dev/null; fi; \
+	ditto dist/macos/Portside.app /Applications/Portside.app; \
+	echo "Installed /Applications/Portside.app"; \
+	if [ $$running = 1 ]; then open /Applications/Portside.app; fi

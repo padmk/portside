@@ -58,6 +58,13 @@ const open = async (hash = '', wait = 2500) => {
   await sleep(wait)
 }
 
+// A server's Containers tab, with its first container's logs.
+const containersTab = async (name) => {
+  await open(`#/${name}`, 2500)
+  await evaluate(`[...document.querySelectorAll('[role=tab]')].find((b) => /Contain|Konten/.test(b.textContent))?.click()`)
+  await sleep(3000)
+}
+
 await send('Page.enable')
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
 const link = await signInLink('/')
@@ -84,6 +91,7 @@ if (set === 'portfolio') {
     await evaluate("localStorage.removeItem('portside.layout')")
     await open('#/web', 3500); await shot(`portside-detail${suffix}.png`)
     await open('#/blog', 3000); await shot(`portside-crashed${suffix}.png`)
+    await containersTab('api'); await shot(`portside-containers${suffix}.png`)
   }
 } else {
   await evaluate(`localStorage.setItem('portside.collapsed', '["shop"]')`)
@@ -95,6 +103,7 @@ if (set === 'portfolio') {
   await evaluate("localStorage.removeItem('portside.layout')")
   await theme('tokyo-night', 'dark'); await open('#/web', 3500); await shot('detail.png')
   await theme('catppuccin', 'light'); await open('#/blog', 3000); await shot('crashed.png')
+  await theme('nord', 'dark'); await containersTab('api'); await shot('containers.png')
 }
 
 await send('Browser.close').catch(() => {})

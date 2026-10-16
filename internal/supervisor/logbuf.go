@@ -264,7 +264,8 @@ func PlainLines(raw []byte, n int) []string {
 // removed, a carriage-return redraw (progress bar) collapsed to its final
 // state, and other control characters dropped.
 func PlainLine(l string) string {
-	l = strings.TrimSuffix(StripANSI(l), "\r")
+	// A program's CRLF reaches the terminal as CR CR LF.
+	l = strings.TrimRight(StripANSI(l), "\r")
 	if i := strings.LastIndex(l, "\r"); i >= 0 {
 		l = l[i+1:]
 	}

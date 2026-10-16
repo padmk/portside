@@ -31,22 +31,14 @@ export const isRunning = (c: ContainerView) => c.state === 'running' || c.state 
 
 /** The containers that belong to a server. */
 export const containersOf = (docker: DockerState | undefined, server: string) =>
-  docker?.containers.filter((c) => c.server === server) ?? []
+  docker?.containers.filter((c) => c.server === server || c.sharedWith?.includes(server)) ?? []
 
 /**
- * Containers that need attention: unhealthy or restarting ones, and while the
- * server runs, ones that failed since it started.
+ * Containers that need attention for a server (unhealthy, restarting, or
+ * failed while it ran); the daemon decides.
  */
-export function containerIssues(v: ServerView, containers: ContainerView[]): ContainerView[] {
-  const alive = v.status === 'running' || v.status === 'starting'
-  const since = v.startedAt ? Date.parse(v.startedAt) : 0
-  return containers.filter((c) => {
-    if (c.state === 'running') return c.health === 'unhealthy'
-    if (c.state === 'restarting') return true
-    if (!alive || !failed(c)) return false
-    return !c.finishedAt || Date.parse(c.finishedAt) >= since
-  })
-}
+export const containerIssues = (v: ServerView, containers: ContainerView[]): ContainerView[] =>
+  containers.filter((c) => c.issueFor?.includes(v.name))
 
 /** A server whose command runs containers, so the engine being down matters to it. */
 export const usesDocker = (v: ServerView) => /\b(docker|docker-compose|podman)\b/.test(v.cmd)

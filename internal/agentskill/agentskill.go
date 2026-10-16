@@ -108,6 +108,28 @@ func Install(path, content string, force bool) (bool, error) {
 	return true, nil
 }
 
+// Installed states of a skill file.
+const (
+	Missing  = "missing"
+	Current  = "current"
+	Outdated = "outdated"
+	Foreign  = "foreign" // a file with this name this package did not write
+)
+
+// State tells whether path holds content.
+func State(path, content string) string {
+	old, err := os.ReadFile(path)
+	switch {
+	case err != nil:
+		return Missing
+	case string(old) == content:
+		return Current
+	case strings.Contains(string(old), marker):
+		return Outdated
+	}
+	return Foreign
+}
+
 // Refresh rewrites installed copies that are out of date. Agents without
 // the skill installed are left alone.
 func Refresh(port int, cfgPath string) error {

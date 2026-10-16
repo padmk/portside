@@ -8,6 +8,32 @@ struct DaemonState: Decodable {
     let config: ConfigInfo
     let servers: [Server]
     let groups: [String]?
+    let docker: DockerState?
+}
+
+struct DockerState: Decodable {
+    let status: String
+    let containers: [Container]?
+}
+
+struct Container: Decodable, Hashable {
+    let name: String
+    let service: String?
+    let state: String
+    let health: String?
+    let failed: Bool?
+    /// Servers this container needs attention for; the daemon decides.
+    let issueFor: [String]?
+
+    /// The compose service it runs, else its name.
+    var shortName: String { service ?? name }
+
+    /// What is wrong with it, in a word.
+    var problem: String {
+        if state == "restarting" { return L.t("restarting", "restartuje się") }
+        if state == "running" && health == "unhealthy" { return L.t("unhealthy", "niesprawny") }
+        return L.t("crashed", "padł")
+    }
 }
 
 struct Health: Decodable {

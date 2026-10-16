@@ -15,6 +15,8 @@ final class Store {
     private(set) var connection: Connection = .connecting
     private(set) var servers: [Server] = []
     private(set) var groups: [String] = []
+    /// Containers that need attention, by server.
+    private(set) var containerIssues: [String: [Container]] = [:]
     private(set) var configError: String?
     private(set) var configPath: String?
     /// Mirrors the config's notify setting.
@@ -41,12 +43,14 @@ final class Store {
         var starting = 0
         var crashed = 0
         var external = 0
+        /// Servers with a container that needs attention.
+        var containerIssues = 0
         var total = 0
         var offline = false
     }
 
     var summary: Summary {
-        var s = Summary(total: servers.count)
+        var s = Summary(containerIssues: containerIssues.count, total: servers.count)
         if case .offline = connection { s.offline = true }
         for v in servers {
             switch v.displayStatus {
@@ -130,6 +134,11 @@ final class Store {
         notifyOnCrash = state.config.notify ?? true
         groups = state.groups ?? []
         servers = state.servers
+        var issues: [String: [Container]] = [:]
+        for c in state.docker?.containers ?? [] {
+            for name in c.issueFor ?? [] { issues[name, default: []].append(c) }
+        }
+        containerIssues = issues
         for v in state.servers {
             let before = previous[v.name]
             if v.status == "crashed", let before, before != "crashed", before != "stopped", notifyOnCrash {

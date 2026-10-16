@@ -32,7 +32,7 @@ func cmdContainers(e *env, args []string) error {
 	d := st.Docker
 	shown := d.Containers[:0]
 	for _, c := range d.Containers {
-		if len(names) > 0 && !containsAny(names, c.Server, c.Project) {
+		if len(names) > 0 && !containsAny(names, append(c.Servers(), c.Project)...) {
 			continue
 		}
 		c.CPUHistory, c.MemHistory = nil, nil

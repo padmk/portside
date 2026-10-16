@@ -220,7 +220,8 @@ type event struct {
 	Type   string `json:"Type"`
 	Action string `json:"Action"`
 	Actor  struct {
-		ID string `json:"ID"`
+		ID         string            `json:"ID"`
+		Attributes map[string]string `json:"Attributes"`
 	} `json:"Actor"`
 }
 

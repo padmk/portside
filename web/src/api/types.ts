@@ -122,6 +122,10 @@ export interface ContainerView {
   memHistory?: number[]
   /** The server whose directory is this container's compose project directory. */
   server?: string
+  /** Other servers in the same directory, which use this container too. */
+  sharedWith?: string[]
+  /** Servers this container needs attention for. */
+  issueFor?: string[]
   job?: ContainerJob
 }
 

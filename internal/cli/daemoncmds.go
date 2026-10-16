@@ -15,8 +15,10 @@ import (
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/daemon"
+	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
+	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/service"
 )
 
@@ -180,6 +182,15 @@ func cmdDoctor(e *env, args []string) error {
 	c := client.New(e.port())
 	if h, err := c.Ping(e.ctx); err == nil {
 		ok("daemon running (pid %d, %s) at %s", h.PID, h.Version, c.Base)
+		var st server.State
+		if err := c.Do(e.ctx, http.MethodGet, "/api/state", nil, &st); err == nil {
+			switch d := st.Docker; {
+			case d.Status == docker.Ready:
+				ok("container engine %s %s on %s", d.Engine, d.Version, d.Host)
+			case d.Error != "":
+				fmt.Fprintf(e.out, "%s container engine unavailable: %s\n", e.paint(dim, "•"), d.Error)
+			}
+		}
 	} else if ports.Listening(e.port()) {
 		bad("port %d is taken by another program; set `port` in the config", e.port())
 	} else {
@@ -204,6 +215,7 @@ func cmdDoctor(e *env, args []string) error {
 	if sh := os.Getenv("SHELL"); sh != "" && strings.HasSuffix(sh, "fish") {
 		fmt.Fprintf(e.out, "%s commands run with bash; your fish PATH is imported from a login shell\n", e.paint(dim, "•"))
 	}
+	doctorAgents(e, ok, warn)
 	if problems == 0 {
 		fmt.Fprintln(e.out, "\nEverything looks good.")
 		return nil

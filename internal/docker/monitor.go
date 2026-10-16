@@ -56,7 +56,8 @@ type Container struct {
 	ExitCode   *int       `json:"exitCode,omitempty"`
 	OOMKilled  bool       `json:"oomKilled,omitempty"`
 	// Failed marks an exited container that failed rather than finished or
-	// was stopped on request, and a dead one.
+	// was stopped on request (including a signal that stop sent while this
+	// monitor watched), and a dead one.
 	Failed     bool      `json:"failed,omitempty"`
 	Restarts   int       `json:"restarts,omitempty"`
 	Ports      []Port    `json:"ports,omitempty"`
@@ -68,11 +69,24 @@ type Container struct {
 	TTY        bool      `json:"-"`
 	// Server is the configured server this container belongs to; the HTTP
 	// layer fills it in.
-	Server string   `json:"server,omitempty"`
-	Job    *JobView `json:"job,omitempty"`
+	Server string `json:"server,omitempty"`
+	// SharedWith are the other servers in the same directory.
+	SharedWith []string `json:"sharedWith,omitempty"`
+	// IssueFor are the servers this container needs attention for; the
+	// HTTP layer decides.
+	IssueFor []string `json:"issueFor,omitempty"`
+	Job      *JobView `json:"job,omitempty"`
 
 	configFiles []string
 	envFiles    []string
+}
+
+// Servers are the servers that use the container: its owner first.
+func (c *Container) Servers() []string {
+	if c.Server == "" {
+		return nil
+	}
+	return append([]string{c.Server}, c.SharedWith...)
 }
 
 // Compose reports whether the container belongs to a compose service, which
@@ -127,6 +141,7 @@ type Monitor struct {
 	startErr  string    // why the last start failed; outlives reconnect attempts
 	entries   map[string]*entry
 	sampled   bool            // usage samples arrived since the last change
+	killed    map[string]bool // containers signalled to stop since they last started
 	jobs      map[string]*job // by container name
 	subs      map[chan struct{}]struct{}
 	kick      chan struct{}
@@ -142,6 +157,7 @@ func NewMonitor(host Host, interval time.Duration, custom func() string) *Monito
 		status:   Connecting,
 		entries:  map[string]*entry{},
 		jobs:     map[string]*job{},
+		killed:   map[string]bool{},
 		subs:     map[chan struct{}]struct{}{},
 		kick:     make(chan struct{}, 1),
 	}
@@ -369,6 +385,19 @@ func (m *Monitor) session(ctx context.Context, c *Client) {
 			case strings.HasPrefix(ev.Action, "exec_"), ev.Action == "top", ev.Action == "attach", ev.Action == "resize":
 				// Shells and inspections do not change what is shown.
 			default:
+				// docker stop, compose stop and docker kill signal before the
+				// container dies: its exit code then reports the signal, not
+				// a failure.
+				switch {
+				case ev.Action == "kill" && stopSignal(ev.Actor.Attributes["signal"]):
+					m.mu.Lock()
+					m.killed[ev.Actor.ID] = true
+					m.mu.Unlock()
+				case ev.Action == "start", ev.Action == "destroy":
+					m.mu.Lock()
+					delete(m.killed, ev.Actor.ID)
+					m.mu.Unlock()
+				}
 				mark()
 			}
 		})
@@ -457,6 +486,9 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 			continue
 		}
 		next := build(it, infos[i])
+		if m.killed[next.ID] && !next.OOMKilled {
+			next.Failed = false
+		}
 		seen[next.ID] = true
 		e := m.entries[next.ID]
 		if e == nil {
@@ -485,6 +517,7 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 				e.cancel()
 			}
 			delete(m.entries, id)
+			delete(m.killed, id)
 		}
 	}
 	m.changedLocked()
@@ -546,6 +579,16 @@ func (m *Monitor) stopStats() {
 	}
 }
 
+// stopSignal reports whether a kill event's signal (a number or a name,
+// as engines differ) asks the container to stop rather than, say, reload.
+func stopSignal(sig string) bool {
+	switch strings.TrimPrefix(strings.ToUpper(sig), "SIG") {
+	case "2", "INT", "3", "QUIT", "9", "KILL", "15", "TERM":
+		return true
+	}
+	return false
+}
+
 // failed reports whether a container ended in failure. Exit codes 0, 130
 // (Ctrl-C) and 143 (SIGTERM) mean it finished or was stopped on request.
 func failed(c Container) bool {
@@ -600,6 +643,11 @@ func build(it apiContainer, in *Inspect) Container {
 		}
 	}
 	c.Failed = failed(c)
+	// With these policies the engine restarts a container that fails, so
+	// one that stays exited without an engine error was stopped on purpose.
+	if p := in.HostConfig.RestartPolicy.Name; c.State == "exited" && !c.OOMKilled && in.State.Error == "" && (p == "always" || p == "unless-stopped") {
+		c.Failed = false
+	}
 	c.configFiles = splitList(labels[labelConfigFiles])
 	c.envFiles = splitList(labels[labelEnvFiles])
 	seen := map[string]bool{}

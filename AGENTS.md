@@ -5,7 +5,7 @@ Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded Reac
 ## Commands
 
 - `make build`: dashboard (`pnpm --dir web build` into `web/dist`) and `bin/portside`.
-- `go vet ./...` and `pnpm --dir web build` are the checks; there is no test suite. `pnpm --dir web check:contrast` verifies WCAG AA for every theme.
+- `make check` runs the checks: `go vet ./...`, `go test ./...` and `pnpm --dir web build`; CI adds `-race`. Tests cover config edits, process-group termination, log buffering and log replies, and the container failure and issue rules; they need no Docker, network or real config. `pnpm --dir web check:contrast` verifies WCAG AA for every theme.
 - `make dev-daemon` (isolated daemon on :7980, config and state in `.dev/`), `make dev-open` (sign the browser in), `make dev-ui` (Vite on http://127.0.0.1:5173 proxying `/api` and `/auth`). The API needs the token in `<state>/auth-token`; browsers get a session cookie through `portside open`.
 - Try changes against an isolated instance: `PORTSIDE_CONFIG=/tmp/x/portside.toml PORTSIDE_STATE_DIR=/tmp/x/state` with `port = <free port>` in that config. The user's real daemon runs on :7878; do not stop it or its servers.
 

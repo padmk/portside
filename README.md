@@ -16,7 +16,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 
 ## Features
 
-- **A menu bar app on macOS.** The status icon shows at a glance whether everything runs, something is starting or something crashed. Its panel lists every server with start, stop, restart, open and logs, plus group actions; the dashboard opens in its own window. Crashes arrive as notifications with **Restart** and **Show Logs** buttons.
+- **A menu bar app on macOS.** The status icon shows at a glance whether everything runs, something is starting, or a server or one of its containers needs attention. Its panel lists every server with start, stop, restart, open and logs, plus group actions; the dashboard opens in its own window. Crashes arrive as notifications with **Restart** and **Show Logs** buttons.
 
 - **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop` starts web, api and worker) and dependencies (`api` waits for `db` to accept connections).
 - **Stable ports and clean URLs.** Each server keeps its port. Every server is also reachable at `http://<name>.localhost:7878` through a built-in proxy that handles WebSockets and hot reload.
@@ -30,7 +30,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **Themes.** Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme.
 - **Project discovery.** `portside scan` finds Next.js, Vite, Astro, Nuxt, Remix, Django, Rails and Compose projects and proposes commands with the right port flags.
 - **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes servers, containers and searchable logs to Claude Code, Codex and other MCP clients, and `portside skill install` teaches agents how to use them.
-- **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with OrbStack, Docker Desktop, Colima, Rancher Desktop or a Linux daemon. Compose containers appear next to the server whose directory is their project directory, including ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. A server warns when one of its containers is unhealthy, restarting or crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate** and **Rebuild and recreate**. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
+- **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with OrbStack, Docker Desktop, Colima, Rancher Desktop or a Linux daemon. Compose containers appear next to the server whose directory is their project directory, including ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. Servers that share a directory share its containers. A server warns when one of its containers is unhealthy, restarting or crashed while it runs; a container stopped on purpose (a stop signal from `docker stop`, `compose stop` or `docker kill`, or an exit the engine did not restart under an `always` or `unless-stopped` policy without an error) does not count as crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate** and **Rebuild and recreate**. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
 - **Ports overview.** Every listening TCP port on the machine with its process and working directory, the container a published port belongs to, and a safe way to kill strays.
 
 <table>
@@ -40,6 +40,9 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
   </tr>
   <tr>
     <td colspan="2"><img src="design/screenshots/list.png" alt="The list layout with every server grouped by project (Everforest Light)"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="design/screenshots/containers.png" alt="A server's Compose containers with their state, usage and live logs (Nord)"></td>
   </tr>
 </table>
 
@@ -66,7 +69,7 @@ make install            # builds the dashboard and installs ~/.local/bin/portsid
 make app-install        # macOS: builds Portside.app and installs it in /Applications
 ```
 
-To update an installed app, quit it, run `make app-install`, reopen it and run `portside daemon restart` so the daemon runs the new binary. Servers that were running are restored.
+To update an installed app, run `make app-install` (it quits a running copy and reopens it) and then `portside daemon restart` so the daemon runs the new binary. Servers that were running are restored.
 
 ## Quick start
 
@@ -178,7 +181,7 @@ portside doctor                          check the setup
 Register the MCP server once:
 
 ```sh
-claude mcp add portside -- portside mcp
+claude mcp add --scope user portside -- portside mcp
 codex mcp add portside -- portside mcp
 ```
 
@@ -190,7 +193,7 @@ Install the agent skill too:
 portside skill install
 ```
 
-It writes `SKILL.md` to `~/.claude/skills/portside/` and `~/.codex/skills/portside/` (once when one links to the other) for the agents set up on the account. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file.
+It writes `SKILL.md` to `~/.claude/skills/portside/` and `~/.codex/skills/portside/` (once when one links to the other) for the agents set up on the account. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file, and `portside doctor` reports, for each agent on the account, whether it has the MCP server and the current skill, with the command that fixes it.
 
 ## How it works
 

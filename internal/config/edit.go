@@ -500,8 +500,9 @@ func RemoveServer(path, name string) error {
 			return nil, fmt.Errorf("server %q not found in %s", name, path)
 		}
 		out := append(append([]string{}, d.lines[:start]...), d.lines[end:]...)
-		// Collapse the double blank line left behind.
-		if start > 0 && start < len(out) && strings.TrimSpace(out[start-1]) == "" && strings.TrimSpace(out[start]) == "" {
+		// Collapse the double blank line left behind, or the blank line
+		// that would now open the file.
+		if start < len(out) && strings.TrimSpace(out[start]) == "" && (start == 0 || strings.TrimSpace(out[start-1]) == "") {
 			out = append(out[:start], out[start+1:]...)
 		}
 		return out, nil

@@ -1,0 +1,556 @@
+package config
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// The fixture is built from pieces so that expected results can be composed
+// from the parts an edit must leave alone.
+const (
+	fixHead = "# top of file comment\n\nroot = \"/tmp\"\nport = 7999 # daemon port\n\n"
+	fixWebC = "# web comment\n"
+	fixWeb  = "[servers.web]\n# inside comment\ndir = \"web\" # trailing\ncmd = \"npm run dev\"\n"
+	fixRest = "# between tables\n\n# api comment\n[servers.api]\ncmd = \"go run .\"\n\n[other]\nx = 1 # keep\n"
+	fixture = fixHead + fixWebC + fixWeb + fixRest
+)
+
+func newConfig(t *testing.T, text string) string {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "portside.toml")
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func readConfig(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func mustLoad(t *testing.T, path string) *Config {
+	t.Helper()
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("edited file does not load: %v\n%s", err, readConfig(t, path))
+	}
+	return cfg
+}
+
+func wantText(t *testing.T, path, want string) {
+	t.Helper()
+	if got := readConfig(t, path); got != want {
+		t.Errorf("file text differs\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+	mustLoad(t, path)
+}
+
+func wantRejected(t *testing.T, path, before string, err error) {
+	t.Helper()
+	if err == nil {
+		t.Error("edit was accepted, want an error")
+	}
+	if got := readConfig(t, path); got != before {
+		t.Errorf("rejected edit changed the file\n--- got ---\n%s\n--- want ---\n%s", got, before)
+	}
+}
+
+func intp(n int) *int { return &n }
+
+func TestAddServer(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := AddServer(path, Spec{Name: "db", Cmd: "postgres", Port: intp(5432), Comment: "database"}); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, fixture+"\n# database\n[servers.db]\ncmd = \"postgres\"\nport = 5432\n")
+	if s, ok := mustLoad(t, path).Server("db"); !ok || s.Port != 5432 {
+		t.Errorf("added server = %+v, %v", s, ok)
+	}
+}
+
+func TestAddServerToEmptyFile(t *testing.T) {
+	path := newConfig(t, "")
+	if err := AddServer(path, Spec{Name: "web", Cmd: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.web]\ncmd = \"x\"\n")
+}
+
+func TestAddServerAddsFinalNewline(t *testing.T) {
+	path := newConfig(t, "[servers.a]\ncmd = \"a\"")
+	if err := AddServer(path, Spec{Name: "b", Cmd: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.a]\ncmd = \"a\"\n\n[servers.b]\ncmd = \"b\"\n")
+}
+
+func TestAddServerRejected(t *testing.T) {
+	cases := map[string]Spec{
+		"duplicate":   {Name: "web", Cmd: "x"},
+		"bad name":    {Name: "Web App", Cmd: "x"},
+		"empty cmd":   {Name: "new", Cmd: " "},
+		"bad restart": {Name: "new", Cmd: "x", Restart: "sometimes"},
+		"daemon port": {Name: "new", Cmd: "x", Port: intp(7999)},
+		"unknown dep": {Name: "new", Cmd: "x", DependsOn: []string{"ghost"}},
+		"self cycle":  {Name: "new", Cmd: "x", DependsOn: []string{"new"}},
+	}
+	for name, spec := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := newConfig(t, fixture)
+			wantRejected(t, path, fixture, AddServer(path, spec))
+		})
+	}
+}
+
+func TestUpdateServerKeepsCommentAboveAndNeighbours(t *testing.T) {
+	path := newConfig(t, fixture)
+	err := UpdateServer(path, "web", Spec{Name: "web", Dir: "web", Cmd: "pnpm dev", Port: intp(3100)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fixHead + fixWebC + "[servers.web]\ndir = \"web\"\ncmd = \"pnpm dev\"\nport = 3100\n" + fixRest
+	wantText(t, path, want)
+}
+
+func TestUpdateServerNewComment(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := UpdateServer(path, "web", Spec{Name: "web", Cmd: "x", Comment: "fresh"}); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, fixHead+"# fresh\n[servers.web]\ncmd = \"x\"\n"+fixRest)
+}
+
+func TestUpdateServerLastTable(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := UpdateServer(path, "api", Spec{Name: "api", Cmd: "go run ./cmd"}); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(fixture, "[servers.api]\ncmd = \"go run .\"\n", "[servers.api]\ncmd = \"go run ./cmd\"\n", 1)
+	wantText(t, path, want)
+}
+
+func TestUpdateServerRenameFixesDependencies(t *testing.T) {
+	text := `[servers.web]
+cmd = "web"
+
+[servers.db]
+cmd = "db"
+
+[servers.api]
+cmd = "web"
+depends_on = [
+  "web", # primary
+  'db',
+]
+
+[servers.worker]
+cmd = "w"
+depends_on = ["web-ui", "web"]
+
+[servers.web-ui]
+cmd = "ui"
+`
+	path := newConfig(t, text)
+	if err := UpdateServer(path, "web", Spec{Name: "site", Cmd: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(text, "[servers.web]\n", "[servers.site]\n", 1)
+	want = strings.Replace(want, "  \"web\", # primary", "  \"site\", # primary", 1)
+	want = strings.Replace(want, `["web-ui", "web"]`, `["web-ui", "site"]`, 1)
+	wantText(t, path, want)
+	cfg := mustLoad(t, path)
+	if api, _ := cfg.Server("api"); api.Cmd != "web" || len(api.DependsOn) != 2 || api.DependsOn[0] != "site" {
+		t.Errorf("api = %+v", api)
+	}
+}
+
+func TestUpdateServerRejected(t *testing.T) {
+	cases := map[string]struct {
+		name string
+		spec Spec
+	}{
+		"missing":     {"ghost", Spec{Name: "ghost", Cmd: "x"}},
+		"rename dup":  {"web", Spec{Name: "api", Cmd: "x"}},
+		"bad name":    {"web", Spec{Name: "Web", Cmd: "x"}},
+		"empty cmd":   {"web", Spec{Name: "web"}},
+		"bad restart": {"web", Spec{Name: "web", Cmd: "x", Restart: "x"}},
+		"self cycle":  {"web", Spec{Name: "web", Cmd: "x", DependsOn: []string{"web"}}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := newConfig(t, fixture)
+			wantRejected(t, path, fixture, UpdateServer(path, c.name, c.spec))
+		})
+	}
+}
+
+func TestRemoveServer(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := RemoveServer(path, "web"); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, fixHead+fixRest)
+	if _, ok := mustLoad(t, path).Server("web"); ok {
+		t.Error("web still loaded")
+	}
+}
+
+func TestRemoveLastServerCollapsesBlankLine(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := RemoveServer(path, "api"); err != nil {
+		t.Fatal(err)
+	}
+	want := fixHead + fixWebC + fixWeb + "# between tables\n\n[other]\nx = 1 # keep\n"
+	wantText(t, path, want)
+}
+
+func TestRemoveServerRejected(t *testing.T) {
+	path := newConfig(t, fixture)
+	wantRejected(t, path, fixture, RemoveServer(path, "ghost"))
+
+	deps := "[servers.web]\ncmd = \"x\"\n\n[servers.api]\ncmd = \"y\"\ndepends_on = [\"web\"]\n"
+	path = newConfig(t, deps)
+	wantRejected(t, path, deps, RemoveServer(path, "web"))
+}
+
+func TestSetKeyReplacesAndInserts(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := SetKey(path, "web", "cmd", `"pnpm dev"`); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(fixture, "cmd = \"npm run dev\"\n", "cmd = \"pnpm dev\"\n", 1)
+	wantText(t, path, want)
+
+	if err := SetKey(path, "web", "port", "3100"); err != nil {
+		t.Fatal(err)
+	}
+	want = strings.Replace(want, "cmd = \"pnpm dev\"\n", "cmd = \"pnpm dev\"\nport = 3100\n", 1)
+	wantText(t, path, want)
+	if s, _ := mustLoad(t, path).Server("web"); s.Port != 3100 || s.PortAuto {
+		t.Errorf("web port = %d (auto %v)", s.Port, s.PortAuto)
+	}
+}
+
+func TestSetKeyIgnoresOtherTablesAndPrefixes(t *testing.T) {
+	text := "[servers.a]\ncmd = \"a\"\nportal = 1\n\n[servers.b]\ncmd = \"b\"\nport = 3500\n"
+	path := newConfig(t, text)
+	if err := SetKey(path, "a", "port", "3400"); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.a]\ncmd = \"a\"\nportal = 1\nport = 3400\n\n[servers.b]\ncmd = \"b\"\nport = 3500\n")
+}
+
+func TestSetKeyBeforeSubTable(t *testing.T) {
+	text := "[servers.web]\ncmd = \"x\"\n\n[servers.web.env]\nport = \"keep\"\nA = \"1\"\n\n[servers.api]\ncmd = \"y\"\n"
+	path := newConfig(t, text)
+	if err := SetKey(path, "web", "port", "3100"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := mustLoad(t, path)
+	web, _ := cfg.Server("web")
+	if web.Port != 3100 || web.Env["port"] != "keep" || web.Env["A"] != "1" {
+		t.Errorf("web = %+v", web)
+	}
+	if got := readConfig(t, path); !strings.Contains(got, "port = 3100\n[servers.web.env]") {
+		t.Errorf("key was not placed before the sub-table:\n%s", got)
+	}
+}
+
+func TestSetKeyRejected(t *testing.T) {
+	cases := map[string]struct{ name, key, lit string }{
+		"missing server": {"ghost", "port", "1"},
+		"not toml":       {"web", "port", "not toml"},
+		"bad value":      {"web", "restart", `"sometimes"`},
+		"bad port":       {"web", "port", "99999"},
+		"two lines":      {"web", "port", "1\n[servers.evil]"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := newConfig(t, fixture)
+			wantRejected(t, path, fixture, SetKey(path, c.name, c.key, c.lit))
+		})
+	}
+}
+
+func TestSetEnabledTogglesOnlyThatLine(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := SetEnabled(path, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	off := strings.Replace(fixture, "cmd = \"npm run dev\"\n", "cmd = \"npm run dev\"\nenabled = false\n", 1)
+	wantText(t, path, off)
+	if s, _ := mustLoad(t, path).Server("web"); s.Enabled {
+		t.Error("web still enabled")
+	}
+
+	if err := SetEnabled(path, "web", true); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, strings.Replace(off, "enabled = false", "enabled = true", 1))
+	if s, _ := mustLoad(t, path).Server("web"); !s.Enabled {
+		t.Error("web not re-enabled")
+	}
+}
+
+func TestSetEnabledMissingServer(t *testing.T) {
+	path := newConfig(t, fixture)
+	wantRejected(t, path, fixture, SetEnabled(path, "ghost", false))
+}
+
+func TestSetTopLevelReplace(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := SetTopLevel(path, "port", "7990"); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, strings.Replace(fixture, "port = 7999 # daemon port\n", "port = 7990\n", 1))
+	if mustLoad(t, path).Port != 7990 {
+		t.Error("port not updated")
+	}
+}
+
+func TestSetTopLevelInsertKeepsTableComment(t *testing.T) {
+	path := newConfig(t, fixture)
+	if err := SetTopLevel(path, "editor", `"vim"`); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, fixHead+"editor = \"vim\"\n\n"+fixWebC+fixWeb+fixRest)
+	if mustLoad(t, path).Editor != "vim" {
+		t.Error("editor not set")
+	}
+}
+
+func TestSetTopLevelDoesNotTouchTableKeys(t *testing.T) {
+	text := "[servers.web]\ncmd = \"x\"\nport = 3100\n"
+	path := newConfig(t, text)
+	if err := SetTopLevel(path, "port", "7990"); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "port = 7990\n\n"+text)
+	if s, _ := mustLoad(t, path).Server("web"); s.Port != 3100 {
+		t.Errorf("web port = %d", s.Port)
+	}
+}
+
+func TestSetTopLevelWithoutTables(t *testing.T) {
+	path := newConfig(t, "root = \"/tmp\"\n")
+	if err := SetTopLevel(path, "editor", `"vim"`); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "root = \"/tmp\"\n\neditor = \"vim\"\n")
+}
+
+func TestSetTopLevelRejected(t *testing.T) {
+	path := newConfig(t, fixture)
+	wantRejected(t, path, fixture, SetTopLevel(path, "port", "nope"))
+}
+
+// A command written as a multi-line string may contain text that looks like
+// tables, comments and keys; none of it is structure.
+const heredoc = "[servers.web]\ncmd = \"\"\"\necho hi\n[servers.ghost]\n# not a comment\nenabled = false\nport = 1\n\"\"\"\nport = 3100\n\n[servers.api]\ncmd = \"go run .\"\n"
+
+func TestMultilineStringIsNotStructure(t *testing.T) {
+	path := newConfig(t, heredoc)
+	if err := SetEnabled(path, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, strings.Replace(heredoc, "port = 3100\n", "port = 3100\nenabled = false\n", 1))
+	cfg := mustLoad(t, path)
+	web, _ := cfg.Server("web")
+	if web.Enabled || !strings.Contains(web.Cmd, "[servers.ghost]") || web.Port != 3100 {
+		t.Errorf("web = %+v", web)
+	}
+	if _, ok := cfg.Server("ghost"); ok || len(cfg.Servers) != 2 {
+		t.Errorf("servers = %+v", cfg.Servers)
+	}
+
+	if err := SetKey(path, "web", "port", "3200"); err != nil {
+		t.Fatal(err)
+	}
+	if web, _ := mustLoad(t, path).Server("web"); web.Port != 3200 || !strings.Contains(web.Cmd, "port = 1") {
+		t.Errorf("web = %+v", web)
+	}
+}
+
+func TestRemoveServerWithMultilineString(t *testing.T) {
+	path := newConfig(t, heredoc)
+	if err := RemoveServer(path, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readConfig(t, path); strings.TrimLeft(got, "\n") != "[servers.api]\ncmd = \"go run .\"\n" {
+		t.Errorf("file text differs:\n%s", got)
+	}
+	mustLoad(t, path)
+}
+
+func TestRemoveFirstServerLeavesNoLeadingBlankLine(t *testing.T) {
+	path := newConfig(t, heredoc)
+	if err := RemoveServer(path, "web"); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.api]\ncmd = \"go run .\"\n")
+}
+
+func TestUpdateServerWithMultilineString(t *testing.T) {
+	path := newConfig(t, heredoc)
+	if err := UpdateServer(path, "web", Spec{Name: "web", Cmd: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.web]\ncmd = \"x\"\n\n[servers.api]\ncmd = \"go run .\"\n")
+}
+
+func TestReplaceIfUnchanged(t *testing.T) {
+	path := newConfig(t, fixture)
+	next := fixture + "\n[servers.db]\ncmd = \"postgres\"\n"
+	if err := ReplaceIfUnchanged(path, []byte(next), Revision([]byte(fixture))); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, next)
+}
+
+func TestReplaceIfUnchangedStale(t *testing.T) {
+	path := newConfig(t, fixture)
+	stale := Revision([]byte(fixture))
+	if err := SetEnabled(path, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	before := readConfig(t, path)
+	err := ReplaceIfUnchanged(path, []byte(fixture), stale)
+	if !errors.Is(err, ErrConflict) {
+		t.Errorf("err = %v, want ErrConflict", err)
+	}
+	wantRejected(t, path, before, err)
+}
+
+func TestReplaceIfUnchangedInvalidText(t *testing.T) {
+	path := newConfig(t, fixture)
+	err := ReplaceIfUnchanged(path, []byte("[servers.a]\n"), Revision([]byte(fixture)))
+	if errors.Is(err, ErrConflict) {
+		t.Errorf("err = %v, want a parse error", err)
+	}
+	wantRejected(t, path, fixture, err)
+}
+
+func TestRevision(t *testing.T) {
+	a, b := Revision([]byte("a")), Revision([]byte("b"))
+	if a == b || a != Revision([]byte("a")) || a == "" {
+		t.Errorf("revisions: %q %q", a, b)
+	}
+}
+
+func TestEditFollowsSymlinkAndKeepsMode(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	target := filepath.Join(dir, "dotfiles", "portside.toml")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "portside.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetEnabled(link, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("config is no longer a symlink: %v %v", fi, err)
+	}
+	if got := readConfig(t, target); !strings.Contains(got, "enabled = false") {
+		t.Errorf("target not edited:\n%s", got)
+	}
+	if fi, err := os.Stat(target); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v %v, want 0600", fi.Mode().Perm(), err)
+	}
+}
+
+func TestQuoteRoundTrip(t *testing.T) {
+	cases := []string{
+		"plain",
+		`with "quotes"`,
+		`back\slash and \n literal`,
+		"line\nbreak\ttab\rreturn",
+		"control\x01\x1f\x7f",
+		"unicode é 世 \U0001f600",
+		"hash # and = and [brackets]",
+		"'single'",
+		`"""triple"""`,
+		"trailing backslash\\",
+	}
+	for _, in := range cases {
+		text := "[servers.a]\ncmd = " + Quote(in) + "\n"
+		cfg, err := Parse("/tmp/x.toml", []byte(text))
+		if err != nil {
+			t.Errorf("Quote(%q) = %s, rejected: %v", in, Quote(in), err)
+			continue
+		}
+		if got := cfg.Servers[0].Cmd; got != in {
+			t.Errorf("Quote round trip: got %q, want %q", got, in)
+		}
+	}
+}
+
+func TestQuoteEmpty(t *testing.T) {
+	if got := Quote(""); got != `""` {
+		t.Errorf("Quote(\"\") = %s", got)
+	}
+}
+
+func TestQuoteInvalidUTF8(t *testing.T) {
+	if got, want := Quote("a\xffb"), "\"a�b\""; got != want {
+		t.Errorf("Quote = %q, want %q", got, want)
+	}
+	text := "[servers.a]\ncmd = " + Quote("a\xffb") + "\n"
+	cfg, err := Parse("/tmp/x.toml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Servers[0].Cmd; got != "a�b" {
+		t.Errorf("cmd = %q", got)
+	}
+}
+
+func TestRenderRoundTrip(t *testing.T) {
+	off := false
+	spec := Spec{
+		Name: "web", Dir: "/srv/web", Cmd: "npm run dev -- --host \"0.0.0.0\"", Port: intp(3100),
+		Group: "front", DependsOn: []string{"db"}, Restart: RestartOnFailure, Health: "/healthz",
+		Icon: "/srv/web/icon.png", Open: "/admin", Stop: "30s", Enabled: &off,
+		Env:     map[string]string{"A": "1", "with space": "x y", "Q": `"q"`},
+		Comment: "line one\nline two",
+	}
+	text := Render(spec) + "\n[servers.db]\ncmd = \"db\"\n"
+	cfg, err := Parse("/tmp/x.toml", []byte(text))
+	if err != nil {
+		t.Fatalf("Render output rejected: %v\n%s", err, text)
+	}
+	s, _ := cfg.Server("web")
+	back := SpecOf(s)
+	if back.Name != spec.Name || back.Dir != spec.Dir || back.Cmd != spec.Cmd || *back.Port != 3100 ||
+		back.Group != "front" || len(back.DependsOn) != 1 || back.Restart != RestartOnFailure ||
+		back.Health != "/healthz" || back.Icon != spec.Icon || back.Open != "/admin" || back.Stop != "30s" ||
+		back.Enabled == nil || *back.Enabled || len(back.Env) != 3 || back.Env["with space"] != "x y" || back.Env["Q"] != `"q"` {
+		t.Errorf("round trip lost data:\n%+v\n%+v", spec, back)
+	}
+	if !strings.HasPrefix(text, "# line one\n# line two\n[servers.web]\n") {
+		t.Errorf("comment not rendered above the header:\n%s", text)
+	}
+}
+
+func TestRenderOmitsDefaults(t *testing.T) {
+	on := true
+	got := Render(Spec{Name: "a", Cmd: "x", Restart: RestartNo, Enabled: &on})
+	if want := "[servers.a]\ncmd = \"x\"\n"; got != want {
+		t.Errorf("Render = %q, want %q", got, want)
+	}
+}

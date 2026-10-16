@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,28 +38,57 @@ func (s *Server) containerRoutes(m *http.ServeMux) {
 
 // dockerState is the engine state with every container attributed to the
 // server whose directory is its compose project directory.
-func (s *Server) dockerState() docker.State {
+// dockerState is the engine state with each container attached to the
+// servers in its compose project directory. With views, it also marks the
+// containers that need attention for each server.
+func (s *Server) dockerState(views []supervisor.View) docker.State {
 	st := s.opt.Docker.Snapshot()
 	cfg := s.sup.Config()
-	// Servers sharing a directory: the one running compose, else the first.
-	byDir := map[string]string{}
+	// Servers sharing a directory share its containers. The owner is the
+	// one running compose, else the first; the others are listed with it.
+	byDir := map[string][]string{}
 	compose := map[string]bool{}
 	for _, sv := range cfg.Servers {
 		d := canonicalDir(sv.Dir)
-		isCompose := supervisor.IsComposeCommand(sv.Cmd)
-		if _, ok := byDir[d]; !ok || (isCompose && !compose[d]) {
-			byDir[d] = sv.Name
-			compose[d] = isCompose
+		if supervisor.IsComposeCommand(sv.Cmd) && !compose[d] {
+			byDir[d] = append([]string{sv.Name}, byDir[d]...)
+			compose[d] = true
+		} else {
+			byDir[d] = append(byDir[d], sv.Name)
 		}
 	}
 	for i := range st.Containers {
 		c := &st.Containers[i]
 		if c.WorkingDir != "" {
-			c.Server = byDir[canonicalDir(c.WorkingDir)]
+			if names := byDir[canonicalDir(c.WorkingDir)]; len(names) > 0 {
+				c.Server, c.SharedWith = names[0], names[1:]
+			}
 			c.WorkingDir = paths.ShortenHome(c.WorkingDir)
 		}
+		c.IssueFor = issueFor(c, views)
 	}
 	return st
+}
+
+// issueFor lists the servers a container needs attention for: it is
+// unhealthy or restarting, or it failed while the server ran.
+func issueFor(c *docker.Container, views []supervisor.View) []string {
+	var out []string
+	for _, name := range c.Servers() {
+		i := slices.IndexFunc(views, func(v supervisor.View) bool { return v.Name == name })
+		if i < 0 {
+			continue
+		}
+		v := views[i]
+		alive := v.Status == supervisor.Running || v.Status == supervisor.Starting
+		switch {
+		case c.State == "running" && c.Health == "unhealthy", c.State == "restarting":
+			out = append(out, name)
+		case alive && c.Failed && (c.FinishedAt == nil || v.StartedAt == nil || !c.FinishedAt.Before(*v.StartedAt)):
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 var canonicalDirs sync.Map // path -> path with symlinks resolved
