@@ -139,6 +139,7 @@ func (c *Client) list(ctx context.Context) ([]apiContainer, error) {
 // Inspect is the part of GET /containers/{id}/json that is shown or used.
 type Inspect struct {
 	ID      string    `json:"Id"`
+	ImageID string    `json:"Image"`
 	Name    string    `json:"Name"`
 	Created time.Time `json:"Created"`
 	Path    string    `json:"Path"`
@@ -442,4 +443,21 @@ func (c *Client) ExecAttach(ctx context.Context, execID string) (net.Conn, io.Re
 func (c *Client) ExecResize(ctx context.Context, execID string, cols, rows uint16) error {
 	q := url.Values{"w": {strconv.Itoa(int(cols))}, "h": {strconv.Itoa(int(rows))}}
 	return c.call(ctx, http.MethodPost, "/exec/"+url.PathEscape(execID)+"/resize", q, nil, nil)
+}
+
+// builtImage checks compose's image labels, including services with custom tags.
+func (c *Client) builtImage(ctx context.Context, in *Inspect) bool {
+	if in.ImageID == "" {
+		return false
+	}
+	var image struct {
+		Config struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
+	}
+	if err := c.call(ctx, http.MethodGet, "/images/"+url.PathEscape(in.ImageID)+"/json", nil, nil, &image); err != nil {
+		return false
+	}
+	labels := image.Config.Labels
+	return labels[labelProject] == in.Config.Labels[labelProject] && labels[labelProject] != "" && labels[labelService] == in.Config.Labels[labelService]
 }

@@ -1,6 +1,14 @@
 package docker
 
 import (
+	"errors"
+	"fmt"
+	"github.com/padmk/portside/internal/supervisor"
+	"io"
+	"slices"
+	"strings"
+	"sync/atomic"
+
 	"context"
 	"encoding/json"
 	"net/http"
@@ -141,5 +149,133 @@ func TestBuildRestartFailureStaysFailed(t *testing.T) {
 	in.State.Error = "error mounting /data: no such file or directory"
 	if got := build(apiContainer{ID: "abc", State: "exited"}, in); !got.Failed {
 		t.Error("an exit the engine could not restart must stay failed")
+	}
+}
+
+func TestPersistStopIntent(t *testing.T) {
+	dir := t.TempDir()
+	m := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
+	if err := m.UseStateDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	m.RecordStop("abc")
+	restored := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
+	if err := restored.UseStateDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	cl := fakeEngine(t, 137, "")
+	restored.client, restored.status = cl, Ready
+	restored.refresh(context.Background(), cl)
+	got, _ := restored.Find("abc")
+	if got.Failed {
+		t.Fatal("requested stop became a failure after restart")
+	}
+	restored.mu.Lock()
+	restored.clearStoppedLocked("abc")
+	restored.mu.Unlock()
+	again := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
+	if err := again.UseStateDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if again.killed["abc"] {
+		t.Fatal("cleared stop was restored")
+	}
+}
+
+type engineHost struct{ endpoint string }
+
+func (h engineHost) Environ() []string    { return []string{"DOCKER_HOST=" + h.endpoint} }
+func (engineHost) LookPath(string) string { return "" }
+
+func TestEventFailureBackoff(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/version":
+			_, _ = io.WriteString(w, `{"Version":"test"}`)
+		case "/events":
+			calls.Add(1)
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"message":"events refused"}`)
+		case "/containers/json":
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	m := NewMonitor(engineHost{endpoint: "tcp://" + srv.Listener.Addr().String()}, time.Second, func() string { return "" })
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+	m.Run(ctx)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("events requests = %d, want 2 with exponential backoff", got)
+	}
+	if st := m.Snapshot(); st.Status != Unavailable || !strings.Contains(st.Error, "events refused") {
+		t.Fatalf("event error not surfaced: %+v", st)
+	}
+}
+
+func TestComposeArguments(t *testing.T) {
+	c := Container{Project: "demo", Service: "api", WorkingDir: "/work/infra", configFiles: []string{"/work/infra/compose.yaml"}, envFiles: []string{"/work/.env"}}
+	prefix := []string{"compose", "--project-name", "demo", "--project-directory", "/work/infra", "--file", "/work/infra/compose.yaml", "--env-file", "/work/.env"}
+	for kind, suffix := range map[string][]string{
+		JobRecreate: {"up", "--detach", "--no-deps", "--force-recreate", "api"},
+		JobRebuild:  {"up", "--detach", "--no-deps", "--force-recreate", "--build", "api"},
+		JobPull:     {"up", "--detach", "--no-deps", "--force-recreate", "--pull", "always", "api"},
+		"start":     {"--profile", "*", "start"}, "stop": {"--profile", "*", "stop"}, "down": {"--profile", "*", "down"},
+	} {
+		if got := composeArgs(c, kind); !slices.Equal(got, append(slices.Clone(prefix), suffix...)) {
+			t.Errorf("%s: %v", kind, got)
+		}
+	}
+}
+
+func TestBuildableServices(t *testing.T) {
+	for image, want := range map[string]bool{"demo-api": true, "demo-api:latest": true, "postgres:17-alpine": false, "demo_api": true} {
+		in := inspect(t, "running", 0, false, "")
+		in.Config.Image = image
+		in.Config.Labels = map[string]string{labelProject: "demo", labelService: "api", labelWorkingDir: "/work"}
+		if got := build(apiContainer{}, in); got.Buildable != want {
+			t.Errorf("%s Buildable = %v", image, got.Buildable)
+		}
+	}
+}
+
+func TestJobWaitKeepsFailureOutput(t *testing.T) {
+	m := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
+	j := &Job{running: true, started: time.Now(), logs: supervisor.NewMemoryLog(), done: make(chan struct{})}
+	for i := range 150 {
+		fmt.Fprintf(j.logs, "output %d\n", i)
+	}
+	m.finish("demo", j, errors.New("compose failed"))
+	m.jobs["demo"] = &Job{running: true, done: make(chan struct{})}
+	result, err := j.Wait(context.Background())
+	if err != nil || result.Error != "compose failed" || result.Running {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	if strings.Contains(result.Output, "output 0\n") || !strings.Contains(result.Output, "output 149") || !strings.Contains(result.Output, "compose failed") {
+		t.Fatalf("unexpected output tail: %s", result.Output)
+	}
+}
+
+func TestCustomBuiltImageLabels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images/sha256:built/json" {
+			t.Errorf("unexpected image path: %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"Config":{"Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"api"}}}`)
+	}))
+	defer srv.Close()
+	cl := NewClient(Endpoint{Network: "tcp", Address: srv.Listener.Addr().String()})
+	in := inspect(t, "running", 0, false, "")
+	in.ImageID = "sha256:built"
+	in.Config.Labels = map[string]string{labelProject: "demo", labelService: "api"}
+	if !cl.builtImage(context.Background(), in) {
+		t.Fatal("custom-tagged compose image was not recognized")
+	}
+	in.Config.Labels[labelService] = "other"
+	if cl.builtImage(context.Background(), in) {
+		t.Fatal("image built for another service was recognized")
 	}
 }

@@ -9,10 +9,12 @@
 @media (max-width: 900px) {
   .ctv {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(210px, auto) minmax(420px, 1fr);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
   }
   .ct-list {
-    max-height: 30vh;
+    max-height: max(210px, 30vh);
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }

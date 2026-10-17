@@ -28,7 +28,8 @@ Before starting a dev server yourself, call list_servers: reuse a server that is
 or call ensure_server to start it and get its URL. Never launch a second copy of a managed
 server in your own shell. Read server_logs (match narrows it to e.g. "error|warn") before
 restarting a crashed server. A server lists the containers of its compose project; when one
-is unhealthy, restarting or exited with an error, read container_logs. Do not stop or restart
+is unhealthy, restarting or exited with an error, read container_logs. Use container_action
+for authorized container changes; recreate waits for its output. Do not stop or restart
 servers the user did not ask about. While this machine is connected to another of the user's
 computers, the server and container tools act there when given its name as computer.`
 
@@ -46,6 +47,7 @@ func Run(ctx context.Context, c *client.Client) error {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.logs)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_containers", Description: "List every container on the active Docker engine with its state, health, published ports and the server it belongs to.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.containers)
+	mcp.AddTool(s, &mcp.Tool{Name: "container_action", Description: "Start, stop, restart or recreate one container through the daemon. Recreate waits and returns the output tail. Build only known compose-built services; pull image services."}, t.containerAction)
 	mcp.AddTool(s, &mcp.Tool{Name: "container_logs", Description: "Return the last lines of a container's output as plain text, optionally only lines matching a pattern.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.containerLogs)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_ports", Description: "List every process listening on a TCP port, with its working directory and whether " + app.Name + " manages it.",
@@ -124,33 +126,34 @@ type Server struct {
 	CPU            float64 `json:"cpuPercent,omitempty"`
 	MemMB          int64   `json:"memMB,omitempty"`
 
-	Containers []Container `json:"containers,omitempty" jsonschema:"containers of the compose project in the server's directory"`
+	Containers []Container `json:"containers,omitempty" jsonschema:"containers attached by project mapping, directory or local project ID"`
 	Outcome    string      `json:"outcome,omitempty" jsonschema:"what ensure_server did: reused (already running) or started"`
 	Computer   string      `json:"computer,omitempty" jsonschema:"the other computer the server runs on; its URLs open from this one"`
 }
 
 // Container is the compact view of a container returned to agents.
 type Container struct {
-	Name     string   `json:"name"`
-	Service  string   `json:"service,omitempty" jsonschema:"compose service"`
-	Project  string   `json:"project,omitempty" jsonschema:"compose project"`
-	Server   string   `json:"server,omitempty" jsonschema:"the server it belongs to"`
-	Shared   []string `json:"sharedWith,omitempty" jsonschema:"other servers in the same directory that use it too"`
-	IssueFor []string `json:"issueFor,omitempty" jsonschema:"servers it needs attention for: unhealthy, restarting, or failed while the server ran"`
-	Image    string   `json:"image"`
-	State    string   `json:"state" jsonschema:"created, running, paused, restarting, removing, exited or dead"`
-	Status   string   `json:"status" jsonschema:"the engine's summary, e.g. Up 3 hours (healthy)"`
-	Health   string   `json:"health,omitempty" jsonschema:"starting, healthy or unhealthy"`
-	Failed   bool     `json:"failed,omitempty" jsonschema:"exited in failure (not finished or stopped on request), or dead"`
-	ExitCode *int     `json:"exitCode,omitempty"`
-	Restarts int      `json:"restarts,omitempty"`
-	Ports    []string `json:"ports,omitempty" jsonschema:"published ports as host:container/protocol"`
-	Dir      string   `json:"projectDir,omitempty" jsonschema:"compose project directory, where docker compose commands for it run"`
+	Name      string   `json:"name"`
+	Service   string   `json:"service,omitempty" jsonschema:"compose service"`
+	Project   string   `json:"project,omitempty" jsonschema:"compose project"`
+	Server    string   `json:"server,omitempty" jsonschema:"the server it belongs to"`
+	Shared    []string `json:"sharedWith,omitempty" jsonschema:"other servers that use this container too"`
+	IssueFor  []string `json:"issueFor,omitempty" jsonschema:"servers it needs attention for: unhealthy, restarting, or failed while the server ran"`
+	Image     string   `json:"image"`
+	State     string   `json:"state" jsonschema:"created, running, paused, restarting, removing, exited or dead"`
+	Status    string   `json:"status" jsonschema:"the engine's summary, e.g. Up 3 hours (healthy)"`
+	Health    string   `json:"health,omitempty" jsonschema:"starting, healthy or unhealthy"`
+	Buildable bool     `json:"buildable,omitempty" jsonschema:"the compose service is known to build its image"`
+	Failed    bool     `json:"failed,omitempty" jsonschema:"exited in failure (not finished or stopped on request), or dead"`
+	ExitCode  *int     `json:"exitCode,omitempty"`
+	Restarts  int      `json:"restarts,omitempty"`
+	Ports     []string `json:"ports,omitempty" jsonschema:"published ports as host:container/protocol"`
+	Dir       string   `json:"projectDir,omitempty" jsonschema:"compose project directory, where docker compose commands for it run"`
 }
 
 func brief(c docker.Container) Container {
 	out := Container{Name: c.Name, Service: c.Service, Project: c.Project, Server: c.Server, Shared: c.SharedWith, IssueFor: c.IssueFor, Image: c.Image,
-		State: c.State, Status: c.Status, Health: c.Health, Failed: c.Failed, Restarts: c.Restarts, Dir: c.WorkingDir}
+		Buildable: c.Buildable, State: c.State, Status: c.Status, Health: c.Health, Failed: c.Failed, Restarts: c.Restarts, Dir: c.WorkingDir}
 	if c.State == "exited" || c.State == "dead" {
 		out.ExitCode = c.ExitCode
 	}
@@ -481,4 +484,29 @@ func (t *tools) ports(ctx context.Context, _ *mcp.CallToolRequest, _ empty) (*mc
 		out.Listeners = []server.ListenerView{}
 	}
 	return nil, out, nil
+}
+
+type containerActionIn struct {
+	Name   string `json:"name" jsonschema:"container name as shown by list_containers"`
+	Action string `json:"action" jsonschema:"start, stop, restart or recreate"`
+	Build  bool   `json:"build,omitempty" jsonschema:"rebuild a compose-built service before recreation"`
+	Pull   bool   `json:"pull,omitempty" jsonschema:"pull the service image before recreation"`
+
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, when the container runs there"`
+}
+
+func (t *tools) containerAction(ctx context.Context, _ *mcp.CallToolRequest, in containerActionIn) (*mcp.CallToolResult, any, error) {
+	g, err := t.on(ctx, in.Computer)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := g.c.ContainerAction(ctx, in.Name, in.Action, in.Build, in.Pull)
+	text := "Container " + in.Name + ": " + in.Action + " completed"
+	if result.Output != "" {
+		text = result.Output
+	}
+	if err != nil {
+		text = err.Error() + "\n" + result.Output
+	}
+	return &mcp.CallToolResult{IsError: err != nil, Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }

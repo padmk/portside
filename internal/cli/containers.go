@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -18,6 +19,12 @@ import (
 // cmdContainers lists the containers on the active engine and the server
 // each belongs to.
 func cmdContainers(e *env, args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "start", "stop", "restart", "recreate":
+			return cmdContainerAction(e, args[0], args[1:])
+		}
+	}
 	fs := flag.NewFlagSet("containers", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "")
 	names, err := parse(fs, args)
@@ -92,7 +99,7 @@ func containerLogs(e *env, c *client.Client, name string, q url.Values, follow b
 	if !follow {
 		return c.Do(e.ctx, http.MethodGet, path+"?"+q.Encode(), nil, e.out)
 	}
-	ws, _, err := websocket.Dial(e.ctx, c.WebSocketURL(path), &websocket.DialOptions{HTTPHeader: c.Header()})
+	ws, _, err := websocket.Dial(e.ctx, c.WebSocketURL(path+"?"+q.Encode()), &websocket.DialOptions{HTTPHeader: c.Header()})
 	if err != nil {
 		return err
 	}
@@ -100,13 +107,45 @@ func containerLogs(e *env, c *client.Client, name string, q url.Values, follow b
 	ws.SetReadLimit(-1)
 	plain := !isTerminal(os.Stdout) || !e.color
 	for {
-		_, data, err := ws.Read(e.ctx)
+		kind, data, err := ws.Read(e.ctx)
 		if err != nil {
 			return nil
+		}
+		if kind == websocket.MessageText {
+			var status struct {
+				T string `json:"t"`
+				D string `json:"d"`
+			}
+			if json.Unmarshal(data, &status) == nil && status.T == "error" {
+				fmt.Fprintln(e.errOut, status.D)
+			}
+			continue
 		}
 		if plain {
 			data = []byte(supervisor.StripANSI(strings.ReplaceAll(string(data), "\r\n", "\n")))
 		}
 		_, _ = e.out.Write(data)
 	}
+}
+
+func cmdContainerAction(e *env, action string, args []string) error {
+	fs := flag.NewFlagSet("containers "+action, flag.ContinueOnError)
+	build := fs.Bool("build", false, "build the service image before recreating")
+	pull := fs.Bool("pull", false, "pull the service image before recreating")
+	names, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(names) != 1 {
+		return fmt.Errorf("usage: containers %s <name> [--build] [--pull]", action)
+	}
+	c, err := e.client()
+	if err != nil {
+		return err
+	}
+	result, err := c.ContainerAction(e.ctx, names[0], action, *build, *pull)
+	if result.Output != "" {
+		fmt.Fprintln(e.out, result.Output)
+	}
+	return err
 }

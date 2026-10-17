@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,10 +15,11 @@ import (
 	"github.com/padmk/portside/internal/supervisor"
 )
 
-// Job kinds: recreate a compose service, optionally rebuilding its image first.
+// Service job kinds, with optional image builds or pulls.
 const (
 	JobRecreate = "recreate"
 	JobRebuild  = "rebuild"
+	JobPull     = "pull"
 )
 
 // JobView is the JSON view of the last compose job run for a container.
@@ -29,7 +31,8 @@ type JobView struct {
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
 
-type job struct {
+// Job runs one compose operation and retains its terminal output.
+type Job struct {
 	project string
 	service string
 	kind    string
@@ -38,9 +41,10 @@ type job struct {
 	started time.Time
 	ended   time.Time
 	logs    *supervisor.LogBuffer
+	done    chan struct{}
 }
 
-func (j *job) view() JobView {
+func (j *Job) view() JobView {
 	v := JobView{Kind: j.kind, Running: j.running, Error: j.err, StartedAt: j.started}
 	if !j.ended.IsZero() {
 		t := j.ended
@@ -49,30 +53,50 @@ func (j *job) view() JobView {
 	return v
 }
 
-// Recreate runs `docker compose up --force-recreate` for the container's
-// service, with --build when rebuild is set. The engine API has no notion of
-// compose projects, so this one operation goes through the docker CLI; its
-// output is kept for the dashboard.
-func (m *Monitor) Recreate(name string, rebuild bool) error {
+// Recreate runs a compose service job, optionally building or pulling its image.
+func (m *Monitor) Recreate(name string, rebuild, pull bool) (*Job, error) {
 	c, ok := m.Find(name)
 	if !ok {
-		return fmt.Errorf("no container %q", name)
+		return nil, fmt.Errorf("no container %q", name)
 	}
 	if !c.Compose() {
-		return errors.New("only compose services can be recreated")
+		return nil, errors.New("only compose services can be recreated")
 	}
-	bin := m.host.LookPath("docker")
-	if bin == "" {
-		return errors.New("the docker command was not found on PATH")
+	if rebuild && !c.Buildable {
+		return nil, errors.New("this compose service has no known build")
 	}
-	cl, err := m.Client()
-	if err != nil {
-		return err
+	if rebuild && pull {
+		return nil, errors.New("choose either build or pull")
 	}
-	if m.moved(cl) {
-		m.Kick()
-		return errors.New("the Docker context changed; try again in a moment")
+	kind := JobRecreate
+	if rebuild {
+		kind = JobRebuild
 	}
+	if pull {
+		kind = JobPull
+	}
+	return m.runCompose(c, kind)
+}
+
+// ProjectAction starts, stops or removes an existing compose project's containers.
+// Removal never asks compose to remove volumes.
+func (m *Monitor) ProjectAction(ref, action string) (*Job, error) {
+	c, ok := m.Find(ref)
+	if !ok {
+		return nil, fmt.Errorf("no container %q", ref)
+	}
+	if !c.Compose() {
+		return nil, errors.New("only compose projects support stack actions")
+	}
+	switch action {
+	case "start", "stop", "down":
+	default:
+		return nil, errors.New("invalid project action")
+	}
+	return m.runCompose(c, action)
+}
+
+func composeArgs(c Container, kind string) []string {
 	args := []string{"compose", "--project-name", c.Project, "--project-directory", c.WorkingDir}
 	for _, f := range c.configFiles {
 		args = append(args, "--file", f)
@@ -80,25 +104,54 @@ func (m *Monitor) Recreate(name string, rebuild bool) error {
 	for _, f := range c.envFiles {
 		args = append(args, "--env-file", f)
 	}
+	switch kind {
+	case "start", "stop", "down":
+		return append(args, "--profile", "*", kind)
+	}
 	args = append(args, "up", "--detach", "--no-deps", "--force-recreate")
-	if rebuild {
+	if kind == JobRebuild {
 		args = append(args, "--build")
 	}
-	args = append(args, c.Service)
+	if kind == JobPull {
+		args = append(args, "--pull", "always")
+	}
+	return append(args, c.Service)
+}
 
-	kind := JobRecreate
-	if rebuild {
-		kind = JobRebuild
+func (m *Monitor) runCompose(c Container, kind string) (*Job, error) {
+	bin := m.host.LookPath("docker")
+	if bin == "" {
+		return nil, errors.New("the docker command was not found on PATH")
+	}
+	cl, err := m.Client()
+	if err != nil {
+		return nil, err
+	}
+	if m.moved(cl) {
+		m.Kick()
+		return nil, errors.New("the Docker context changed; try again in a moment")
+	}
+	args := composeArgs(c, kind)
+	service := c.Service
+	if kind == "start" || kind == "stop" || kind == "down" {
+		service = ""
 	}
 	m.mu.Lock()
 	// One compose up per service: it recreates every replica.
 	for _, j := range m.jobs {
-		if j.running && j.project == c.Project && j.service == c.Service {
+		if j.running && j.project == c.Project && (j.service == service || j.service == "" || service == "") {
 			m.mu.Unlock()
-			return errors.New("a recreate is already running for " + c.Service)
+			return nil, errors.New("a compose job is already running for project " + c.Project)
 		}
 	}
-	j := &job{project: c.Project, service: c.Service, kind: kind, running: true, started: time.Now(), logs: supervisor.NewMemoryLog()}
+	j := &Job{project: c.Project, service: service, kind: kind, running: true, started: time.Now(), logs: supervisor.NewMemoryLog(), done: make(chan struct{})}
+	if kind == "stop" || kind == "down" {
+		for _, e := range m.entries {
+			if e.c.Project == c.Project && (e.c.State == "running" || e.c.State == "paused" || e.c.State == "restarting") {
+				m.markStoppedLocked(e.c.ID, time.Now())
+			}
+		}
+	}
 	m.jobs[c.Name] = j
 	m.changedLocked()
 	m.mu.Unlock()
@@ -118,7 +171,7 @@ func (m *Monitor) Recreate(name string, rebuild bool) error {
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
 		m.finish(c.Name, j, err)
-		return err
+		return nil, err
 	}
 	copied := make(chan struct{})
 	go func() {
@@ -140,10 +193,10 @@ func (m *Monitor) Recreate(name string, rebuild bool) error {
 		}
 		m.finish(c.Name, j, err)
 	}()
-	return nil
+	return j, nil
 }
 
-func (m *Monitor) finish(name string, j *job, err error) {
+func (m *Monitor) finish(name string, j *Job, err error) {
 	m.mu.Lock()
 	j.running = false
 	j.ended = time.Now()
@@ -154,6 +207,7 @@ func (m *Monitor) finish(name string, j *job, err error) {
 	} else {
 		fmt.Fprintf(j.logs, "\r\n\x1b[2m── %s  done ──\x1b[0m\r\n", stamp)
 	}
+	close(j.done)
 	m.changedLocked()
 	m.mu.Unlock()
 	m.Kick()
@@ -177,4 +231,21 @@ func (m *Monitor) DismissJob(name string) {
 		delete(m.jobs, name)
 		m.changedLocked()
 	}
+}
+
+// JobResult includes a bounded plain-text tail of a completed compose job.
+type JobResult struct {
+	JobView
+	Output string `json:"output"`
+}
+
+// Wait returns a bounded output tail for this exact job, even if a later job
+// replaces it in the dashboard before the client receives the response.
+func (j *Job) Wait(ctx context.Context) (JobResult, error) {
+	select {
+	case <-ctx.Done():
+		return JobResult{}, ctx.Err()
+	case <-j.done:
+	}
+	return JobResult{JobView: j.view(), Output: strings.Join(j.logs.Tail(100, 1000), "\n")}, nil
 }

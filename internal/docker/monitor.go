@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -41,20 +42,22 @@ type Port struct {
 
 // Container is the JSON view of one container.
 type Container struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Image      string     `json:"image"`
-	Project    string     `json:"project,omitempty"`
-	Service    string     `json:"service,omitempty"`
-	OneOff     bool       `json:"oneOff,omitempty"`
-	WorkingDir string     `json:"workingDir,omitempty"`
-	State      string     `json:"state"` // created, running, paused, restarting, removing, exited, dead
-	Health     string     `json:"health,omitempty"`
-	Status     string     `json:"status"` // the engine's own summary, e.g. "Up 3 hours (healthy)"
-	StartedAt  *time.Time `json:"startedAt,omitempty"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty"`
-	ExitCode   *int       `json:"exitCode,omitempty"`
-	OOMKilled  bool       `json:"oomKilled,omitempty"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Image        string     `json:"image"`
+	Project      string     `json:"project,omitempty"`
+	LocalProject string     `json:"localProject,omitempty"`
+	Buildable    bool       `json:"buildable,omitempty"`
+	Service      string     `json:"service,omitempty"`
+	OneOff       bool       `json:"oneOff,omitempty"`
+	WorkingDir   string     `json:"workingDir,omitempty"`
+	State        string     `json:"state"` // created, running, paused, restarting, removing, exited, dead
+	Health       string     `json:"health,omitempty"`
+	Status       string     `json:"status"` // the engine's own summary, e.g. "Up 3 hours (healthy)"
+	StartedAt    *time.Time `json:"startedAt,omitempty"`
+	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
+	ExitCode     *int       `json:"exitCode,omitempty"`
+	OOMKilled    bool       `json:"oomKilled,omitempty"`
 	// Failed marks an exited container that failed rather than finished or
 	// was stopped on request (including a signal that stop sent while this
 	// monitor watched), and a dead one.
@@ -70,7 +73,7 @@ type Container struct {
 	// Server is the configured server this container belongs to; the HTTP
 	// layer fills it in.
 	Server string `json:"server,omitempty"`
-	// SharedWith are the other servers in the same directory.
+	// SharedWith are the other servers that use this container.
 	SharedWith []string `json:"sharedWith,omitempty"`
 	// IssueFor are the servers this container needs attention for; the
 	// HTTP layer decides.
@@ -90,7 +93,7 @@ func (c *Container) Servers() []string {
 }
 
 // Compose reports whether the container belongs to a compose service, which
-// can be recreated and rebuilt.
+// can be recreated. Buildable identifies services with known image builds.
 func (c *Container) Compose() bool {
 	return c.Project != "" && c.Service != "" && c.WorkingDir != "" && !c.OneOff
 }
@@ -140,9 +143,11 @@ type Monitor struct {
 	startedAt time.Time // when the user asked to start the engine
 	startErr  string    // why the last start failed; outlives reconnect attempts
 	entries   map[string]*entry
-	sampled   bool            // usage samples arrived since the last change
+	sampled   bool // usage samples arrived since the last change
+	statePath string
+	killedAt  map[string]time.Time
 	killed    map[string]bool // containers signalled to stop since they last started
-	jobs      map[string]*job // by container name
+	jobs      map[string]*Job // by container name
 	subs      map[chan struct{}]struct{}
 	kick      chan struct{}
 }
@@ -156,8 +161,9 @@ func NewMonitor(host Host, interval time.Duration, custom func() string) *Monito
 		custom:   custom,
 		status:   Connecting,
 		entries:  map[string]*entry{},
-		jobs:     map[string]*job{},
+		jobs:     map[string]*Job{},
 		killed:   map[string]bool{},
+		killedAt: map[string]time.Time{},
 		subs:     map[chan struct{}]struct{}{},
 		kick:     make(chan struct{}, 1),
 	}
@@ -262,6 +268,9 @@ func (m *Monitor) Client() (*Client, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.client == nil || m.status != Ready {
+		if m.err != "" {
+			return nil, errors.New(m.err)
+		}
 		return nil, errors.New("Docker is not running")
 	}
 	return m.client, nil
@@ -277,6 +286,7 @@ func (m *Monitor) Kick() {
 
 // Run connects to the engine and follows it until ctx ends.
 func (m *Monitor) Run(ctx context.Context) {
+	defer m.stopStats()
 	backoff := time.Second
 	for ctx.Err() == nil {
 		ep, err := Resolve(m.getenv)
@@ -299,7 +309,7 @@ func (m *Monitor) Run(ctx context.Context) {
 			if m.startRequested() {
 				wait = time.Second
 			} else if backoff < 15*time.Second {
-				backoff *= 2
+				backoff = min(15*time.Second, backoff*2)
 			}
 			select {
 			case <-ctx.Done():
@@ -310,16 +320,33 @@ func (m *Monitor) Run(ctx context.Context) {
 			}
 			continue
 		}
-		backoff = time.Second
 		m.mu.Lock()
 		m.client, m.ep, m.version, m.status, m.err = c, ep, version, Ready, ""
 		m.startedAt, m.startErr = time.Time{}, ""
 		m.changedLocked()
 		m.mu.Unlock()
-		m.session(ctx, c)
+		began := time.Now()
+		err = m.session(ctx, c)
 		c.Close()
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			m.setUnavailable(ep, err)
+		}
+		if time.Since(began) >= 3*time.Second {
+			backoff = time.Second
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.kick:
+			backoff = time.Second
+		case <-time.After(backoff):
+			backoff = min(15*time.Second, backoff*2)
+		}
 	}
-	m.stopStats()
 }
 
 // expireStart ends the "starting" state once the engine has had its time.
@@ -367,7 +394,7 @@ func describe(err error) string {
 
 // session follows one connection: events trigger resyncs until the stream
 // breaks, which means the engine went away.
-func (m *Monitor) session(ctx context.Context, c *Client) {
+func (m *Monitor) session(ctx context.Context, c *Client) error {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer m.stopStats()
@@ -378,9 +405,9 @@ func (m *Monitor) session(ctx context.Context, c *Client) {
 		default:
 		}
 	}
+	eventsDone := make(chan error, 1)
 	go func() {
-		defer cancel()
-		_ = c.events(sctx, func(ev event) {
+		err := c.events(sctx, func(ev event) {
 			switch {
 			case strings.HasPrefix(ev.Action, "exec_"), ev.Action == "top", ev.Action == "attach", ev.Action == "resize":
 				// Shells and inspections do not change what is shown.
@@ -391,16 +418,20 @@ func (m *Monitor) session(ctx context.Context, c *Client) {
 				switch {
 				case ev.Action == "kill" && stopSignal(ev.Actor.Attributes["signal"]):
 					m.mu.Lock()
-					m.killed[ev.Actor.ID] = true
+					m.markStoppedLocked(ev.Actor.ID, time.Now())
 					m.mu.Unlock()
 				case ev.Action == "start", ev.Action == "destroy":
 					m.mu.Lock()
-					delete(m.killed, ev.Actor.ID)
+					m.clearStoppedLocked(ev.Actor.ID)
 					m.mu.Unlock()
 				}
 				mark()
 			}
 		})
+		if err == nil {
+			err = io.ErrUnexpectedEOF
+		}
+		eventsDone <- err
 	}()
 	mark()
 	resync := time.NewTicker(30 * time.Second)
@@ -410,8 +441,10 @@ func (m *Monitor) session(ctx context.Context, c *Client) {
 	defer samples.Stop()
 	for {
 		select {
+		case err := <-eventsDone:
+			return err
 		case <-sctx.Done():
-			return
+			return nil
 		case <-samples.C:
 			m.mu.Lock()
 			if m.sampled {
@@ -421,19 +454,19 @@ func (m *Monitor) session(ctx context.Context, c *Client) {
 			m.mu.Unlock()
 		case <-m.kick:
 			if m.moved(c) {
-				return
+				return nil
 			}
 			mark()
 		case <-resync.C:
 			if m.moved(c) {
-				return
+				return nil
 			}
 			mark()
 		case <-dirty:
 			// Bursts of events (compose up) settle into one resync.
 			select {
 			case <-sctx.Done():
-				return
+				return nil
 			case <-time.After(150 * time.Millisecond):
 			}
 			m.refresh(sctx, c)
@@ -458,6 +491,7 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 		return
 	}
 	infos := make([]*Inspect, len(list))
+	buildable := make([]bool, len(list))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
 	for i, it := range list {
@@ -467,6 +501,10 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			infos[i], _ = c.Inspect(lctx, id)
+			if infos[i] != nil {
+				view := build(list[i], infos[i])
+				buildable[i] = view.Buildable || (view.Compose() && c.builtImage(lctx, infos[i]))
+			}
 		}(i, it.ID)
 	}
 	wg.Wait()
@@ -486,7 +524,11 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 			continue
 		}
 		next := build(it, infos[i])
-		if m.killed[next.ID] && !next.OOMKilled {
+		next.Buildable = buildable[i]
+		if at := m.killedAt[next.ID]; !at.IsZero() && next.StartedAt != nil && next.StartedAt.After(at) {
+			m.clearStoppedLocked(next.ID)
+		}
+		if m.killed[next.ID] && !next.OOMKilled && next.State == "exited" {
 			next.Failed = false
 		}
 		seen[next.ID] = true
@@ -517,7 +559,7 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 				e.cancel()
 			}
 			delete(m.entries, id)
-			delete(m.killed, id)
+			m.clearStoppedLocked(id)
 		}
 	}
 	m.changedLocked()
@@ -610,18 +652,19 @@ func build(it apiContainer, in *Inspect) Container {
 		labels = it.Labels
 	}
 	c := Container{
-		ID:         in.ID,
-		Name:       strings.TrimPrefix(in.Name, "/"),
-		Image:      in.Config.Image,
-		Project:    labels[labelProject],
-		Service:    labels[labelService],
-		OneOff:     strings.EqualFold(labels[labelOneOff], "true"),
-		WorkingDir: labels[labelWorkingDir],
-		State:      in.State.Status,
-		Status:     it.Status,
-		OOMKilled:  in.State.OOMKilled,
-		Restarts:   in.RestartCount,
-		TTY:        in.Config.Tty,
+		ID:           in.ID,
+		Name:         strings.TrimPrefix(in.Name, "/"),
+		Image:        in.Config.Image,
+		Project:      labels[labelProject],
+		LocalProject: labels["com.supabase.cli.project"],
+		Service:      labels[labelService],
+		OneOff:       strings.EqualFold(labels[labelOneOff], "true"),
+		WorkingDir:   labels[labelWorkingDir],
+		State:        in.State.Status,
+		Status:       it.Status,
+		OOMKilled:    in.State.OOMKilled,
+		Restarts:     in.RestartCount,
+		TTY:          in.Config.Tty,
 	}
 	if c.Image == "" {
 		c.Image = it.Image
@@ -648,6 +691,7 @@ func build(it apiContainer, in *Inspect) Container {
 	if p := in.HostConfig.RestartPolicy.Name; c.State == "exited" && !c.OOMKilled && in.State.Error == "" && (p == "always" || p == "unless-stopped") {
 		c.Failed = false
 	}
+	c.Buildable = c.Compose() && (strings.TrimSuffix(c.Image, ":latest") == c.Project+"-"+c.Service || strings.TrimSuffix(c.Image, ":latest") == c.Project+"_"+c.Service)
 	c.configFiles = splitList(labels[labelConfigFiles])
 	c.envFiles = splitList(labels[labelEnvFiles])
 	seen := map[string]bool{}

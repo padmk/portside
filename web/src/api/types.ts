@@ -35,6 +35,7 @@ export interface ServerView {
   removed?: boolean
   enabled: boolean
   dependsOn?: string[]
+  projects?: string[]
   restart: RestartPolicy | string
   restarts?: number
   cpu: number
@@ -92,7 +93,7 @@ export interface ContainerPort {
 
 /** The last compose recreate or rebuild run for a container. */
 export interface ContainerJob {
-  kind: 'recreate' | 'rebuild'
+  kind: 'recreate' | 'rebuild' | 'pull' | 'start' | 'stop' | 'down'
   running: boolean
   error?: string
   startedAt: string
@@ -106,6 +107,7 @@ export interface ContainerView {
   project?: string
   service?: string
   oneOff?: boolean
+  buildable?: boolean
   /** The compose project directory, shortened with ~. */
   workingDir?: string
   state: ContainerState | string
@@ -125,9 +127,9 @@ export interface ContainerView {
   memLimit?: number
   cpuHistory?: number[]
   memHistory?: number[]
-  /** The server whose directory is this container's compose project directory. */
+  /** The primary server attached by project mapping, directory or local project ID. */
   server?: string
-  /** Other servers in the same directory, which use this container too. */
+  /** Other servers that use this container too. */
   sharedWith?: string[]
   /** Servers this container needs attention for. */
   issueFor?: string[]
@@ -169,6 +171,7 @@ export interface Spec {
   port?: number
   group?: string
   dependsOn?: string[]
+  projects?: string[]
   env?: Record<string, string>
   restart?: string
   health?: string

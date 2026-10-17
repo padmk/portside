@@ -23,3 +23,12 @@ func Notify(title, msg string) {
 		}
 	}
 }
+
+// NotifyProblem uses the same notification setting and desktop-client guard as crashes.
+func (s *Supervisor) NotifyProblem(title, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {
+		go s.notifier(title, message)
+	}
+}

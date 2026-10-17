@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,42 +31,23 @@ func (s *Server) containerRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/containers/{ref}/stop", s.containerAction("stop"))
 	m.HandleFunc("POST /api/containers/{ref}/restart", s.containerAction("restart"))
 	m.HandleFunc("POST /api/containers/{ref}/recreate", s.recreate)
+	m.HandleFunc("POST /api/containers/{ref}/project/{action}", s.containerProjectAction)
 	m.HandleFunc("DELETE /api/containers/{ref}/job", s.dismissJob)
 	m.HandleFunc("GET /api/containers/{ref}/job/terminal", s.jobTerminal)
 	m.HandleFunc("GET /api/containers/{ref}/logs", s.containerLogs)
 	m.HandleFunc("GET /api/containers/{ref}/shell", s.containerShell)
 }
 
-// dockerState is the engine state with every container attributed to the
-// server whose directory is its compose project directory.
-// dockerState is the engine state with each container attached to the
-// servers in its compose project directory. With views, it also marks the
-// containers that need attention for each server.
+// dockerState attaches containers to their configured servers and marks issues.
 func (s *Server) dockerState(views []supervisor.View) docker.State {
 	st := s.opt.Docker.Snapshot()
-	cfg := s.sup.Config()
-	// Servers sharing a directory share its containers. The owner is the
-	// one running compose, else the first; the others are listed with it.
-	byDir := map[string][]string{}
-	compose := map[string]bool{}
-	for _, sv := range cfg.Servers {
-		d := canonicalDir(sv.Dir)
-		if supervisor.IsComposeCommand(sv.Cmd) && !compose[d] {
-			byDir[d] = append([]string{sv.Name}, byDir[d]...)
-			compose[d] = true
-		} else {
-			byDir[d] = append(byDir[d], sv.Name)
-		}
-	}
+	attachContainers(st.Containers, s.sup.Config().Servers)
 	for i := range st.Containers {
 		c := &st.Containers[i]
+		c.IssueFor = issueFor(c, views)
 		if c.WorkingDir != "" {
-			if names := byDir[canonicalDir(c.WorkingDir)]; len(names) > 0 {
-				c.Server, c.SharedWith = names[0], names[1:]
-			}
 			c.WorkingDir = paths.ShortenHome(c.WorkingDir)
 		}
-		c.IssueFor = issueFor(c, views)
 	}
 	return st
 }
@@ -142,6 +124,9 @@ func (s *Server) containerAction(kind string) http.HandlerFunc {
 		case "start":
 			err = cl.Start(ctx, c.ID)
 		case "stop":
+			if c.State == "running" || c.State == "paused" || c.State == "restarting" {
+				s.opt.Docker.RecordStop(c.ID)
+			}
 			err = cl.Stop(ctx, c.ID)
 		case "restart":
 			err = cl.Restart(ctx, c.ID)
@@ -158,6 +143,8 @@ func (s *Server) containerAction(kind string) http.HandlerFunc {
 func (s *Server) recreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Build bool `json:"build"`
+		Pull  bool `json:"pull"`
+		Wait  bool `json:"wait"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		fail(w, http.StatusBadRequest, err)
@@ -167,11 +154,50 @@ func (s *Server) recreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.opt.Docker.Recreate(c.Name, body.Build); err != nil {
+	job, err := s.opt.Docker.Recreate(c.Name, body.Build, body.Pull)
+	if err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
+	if body.Wait {
+		s.writeContainerJob(w, r, job)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) containerProjectAction(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Confirm bool `json:"confirm"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	action := r.PathValue("action")
+	if action == "down" && !body.Confirm {
+		fail(w, http.StatusBadRequest, errors.New("confirm removal of project containers; volumes are kept"))
+		return
+	}
+	c, ok := s.containerRef(w, r)
+	if !ok {
+		return
+	}
+	job, err := s.opt.Docker.ProjectAction(c.Name, action)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	s.writeContainerJob(w, r, job)
+}
+
+func (s *Server) writeContainerJob(w http.ResponseWriter, r *http.Request, job *docker.Job) {
+	result, err := job.Wait(r.Context())
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) dismissJob(w http.ResponseWriter, r *http.Request) {
@@ -325,6 +351,15 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 		s.containerLogText(w, r, first)
 		return
 	}
+	q, err := parseLogQuery(r)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	initialTail := 2000
+	if r.URL.Query().Has("lines") {
+		initialTail = q.lines
+	}
 	name := first.Name
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
@@ -340,13 +375,24 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 		defer wcancel()
 		return ws.Write(wctx, websocket.MessageBinary, b)
 	}
+	sendStatus := func(message any) error {
+		data, _ := json.Marshal(message)
+		wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+		defer wcancel()
+		return ws.Write(wctx, websocket.MessageText, data)
+	}
+	status := func(kind, message string) error { return sendStatus(map[string]string{"t": kind, "d": message}) }
 	marker := func(at time.Time, what string) error {
 		return send([]byte(fmt.Sprintf("\r\n\x1b[2m── %s  %s ──\x1b[0m\r\n", at.Local().Format("15:04:05"), what)))
 	}
 	changes := s.opt.Docker.Subscribe()
 	defer s.opt.Docker.Unsubscribe(changes)
 
-	var since time.Time
+	since := q.since
+	if id := r.URL.Query().Get("id"); id != "" && id != first.ID {
+		since = time.Time{}
+	}
+	firstStream := true
 	// shownID and shownState are what the terminal last reflected; a change
 	// opens a new stream.
 	shownID, shownState := "", ""
@@ -367,23 +413,39 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 			}
 			shownID, shownState = c.ID, c.State
 			tail := "all"
-			if since.IsZero() {
-				tail = "2000"
+			if firstStream || since.IsZero() {
+				tail = strconv.Itoa(initialTail)
 			}
 			opened := time.Now()
 			stream, err := cl.Logs(ctx, c.ID, c.TTY, tail, since, true, false)
 			if err != nil {
+				if status("error", err.Error()) != nil {
+					return
+				}
 				// Try again on the next change or tick.
 				shownState = ""
 			} else {
 				// Resume from the last output that arrived, so nothing written
 				// while a dropped stream went unnoticed is skipped.
+				if status("status", "") != nil {
+					stream.Close()
+					return
+				}
+				firstStream = false
 				last := opened
-				_ = pump(stream, !c.TTY, func(b []byte) error {
+				streamErr := pump(stream, !c.TTY, func(b []byte) error {
 					last = time.Now()
-					return send(b)
+					if err := send(b); err != nil {
+						return err
+					}
+					return sendStatus(map[string]string{"t": "cursor", "d": last.Format(time.RFC3339Nano), "id": c.ID})
 				})
 				stream.Close()
+				if streamErr != nil && !errors.Is(streamErr, io.EOF) && ctx.Err() == nil {
+					if status("error", streamErr.Error()) != nil {
+						return
+					}
+				}
 				if last.After(since) {
 					since = last
 				}
@@ -426,6 +488,11 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				continue
+			}
+		}
+		if cerr != nil {
+			if status("error", cerr.Error()) != nil {
+				return
 			}
 		}
 		select {

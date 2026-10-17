@@ -1,6 +1,8 @@
 package config
 
 import (
+	"slices"
+
 	"errors"
 	"os"
 	"path/filepath"
@@ -665,5 +667,27 @@ func TestRenderOmitsDefaults(t *testing.T) {
 	got := Render(Spec{Name: "a", Cmd: "x", Restart: RestartNo, Enabled: &on})
 	if want := "[servers.a]\ncmd = \"x\"\n"; got != want {
 		t.Errorf("Render = %q, want %q", got, want)
+	}
+}
+
+func TestProjectMappingEdits(t *testing.T) {
+	path := newConfig(t, fixture)
+	sv, _ := mustLoad(t, path).Server("web")
+	spec := SpecOf(sv)
+	spec.Projects = []string{"demo_db", "demo-api"}
+	if err := UpdateServer(path, "web", spec); err != nil {
+		t.Fatal(err)
+	}
+	sv, _ = mustLoad(t, path).Server("web")
+	if !slices.Equal(SpecOf(sv).Projects, spec.Projects) {
+		t.Fatal("project mappings lost on round trip")
+	}
+	before := readConfig(t, path)
+	for _, projects := range [][]string{{""}, {"UPPER"}, {"../other"}, {"same", "same"}} {
+		spec.Projects = projects
+		wantRejected(t, path, before, UpdateServer(path, "web", spec))
+	}
+	if !strings.Contains(before, "# web comment") || !strings.Contains(before, fixRest) {
+		t.Fatal("mapping edit lost neighboring comments")
 	}
 }

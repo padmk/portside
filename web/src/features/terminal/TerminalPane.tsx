@@ -24,6 +24,8 @@ interface Props {
   onClear?: () => Promise<void>
   /** Reconnects when the stream closes. Without it the stream ends, as a shell session does. */
   reconnect?: boolean
+  /** Resume a container log stream without clearing existing output. */
+  resume?: boolean
   /** Shown over the screen once a stream that does not reconnect has ended. */
   ended?: ReactNode
   emptyText: string
@@ -32,7 +34,7 @@ interface Props {
 
 const FONT = '"Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace'
 
-export function TerminalPane({ source, interactive, input = 'toggle', onClear, reconnect = true, ended, emptyText, waitingText }: Props) {
+export function TerminalPane({ source, interactive, input = 'toggle', onClear, reconnect = true, resume = false, ended, emptyText, waitingText }: Props) {
   const t = useT()
   const { mode, themeId } = usePrefs()
   const { focusTerminal } = useUi()
@@ -44,6 +46,7 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
   const [typing, setTyping] = useState(false)
   const [following, setFollowing] = useState(true)
   const [hasOutput, setHasOutput] = useState(false)
+  const [streamError, setStreamError] = useState('')
   const [closed, setClosed] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ index: number; count: number } | null>(null)
@@ -62,6 +65,8 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
     let ws: WebSocket | null = null
     let timer: number | undefined
     let retry = 0
+    let lastOutput = ''
+    let lastContainer = ''
     let frame = 0
     const cleanups: (() => void)[] = []
 
@@ -93,17 +98,30 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
       }
 
       const connect = () => {
-        const sock = new WebSocket(wsUrl(source))
+        const path = resume && lastOutput ? `${source}${source.includes('?') ? '&' : '?'}since=${encodeURIComponent(lastOutput)}&id=${encodeURIComponent(lastContainer)}` : source
+        const sock = new WebSocket(wsUrl(path))
+        let replay = !resume
         ws = sock
         sock.binaryType = 'arraybuffer'
         sock.onopen = () => {
           retry = 0
-          tm.reset()
-          setHasOutput(false)
           sendResize()
         }
         sock.onmessage = (ev) => {
+          if (typeof ev.data === 'string') {
+            try {
+              const message = JSON.parse(ev.data) as { t?: string; d?: string; id?: string }
+              if (message.t === 'error') setStreamError(message.d ?? '')
+              if (message.t === 'status') setStreamError('')
+              if (message.t === 'cursor') {
+                lastOutput = message.d ?? ''
+                lastContainer = message.id ?? ''
+              }
+            } catch { /* Non-protocol text does not belong in the terminal. */ }
+            return
+          }
           if (!(ev.data instanceof ArrayBuffer)) return
+          if (replay) { tm.reset(); replay = false }
           if (ev.data.byteLength > 0) setHasOutput(true)
           tm.write(new Uint8Array(ev.data))
         }
@@ -171,7 +189,7 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
       term.current = null
       search.current = null
     }
-  }, [source, reconnect, input])
+  }, [source, reconnect, resume, input])
 
   useEffect(() => {
     if (term.current) term.current.options.theme = terminalTheme(themeId)
@@ -279,6 +297,7 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
           </button>
         )}
       </div>
+      {streamError && <div className="banner banner--bad" role="alert">{streamError}</div>}
       <div className="term-screen" style={{ background: terminalBackground(themeId) }}>
         <div className="term-host" ref={host} data-typing={canType || undefined} />
         {!hasOutput && !closed && <p className="term-empty">{interactive ? waitingText : emptyText}</p>}

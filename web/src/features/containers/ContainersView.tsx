@@ -1,3 +1,9 @@
+import { useState } from 'react'
+import { MoreHorizontal, Play, Square, Trash2 } from 'lucide-react'
+import { Menu, MenuItem } from '../../ui/Menu'
+import { ConfirmDialog } from '../dialogs/ConfirmDialog'
+import { useBusy } from '../servers/actions'
+import { projectAction, projectBusyKey } from './actions'
 import type { ContainerView, DockerState } from '../../api/types'
 import { useT } from '../../i18n'
 import { selectServer } from '../../state/route'
@@ -68,15 +74,17 @@ function ContainerList({ containers, selected, scope }: { containers: ContainerV
     <nav className="ct-list" aria-label={t('containers.title')}>
       {groups.map((g) => (
         <div key={g.project || '\0'} className="ct-group">
-          {titled && (
-            <h3 className="ct-group-title">
+          {(titled || g.items.some((c) => c.project && c.service && c.workingDir && !c.oneOff)) && (
+            <div className="ct-group-title">
               <span className="ct-group-name">{g.project || t('containers.loose')}</span>
               {g.server && scope !== g.server && (
                 <button type="button" className="chip chip--link" onClick={() => selectServer(g.server!)} title={t('containers.openServer', { name: g.server })}>
                   {g.server}
                 </button>
               )}
-            </h3>
+              <span className="spacer" />
+              <ProjectActions group={g} />
+            </div>
           )}
           <ul>
             {g.items.map((c) => {
@@ -115,5 +123,30 @@ function ContainerList({ containers, selected, scope }: { containers: ContainerV
         </div>
       ))}
     </nav>
+  )
+}
+
+function ProjectActions({ group: g }: { group: Group }) {
+  const t = useT()
+  const busy = useBusy(projectBusyKey(g.project))
+  const [confirm, setConfirm] = useState(false)
+  const c = g.items.find((item) => item.project && item.service && item.workingDir && !item.oneOff)
+  if (!c) return null
+  const disabled = busy || g.items.some((item) => item.job?.running)
+  return (
+    <>
+      <Menu label={t('containers.projectActions', { name: g.project })} trigger={<MoreHorizontal size={16} />}>
+        <MenuItem icon={<Play size={14} />} disabled={disabled} onSelect={() => { void projectAction(c.name, g.project, 'start') }}>{t('containers.startAll')}</MenuItem>
+        <MenuItem icon={<Square size={14} />} disabled={disabled} onSelect={() => { void projectAction(c.name, g.project, 'stop') }}>{t('containers.stopAll')}</MenuItem>
+        <MenuItem icon={<Trash2 size={14} />} danger disabled={disabled} onSelect={() => setConfirm(true)}>{t('containers.remove')}</MenuItem>
+      </Menu>
+      {confirm && <ConfirmDialog
+        title={t('containers.remove')}
+        message={t('containers.removeConfirm', { name: g.project })}
+        confirmLabel={t('containers.remove')}
+        onConfirm={() => projectAction(c.name, g.project, 'down', true)}
+        onClose={() => setConfirm(false)}
+      />}
+    </>
   )
 }

@@ -30,6 +30,7 @@ var Reserved = map[int]bool{
 }
 
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+var projectRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // ValidName reports whether name can be used as a server name. Names double as
 // DNS labels for the <name>.localhost proxy, hence the strict alphabet.
@@ -72,6 +73,7 @@ type Server struct {
 	PortAuto  bool // port was assigned automatically
 	Group     string
 	DependsOn []string
+	Projects  []string
 	Env       map[string]string
 	Restart   string
 	Health    string // optional HTTP path probed for readiness, e.g. "/"
@@ -159,6 +161,7 @@ type rawServer struct {
 	Port        *int              `toml:"port"`
 	Group       string            `toml:"group"`
 	DependsOn   []string          `toml:"depends_on"`
+	Projects    []string          `toml:"projects"`
 	Env         map[string]string `toml:"env"`
 	Restart     string            `toml:"restart"`
 	Health      string            `toml:"health"`
@@ -277,12 +280,20 @@ func Parse(path string, data []byte) (*Config, error) {
 			Cmd:       r.Cmd,
 			Group:     r.Group,
 			DependsOn: r.DependsOn,
+			Projects:  r.Projects,
 			Env:       r.Env,
 			Restart:   r.Restart,
 			Health:    r.Health,
 			Open:      r.Open,
 			Stop:      cfg.StopTimeout,
 			Enabled:   r.Enabled == nil || *r.Enabled,
+		}
+		projects := map[string]bool{}
+		for _, project := range s.Projects {
+			if !projectRe.MatchString(project) || projects[project] {
+				return nil, fmt.Errorf("%s: [servers.%s]: projects must contain unique compose project names (lowercase letters, digits, dashes and underscores)", path, name)
+			}
+			projects[project] = true
 		}
 		s.Dir = paths.ExpandHome(r.Dir)
 		if s.Dir == "" {

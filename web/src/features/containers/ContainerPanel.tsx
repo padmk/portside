@@ -44,8 +44,8 @@ export function ContainerPanel({ container: c }: { container: ContainerView }) {
   if (running && c.startedAt) when = t('container.upFor', { time: formatUptime(c.startedAt, now) })
   else if (c.finishedAt) when = t('card.ago', { ago: formatAgo(c.finishedAt, now) })
 
-  const rebuild = (build: boolean) => {
-    void recreate(c.name, build).then((r) => r && setContainerTab('job'))
+  const rebuild = (build: boolean, pull = false) => {
+    void recreate(c.name, build, pull).then((r) => r && setContainerTab('job'))
   }
 
   return (
@@ -98,10 +98,14 @@ export function ContainerPanel({ container: c }: { container: ContainerView }) {
               {t('action.start')}
             </button>
           )}
-          {c.project && c.service && !c.oneOff && (
+          {c.project && c.service && c.workingDir && !c.oneOff && (
             <Menu label={t('detail.more')} trigger={<MoreHorizontal size={18} />} className="icon-btn icon-btn--boxed">
               <MenuItem icon={<RefreshCcw size={16} />} disabled={busy || jobRunning} onSelect={() => rebuild(false)}>{t('container.recreate')}</MenuItem>
-              <MenuItem icon={<Hammer size={16} />} disabled={busy || jobRunning} onSelect={() => rebuild(true)}>{t('container.rebuild')}</MenuItem>
+              {c.buildable ? (
+                <MenuItem icon={<Hammer size={16} />} disabled={busy || jobRunning} onSelect={() => rebuild(true)}>{t('container.rebuild')}</MenuItem>
+              ) : (
+                <MenuItem icon={<RefreshCcw size={16} />} disabled={busy || jobRunning} onSelect={() => rebuild(false, true)}>{t('container.pull')}</MenuItem>
+              )}
             </Menu>
           )}
         </div>
@@ -140,6 +144,7 @@ export function ContainerPanel({ container: c }: { container: ContainerView }) {
             <TerminalPane
               key={`logs:${c.name}`}
               source={api.containerLogsPath(c.name)}
+              resume
               interactive={false}
               input="none"
               emptyText={t('container.noLogs')}

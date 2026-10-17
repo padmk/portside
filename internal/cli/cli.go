@@ -143,7 +143,7 @@ func init() {
 		{names: []string{"logs", "log"}, section: "Servers", usage: "logs <name> [-n 200] [-f] [--raw] [--grep <regexp> [-C N]] [-t] [--since 10m]", summary: "Print, search or follow a server's or container's output", run: cmdLogs, remote: true},
 		{names: []string{"attach", "a"}, section: "Servers", usage: "attach <name>", summary: "Interactive terminal of a server (Ctrl-] detaches)", run: cmdAttach, remote: true},
 		{names: []string{"open"}, section: "Servers", usage: "open [name] [--alias]", summary: "Open the dashboard or a server in the browser", run: cmdOpen},
-		{names: []string{"containers"}, section: "Servers", usage: "containers [server|project]... [--json]", summary: "List containers, their state and the server each belongs to", run: cmdContainers, remote: true},
+		{names: []string{"containers"}, section: "Servers", usage: "containers [server|project]... [--json] | start|stop|restart|recreate <name> [--build] [--pull]", summary: "List containers or act on one container", run: cmdContainers, remote: true},
 		{names: []string{"ports"}, section: "Servers", usage: "ports [--json]", summary: "Show every listening TCP port and its owner", run: cmdPorts},
 
 		{names: []string{"computers"}, section: "Other computers", usage: "computers [--json]", summary: "List your other computers that share their servers, and the connection", run: cmdComputers},

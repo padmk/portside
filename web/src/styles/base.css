@@ -9,6 +9,7 @@
 /* The document never scrolls: the app is a full-height shell whose panes
    (.overview, the detail view) scroll and reserve their own scrollbar gutter. */
 html {
+  scrollbar-gutter: stable;
   height: 100%;
   -webkit-text-size-adjust: 100%;
 }

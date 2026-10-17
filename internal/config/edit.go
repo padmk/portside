@@ -26,6 +26,7 @@ type Spec struct {
 	Port      *int              `json:"port,omitempty"`
 	Group     string            `json:"group,omitempty"`
 	DependsOn []string          `json:"dependsOn,omitempty"`
+	Projects  []string          `json:"projects,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	Restart   string            `json:"restart,omitempty"`
 	Health    string            `json:"health,omitempty"`
@@ -102,6 +103,13 @@ func Render(s Spec) string {
 		}
 		fmt.Fprintf(&b, "depends_on = [%s]\n", strings.Join(q, ", "))
 	}
+	if len(s.Projects) > 0 {
+		q := make([]string, len(s.Projects))
+		for i, project := range s.Projects {
+			q[i] = Quote(project)
+		}
+		fmt.Fprintf(&b, "projects = [%s]\n", strings.Join(q, ", "))
+	}
 	if s.Restart != "" && s.Restart != RestartNo {
 		fmt.Fprintf(&b, "restart = %s\n", Quote(s.Restart))
 	}
@@ -138,7 +146,7 @@ func Render(s Spec) string {
 // SpecOf converts a loaded server back into a Spec, keeping the original dir text.
 func SpecOf(s Server) Spec {
 	sp := Spec{
-		Name: s.Name, Dir: s.DirRaw, Cmd: s.Cmd, Group: s.Group, DependsOn: s.DependsOn,
+		Name: s.Name, Dir: s.DirRaw, Cmd: s.Cmd, Group: s.Group, DependsOn: s.DependsOn, Projects: s.Projects,
 		Env: s.Env, Restart: s.Restart, Health: s.Health, Open: s.Open, Stop: s.StopRaw,
 		Icon: s.IconRaw,
 	}
@@ -472,7 +480,7 @@ func UpdateServer(path, name string, s Spec) error {
 		before := specValues(SpecOf(old))
 		after := specValues(s)
 		out := append([]string{}, d.lines...)
-		for _, k := range []string{"dir", "cmd", "port", "group", "depends_on", "restart", "health", "icon", "open", "stop_timeout", "enabled", "env"} {
+		for _, k := range specKeys(before, after) {
 			if reflect.DeepEqual(before[k], after[k]) {
 				continue
 			}
@@ -525,6 +533,27 @@ func UpdateServer(path, name string, s Spec) error {
 		}
 		return out, nil
 	})
+}
+
+// specKeys lists the server keys set in either spec, in the order Render
+// writes them, so a key added by an edit lands where a new table would have it.
+func specKeys(specs ...map[string]any) []string {
+	order := []string{"dir", "cmd", "port", "group", "depends_on", "projects", "restart", "health", "icon", "open", "stop_timeout", "enabled", "env"}
+	seen := map[string]bool{}
+	for _, k := range order {
+		seen[k] = true
+	}
+	var extra []string
+	for _, m := range specs {
+		for k := range m {
+			if !seen[k] {
+				seen[k] = true
+				extra = append(extra, k)
+			}
+		}
+	}
+	sort.Strings(extra)
+	return append(order, extra...)
 }
 
 // renameDependency rewrites depends_on entries of other servers so that a

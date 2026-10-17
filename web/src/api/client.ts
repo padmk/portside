@@ -144,7 +144,12 @@ export const api = {
 
   container: (name: string) => on<ContainerDetails>('GET', container(name)),
   containerAction: (name: string, action: 'start' | 'stop' | 'restart') => on<{ ok: boolean }>('POST', `${container(name)}/${action}`, {}),
-  recreate: (name: string, build: boolean) => on<{ ok: boolean }>('POST', `${container(name)}/recreate`, { build }),
+  recreate: (name: string, build: boolean, pull = false) => on<{ ok: boolean }>('POST', `${container(name)}/recreate`, { build, pull }),
+  projectAction: async (name: string, action: 'start' | 'stop' | 'down', confirm = false) => {
+    const result = await on<{ error?: string; output: string }>('POST', `${container(name)}/project/${action}`, { confirm })
+    if (result.error) throw new Error(`${result.error}\n${result.output}`)
+    return result
+  },
   dismissJob: (name: string) => on<{ ok: boolean }>('DELETE', `${container(name)}/job`),
   startEngine: () => on<{ ok: boolean }>('POST', `/docker/start`, {}),
   containerLogsPath: (name: string) => `${base}${container(name)}/logs`,

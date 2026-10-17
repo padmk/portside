@@ -64,6 +64,9 @@ func Run(cfgPath string) error {
 	}
 	sup := supervisor.New(cfg, stateDir)
 	dock := docker.NewMonitor(sup, supervisor.SampleInterval, func() string { return sup.Config().DockerStart })
+	if err := dock.UseStateDir(stateDir); err != nil {
+		return fmt.Errorf("container stop state: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -122,6 +125,7 @@ func Run(cfgPath string) error {
 	}
 
 	go sup.Run(ctx)
+	go srv.WatchContainerIssues(ctx)
 	go dock.Run(ctx)
 	go srv.WatchConfig(ctx)
 	// Sharing is applied in the background (it runs the tailscale CLI); with
