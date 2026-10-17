@@ -48,9 +48,11 @@ func Run(cfgPath string) error {
 		}
 		log.Printf("created %s", cfgPath)
 	}
-	cfg, err := config.LoadAssignedPorts(cfgPath)
-	if err != nil {
-		return err
+	// Save automatic ports first; an invalid file is reported by LoadRecoverable.
+	_, _ = config.LoadAssignedPorts(cfgPath)
+	cfg, configErr := config.LoadRecoverable(cfgPath, stateDir)
+	if configErr != nil {
+		log.Printf("config: %v; using recovered settings", configErr)
 	}
 	for _, w := range cfg.Warnings {
 		log.Printf("config: %s", w)
@@ -75,16 +77,17 @@ func Run(cfgPath string) error {
 	sh := share.New(cfg.Port, stateDir, ts)
 
 	srv := server.New(server.Options{
-		Supervisor: sup,
-		Docker:     dock,
-		ConfigPath: cfgPath,
-		StateDir:   stateDir,
-		Port:       cfg.Port,
-		UI:         web.Assets(),
-		Token:      token,
-		Shutdown:   shutdown,
-		Remote:     rem,
-		Share:      sh,
+		Supervisor:  sup,
+		ConfigError: errorText(configErr),
+		Docker:      dock,
+		ConfigPath:  cfgPath,
+		StateDir:    stateDir,
+		Port:        cfg.Port,
+		UI:          web.Assets(),
+		Token:       token,
+		Shutdown:    shutdown,
+		Remote:      rem,
+		Share:       sh,
 	})
 	sh.SetHandler(srv.PeerHandler())
 
@@ -111,7 +114,7 @@ func Run(cfgPath string) error {
 	defer os.Remove(portFile)
 	// Keep an installed agent skill in step with this binary. Instances with
 	// their own config or state (tests, development) leave it alone.
-	if os.Getenv(app.Env("CONFIG")) == "" && os.Getenv(app.Env("STATE_DIR")) == "" {
+	if refreshInstalledSkill(cfgPath) {
 		if err := agentskill.Refresh(cfg.Port, cfgPath); err != nil {
 			log.Printf("agent skill: %v", err)
 		}
@@ -186,4 +189,30 @@ func acquireLock(path string) (*os.File, error) {
 	_ = f.Truncate(0)
 	_, _ = f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)
 	return f, nil
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func refreshInstalledSkill(cfgPath string) bool {
+	if os.Getenv(app.Env("STATE_DIR")) != "" {
+		return false
+	}
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		base = filepath.Join(home, ".config")
+	}
+	actual, err := filepath.Abs(paths.ExpandHome(cfgPath))
+	if err != nil {
+		return false
+	}
+	return actual == filepath.Join(base, app.ID, app.ID+".toml")
 }

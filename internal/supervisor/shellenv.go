@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,12 @@ type shellEnv struct {
 }
 
 const envMarker = "__ENV_BEGIN__"
+
+func (s *shellEnv) cached() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.env
+}
 
 func (s *shellEnv) get() []string {
 	s.mu.Lock()
@@ -164,4 +171,11 @@ func lookupEnv(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func sameEnv(a, b []string) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }

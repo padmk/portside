@@ -34,6 +34,9 @@ var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 // ValidName reports whether name can be used as a server name. Names double as
 // DNS labels for the <name>.localhost proxy, hence the strict alphabet.
 func ValidName(name string) error {
+	if name == app.ID {
+		return fmt.Errorf("name %q is reserved for the dashboard", name)
+	}
 	if !nameRe.MatchString(name) {
 		return fmt.Errorf("invalid name %q: use lowercase letters, digits and dashes", name)
 	}
@@ -259,7 +262,9 @@ func Parse(path string, data []byte) (*Config, error) {
 
 	explicit := map[int]string{}
 	for _, name := range order {
-		if err := ValidName(name); err != nil {
+		if name == app.ID {
+			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s: name is reserved for the dashboard; rename this server to use its alias", name))
+		} else if err := ValidName(name); err != nil {
 			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
 		}
 		r := raw.Servers[name]

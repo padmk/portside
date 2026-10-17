@@ -9,7 +9,7 @@ description: "Find, start, reuse, debug or restart this machine's local dev serv
 
 ## Get a server running
 
-Check what exists before starting anything: `{{.ID}} status --json` or `list_servers`. Reuse a running server and the URL it reports. To get one running and ready, use `{{.ID}} ensure <name> --json` or `ensure_server`: it starts the server and its dependencies only if needed, waits until the port accepts connections and returns the URL, so it is safe to repeat and replaces starting and polling yourself.
+Check what exists before starting anything: `{{.ID}} status --json` or `list_servers`. Reuse a running server and the URL it reports. To get one running and ready, use `{{.ID}} ensure <name> --json` or `ensure_server`: it starts the server and its dependencies only if needed, rechecks the live listener and configured health path even for a running process, and returns the URL, so it is safe to repeat and replaces starting and polling yourself.
 
 A server runs one checkout. In a worktree or another clone, compare the server's `dir` with your working directory before reusing it (`list_servers` with `dir` does this): a server running the main checkout does not show your changes. Ask before pointing it elsewhere or adding an entry for the worktree.
 
@@ -17,13 +17,15 @@ Never run a second copy of a managed server in your own shell, not even on anoth
 
 ## Diagnose
 
+A running process can lose its listener while a wrapper stays alive. Check `note` and use `ensure` before trusting its URL. Startup notes identify a waiting port or failing health path; `listenPorts` identifies ports the process tree opened instead. `restartPending` means an automatic retry is scheduled; an authorized stop cancels it. Crash readiness errors include recent output lines.
+
 Read the output before any restart: `{{.ID}} logs <name> -n 200`, or `server_logs`. To search the whole scrollback, pass a case-insensitive regular expression, with context lines for stack traces: `{{.ID}} logs <name> --grep 'error|exception' -C 5`, or `match` and `context` in `server_logs`. The tools put the local time before each line and the current time in a note at the top; check it before blaming a line on your change. To see only what happened after a change or a request, pass `since` (`10m`, or an RFC 3339 time), or `{{.ID}} logs <name> -t --since 10m`. Bracketed lines at the top of a reply say what it left out.
 
 Each server lists the containers of the Compose project in its directory (state, health, the engine's status text, `failed`, `projectDir`); `list_containers` or `{{.ID}} containers` shows every container on the engine. When a server misbehaves, check them: a container that is unhealthy, restarting or `failed` is a lead to follow, not yet the cause. Read its output with `container_logs` (same `lines`, `match`, `context` and `since`) or `{{.ID}} logs <container>`. `list_ports` names the container behind a published port. If the `docker` field says the engine is unavailable, tell the user: the dashboard's **Start Docker** button starts the engine behind the active Docker context.
 
 ## Change
 
-Restart only the named server, for a diagnosed failure or a change hot reload cannot pick up, and ask first unless the user requested it. A note saying the config changed since start means a restart applies it. `down`, `stop` and `restart` need explicit names; do not use `--all` unless asked, never stop the daemon (`{{.ID}} daemon stop`), and use `logs` rather than the interactive `attach`.
+Restart only the named server, for a diagnosed failure or a change hot reload cannot pick up, and ask first unless the user requested it. A note saying the config changed since start means a restart applies it, including global environment, PATH or shell changes. `restart_server` waits for readiness and accepts `timeout` (default `90s`); report a failed outcome. `down`, `stop` and `restart` need explicit names; do not use `--all` unless asked, never stop the daemon (`{{.ID}} daemon stop`), and use `logs` rather than the interactive `attach`.
 
 Managed Compose commands receive `COMPOSE_MENU=false` so interactive menus do not redraw in logs.
 

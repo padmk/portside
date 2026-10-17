@@ -50,6 +50,9 @@ func cmdDaemon(e *env, args []string) error {
 		}
 		fmt.Fprintln(e.out, "daemon stopped; servers it ran were stopped too")
 	case "restart":
+		if _, err := config.Load(e.cfgPath); err != nil {
+			return fmt.Errorf("refusing to restart daemon: %w", err)
+		}
 		if _, err := c.Ping(e.ctx); err == nil {
 			if err := c.Do(e.ctx, http.MethodPost, "/api/shutdown", nil, nil); err != nil {
 				return err

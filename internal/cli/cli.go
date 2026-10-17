@@ -56,6 +56,11 @@ func (e *env) configPort() int {
 	}
 	if cfg, err := config.Load(e.cfgPath); err == nil {
 		return cfg.Port
+	} else {
+		if port, portErr := config.ReadPort(e.cfgPath); portErr == nil {
+			return port
+		}
+		fmt.Fprintf(e.errOut, "config: %v\n", err)
 	}
 	return app.DefaultPort
 }

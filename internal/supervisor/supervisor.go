@@ -7,11 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -50,35 +48,42 @@ const (
 )
 
 type proc struct {
-	cfg       config.Server // latest configuration
-	running   config.Server // configuration the live process was started with
-	status    Status
-	note      string // short human explanation of the status
-	cmd       *exec.Cmd
-	pty       *os.File
-	pid       int
-	pidStart  string
-	startedAt time.Time
-	readyAt   time.Time
-	exitedAt  time.Time
-	exitCode  int
-	hasExit   bool
-	stopping  bool
-	want      bool // the user wants this server running
-	startSeq  int  // bumped by every Start and Stop; a launch proceeds only with the latest
-	retries   int
-	gen       int // increments on every start; stale goroutines compare it
-	done      chan struct{}
-	copied    chan struct{} // closed when all PTY output has been read
-	logs      *LogBuffer
-	hist      history
-	cpu       float64
-	mem       int64
-	listening bool
-	external  *ports.Listener
-	cols      uint16
-	rows      uint16
-	removed   bool
+	cfg            config.Server // latest configuration
+	runningEnv     []string
+	runningShell   string
+	restartPending bool
+	listenPorts    []int
+	listenHost     string
+	missingSince   time.Time
+	externalStart  string
+	running        config.Server // configuration the live process was started with
+	status         Status
+	note           string // short human explanation of the status
+	cmd            *exec.Cmd
+	pty            *os.File
+	pid            int
+	pidStart       string
+	startedAt      time.Time
+	readyAt        time.Time
+	exitedAt       time.Time
+	exitCode       int
+	hasExit        bool
+	stopping       bool
+	want           bool // the user wants this server running
+	startSeq       int  // bumped by every Start and Stop; a launch proceeds only with the latest
+	retries        int
+	gen            int // increments on every start; stale goroutines compare it
+	done           chan struct{}
+	copied         chan struct{} // closed when all PTY output has been read
+	logs           *LogBuffer
+	hist           history
+	cpu            float64
+	mem            int64
+	listening      bool
+	external       *ports.Listener
+	cols           uint16
+	rows           uint16
+	removed        bool
 }
 
 // Supervisor owns all managed processes.
@@ -184,6 +189,36 @@ func (s *Supervisor) Apply(cfg *config.Config) {
 	}
 }
 
+// ApplyRenamed preserves a live process and its logs when an edit renames it.
+func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
+	s.mu.Lock()
+	restart := false
+	if old != name {
+		if p := s.procs[old]; p != nil && s.procs[name] == nil {
+			delete(s.procs, old)
+			s.procs[name] = p
+			p.cfg.Name = name
+			p.running.Name = name
+			p.logs.retarget(s.logDir, name)
+			if p.pid == 0 && p.status == Starting {
+				p.startSeq++
+				restart = p.want
+				p.status = Stopped
+			}
+		}
+	}
+	removed := s.applyLocked(cfg)
+	s.saveLocked()
+	s.changedLocked()
+	s.mu.Unlock()
+	for _, n := range removed {
+		_ = s.Stop(n)
+	}
+	if restart {
+		_ = s.Start(name, StartOptions{})
+	}
+}
+
 func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	s.cfg = cfg
 	keep := map[string]bool{}
@@ -225,12 +260,15 @@ func (p *proc) alive() bool {
 	return p.status == Starting || p.status == Running || p.status == Stopping
 }
 
-func (p *proc) stale() bool {
+func (p *proc) stale(cfg *config.Config, base []string) bool {
 	if p.pid == 0 || p.status == Stopping {
 		return false
 	}
 	a, b := p.running, p.cfg
-	return a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || !reflect.DeepEqual(a.Env, b.Env)
+	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || p.runningShell != cfg.Shell {
+		return true
+	}
+	return !sameEnv(p.runningEnv, launchEnv(base, b, cfg.PathPrepend, cfg.Env))
 }
 
 // StartOptions tune Start.
@@ -310,6 +348,7 @@ func (s *Supervisor) reserve(name string) int {
 		return 0
 	}
 	p.want = true
+	p.restartPending = false
 	p.startSeq++
 	s.saveLocked()
 	return p.startSeq
@@ -330,12 +369,12 @@ func (s *Supervisor) failStart(name string, token int, msg string) {
 	if p, ok := s.procs[name]; ok && p.pid == 0 && p.startSeq == token && p.want {
 		p.status = Crashed
 		p.note = msg
+		s.saveLocked()
 		s.changedLocked()
 	}
 }
 
-// startOne launches one server. token comes from reserve; 0 means an
-// automatic restart, which only needs the server to still be wanted.
+// startOne launches one server while its start request token is current.
 func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	s.mu.Lock()
 	p, ok := s.procs[name]
@@ -347,6 +386,11 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		s.mu.Unlock()
 		return nil
 	}
+	if s.closing || !p.want || (token != 0 && p.startSeq != token) {
+		s.mu.Unlock()
+		return nil
+	}
+	p.restartPending = false
 	sv := p.cfg
 	shell := s.cfg.Shell
 	prepend := s.cfg.PathPrepend
@@ -370,6 +414,10 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		owner, found := ports.Owner(context.Background(), sv.Port)
 		if !opt.Takeover || !found {
 			s.mu.Lock()
+			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing {
+				s.mu.Unlock()
+				return nil
+			}
 			p.status = Blocked
 			if found {
 				p.external = &owner
@@ -377,9 +425,14 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 			} else {
 				p.note = fmt.Sprintf("port %d is already in use", sv.Port)
 			}
+			note := p.note
+			s.saveLocked()
 			s.changedLocked()
 			s.mu.Unlock()
-			return fmt.Errorf("%w: %s", ErrPortBusy, p.note)
+			return fmt.Errorf("%w: %s", ErrPortBusy, note)
+		}
+		if !s.current(name, token) {
+			return nil
 		}
 		if err := s.killForeign(owner); err != nil {
 			return err
@@ -389,8 +442,13 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	if st, err := os.Stat(sv.Dir); err != nil || !st.IsDir() {
 		msg := "directory not found: " + paths.ShortenHome(sv.Dir)
 		s.mu.Lock()
+		if s.procs[name] != p || !p.want || p.startSeq != token || s.closing {
+			s.mu.Unlock()
+			return nil
+		}
 		p.status = Crashed
 		p.note = msg
+		s.saveLocked()
 		s.changedLocked()
 		s.mu.Unlock()
 		fmt.Fprintf(p.logs, "\r\n\x1b[31m%s\x1b[0m\r\n", msg)
@@ -429,6 +487,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	if err != nil {
 		p.status = Crashed
 		p.note = "failed to start: " + err.Error()
+		s.saveLocked()
 		s.changedLocked()
 		s.mu.Unlock()
 		return err
@@ -440,6 +499,12 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.pid = cmd.Process.Pid
 	p.pidStart = processStart(p.pid)
 	p.running = sv
+	p.runningEnv = slices.Clone(env)
+	p.runningShell = shell
+	p.restartPending = false
+	p.listenPorts = nil
+	p.listenHost = ""
+	p.missingSince = time.Time{}
 	p.status = Starting
 	p.note = ""
 	p.startedAt = time.Now()
@@ -532,7 +597,10 @@ func (s *Supervisor) Environ() []string {
 }
 
 func (s *Supervisor) buildEnv(sv config.Server, prepend []string, global map[string]string) []string {
-	base := s.env.get()
+	return launchEnv(s.env.get(), sv, prepend, global)
+}
+
+func launchEnv(base []string, sv config.Server, prepend []string, global map[string]string) []string {
 	over := map[string]string{
 		"FORCE_COLOR": "1",
 		"TERM":        "xterm-256color",
@@ -635,6 +703,9 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			go s.notifier(name+" crashed", fmt.Sprintf("Exited with code %d after %s", code, uptime.Round(time.Second)))
 		}
 	}
+	p.restartPending = restartIn > 0
+	name = p.cfg.Name
+	token := p.startSeq
 	removed := p.removed
 	s.changedLocked()
 	s.saveLocked()
@@ -659,10 +730,11 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	if restartIn > 0 {
 		time.AfterFunc(restartIn, func() {
 			s.mu.Lock()
-			ok := p.gen == gen && p.want && !p.alive() && !s.closing
+			ok := p.gen == gen && p.startSeq == token && p.restartPending && p.want && !p.alive() && !s.closing
+			name := p.cfg.Name
 			s.mu.Unlock()
 			if ok {
-				_ = s.startOne(name, StartOptions{}, 0)
+				_ = s.startOne(name, StartOptions{}, token)
 			}
 		})
 	}
@@ -688,57 +760,6 @@ func (s *Supervisor) backoffLocked(p *proc, uptime time.Duration) time.Duration 
 	return d
 }
 
-// watchReady flips Starting to Running once the server accepts connections.
-func (s *Supervisor) watchReady(name string, p *proc, gen int) {
-	tick := time.NewTicker(400 * time.Millisecond)
-	defer tick.Stop()
-	for range tick.C {
-		s.mu.Lock()
-		if p.gen != gen || p.status != Starting || p.pid == 0 {
-			s.mu.Unlock()
-			return
-		}
-		port := p.running.Port
-		health := p.running.Health
-		started := p.startedAt
-		s.mu.Unlock()
-
-		ready := false
-		switch {
-		case port == 0:
-			ready = time.Since(started) > 1500*time.Millisecond
-		case ports.Listening(port):
-			ready = health == "" || healthy(port, health)
-		}
-		if ready {
-			s.mu.Lock()
-			if p.gen == gen && p.status == Starting {
-				p.status = Running
-				p.readyAt = time.Now()
-				p.listening = port > 0
-				s.changedLocked()
-			}
-			s.mu.Unlock()
-			return
-		}
-	}
-}
-
-func healthy(port int, path string) bool {
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	c := http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	resp, err := c.Get("http://127.0.0.1:" + strconv.Itoa(port) + path)
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode < 500
-}
-
 // Stop ends a server gracefully: Ctrl-C to its process group, then SIGTERM,
 // then SIGKILL. It returns when the process has exited.
 func (s *Supervisor) Stop(name string) error {
@@ -749,10 +770,11 @@ func (s *Supervisor) Stop(name string) error {
 		return fmt.Errorf("unknown server %q", name)
 	}
 	p.want = false
+	p.restartPending = false
 	p.retries = 0
 	p.startSeq++ // cancels any start still in preflight
 	if p.pid == 0 {
-		if p.status == Starting || p.status == Blocked {
+		if p.status == Starting || p.status == Blocked || p.status == Crashed || p.status == Exited {
 			p.status = Stopped
 			p.note = ""
 		}
@@ -844,48 +866,6 @@ func (s *Supervisor) Restart(name string, opt StartOptions) error {
 		return err
 	}
 	return s.Start(name, opt)
-}
-
-// WaitReady blocks until the server is running, fails, or the timeout passes.
-func (s *Supervisor) WaitReady(ctx context.Context, name string, timeout time.Duration) error {
-	ch := s.Subscribe()
-	defer s.Unsubscribe(ch)
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	poll := time.NewTicker(time.Second)
-	defer poll.Stop()
-	for {
-		s.mu.Lock()
-		p, ok := s.procs[name]
-		var st Status
-		var note string
-		var wanted bool
-		if ok {
-			st, note, wanted = p.status, p.note, p.want
-		}
-		s.mu.Unlock()
-		switch {
-		case !ok:
-			return fmt.Errorf("unknown server %q", name)
-		case st == Running:
-			return nil
-		case st == Stopped && wanted:
-			// Between a cancelled start and its replacement; keep waiting.
-		case st == Crashed, st == Exited, st == Blocked, st == Stopped:
-			if note == "" {
-				note = string(st)
-			}
-			return fmt.Errorf("%s: %s", name, note)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline.C:
-			return fmt.Errorf("%s: not ready after %s", name, timeout)
-		case <-ch:
-		case <-poll.C:
-		}
-	}
 }
 
 // Input writes keystrokes to a server's terminal.
@@ -1121,11 +1101,15 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 		name  string
 		port  int
 		alive bool
+		pid   int
+		start string
 	}
 	var checks []check
+	hasLive := false
 	s.mu.Lock()
 	for name, p := range s.procs {
 		if p.pid != 0 {
+			hasLive = true
 			cpu, mem, ok := treeUsage(table, children, p.pid)
 			if ok {
 				p.cpu, p.mem = cpu, mem
@@ -1133,16 +1117,27 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 			}
 		}
 		if p.cfg.Port > 0 && p.status != Starting && p.status != Stopping {
-			checks = append(checks, check{name, p.cfg.Port, p.pid != 0})
+			port := p.cfg.Port
+			if p.pid != 0 {
+				port = p.running.Port
+			}
+			pid := 0
+			if p.external != nil {
+				pid = p.external.PID
+			}
+			checks = append(checks, check{name, port, p.pid != 0, pid, p.externalStart})
 		}
 	}
 	s.mu.Unlock()
 
+	if hasLive {
+		_ = s.env.get()
+	}
 	for _, c := range checks {
 		listening := ports.Listening(c.port)
 		var owner *ports.Listener
 		if !c.alive && listening {
-			if knownExternal[c.name] != c.port {
+			if knownExternal[c.name] != c.port || c.pid == 0 || c.start == "" || processStart(c.pid) != c.start {
 				if l, ok := ports.Owner(ctx, c.port); ok {
 					owner = &l
 				} else {
@@ -1150,9 +1145,13 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 				}
 			}
 		}
+		identity := ""
+		if owner != nil {
+			identity = processStart(owner.PID)
+		}
 		s.mu.Lock()
 		p, ok := s.procs[c.name]
-		if ok {
+		if ok && c.alive == (p.pid != 0) {
 			if c.alive {
 				p.listening = listening
 			} else if !listening {
@@ -1166,6 +1165,7 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 				delete(knownExternal, c.name)
 			} else if owner != nil {
 				p.external = owner
+				p.externalStart = identity
 				knownExternal[c.name] = c.port
 			}
 		}

@@ -21,7 +21,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop` starts web, api and worker) and dependencies (`api` waits for `db` to accept connections).
 - **Stable ports and clean URLs.** Each server keeps its port. Every server is also reachable at `http://<name>.localhost:7878` through a built-in proxy that handles WebSockets and hot reload.
 - **Real terminals.** Servers run in a PTY, so colors, progress bars and interactive prompts work. Watch output live in the dashboard or attach from your terminal (`portside attach web`), type into it, detach with `Ctrl-]`.
-- **Honest status.** `starting` until the port accepts connections (optionally an HTTP health path), `running`, `crashed` with the exit code, `blocked` when another process holds the port. Ports held by programs Portside did not start are shown with their owner, and you can take the port over in one click.
+- **Honest status.** `starting` until the port accepts connections (optionally an HTTP health path), `running`, `crashed` with the exit code, a delayed warning if a running server loses its listener, `blocked` when another process holds the port. Ports held by programs Portside did not start are shown with their owner, and you can take the port over in one click.
 - **Graceful stops.** `Ctrl-C` to the whole process group first (so `docker compose` shuts its containers down), then `SIGTERM`, then `SIGKILL`; orphaned children are cleaned up.
 - **Restart policies and notifications.** `on-failure` or `always` with exponential backoff; a desktop notification when a server crashes.
 - **Survives restarts.** The servers you had running come back when the daemon restarts or you log in (`portside service install`).
@@ -85,7 +85,7 @@ Any command starts the daemon on demand, so there is nothing to launch first.
 
 ## Configuration
 
-The config lives at `~/.config/portside/portside.toml` (`$PORTSIDE_CONFIG` overrides it). The daemon reloads it when it changes; edits from the dashboard keep your comments and formatting. Adding or editing a server with a missing working directory saves it and displays a warning; create the directory before starting it.
+The config lives at `~/.config/portside/portside.toml` (`$PORTSIDE_CONFIG` overrides it). The daemon reloads it when it changes; edits from the dashboard keep your comments and formatting. Adding or editing a server with a missing working directory saves it and displays a warning; create the directory before starting it. An invalid file keeps the last good settings live, including across daemon restarts; without a saved copy the dashboard starts with an empty roster so you can repair the file. The banner shows the error, and `portside daemon restart` refuses an invalid config before stopping a healthy daemon.
 
 ```toml
 root = "~/dev"                      # base for relative dirs
@@ -146,9 +146,9 @@ stop_timeout = "30s"
 
 `terminal` accepts a macOS app name or an executable with arguments. Commands receive the directory as their last argument; use `{DIR}` to place it explicitly, for example `terminal = "kitty --directory {DIR}"`. Without this setting, macOS opens Terminal and Linux uses the first available terminal emulator.
 
-Server names are lowercase letters, digits and dashes, because they double as `<name>.localhost` hostnames.
+Server names are lowercase letters, digits and dashes, because they double as `<name>.localhost` hostnames. `portside` is reserved for the dashboard; existing entries with that name load with a warning. Renaming a running server in the dashboard preserves its process and output.
 
-The daemon is often started by launchd or systemd with a bare environment, so it reads `PATH` and the rest of your environment from your account's login shell (bash, zsh or fish; the one set for your user, not `$SHELL`) and refreshes it every 10 minutes. Commands detected as Compose stacks receive `COMPOSE_MENU=false` to keep interactive Compose menus out of their logs. Ports 5000 and 7000 (macOS AirPlay) and browser-blocked ports are skipped when assigning ports.
+The daemon is often started by launchd or systemd with a bare environment, so it reads `PATH` and the rest of your environment from your account's login shell (bash, zsh or fish; the one set for your user, not `$SHELL`) and refreshes it every 10 minutes. Commands detected as Compose stacks receive `COMPOSE_MENU=false` to keep interactive Compose menus out of their logs. Changes to the effective environment, global `env`, `path` or `shell` mark running servers stale until restarted. Ports 5000 and 7000 (macOS AirPlay) and browser-blocked ports are skipped when assigning ports.
 
 ## CLI
 
@@ -182,7 +182,9 @@ portside skill install|print             agent skill for Claude Code and Codex
 portside doctor                          check the setup
 ```
 
-`down` and `stop` refuse to run without a name or `--all`.
+`down` and `stop` refuse to run without a name or `--all`. Stop also cancels a pending automatic restart. JSON status exposes that wait as `restartPending`.
+
+After 10 seconds of startup, a server reports the port or health check it is waiting for. If its process tree listens on another port, `listenPorts` and the status note identify it. Running servers warn after a listener or health failure lasts 4 seconds, allowing brief hot reload gaps. `ensure` rechecks readiness even for a running process; health probes, direct URLs and the alias proxy use the loopback address that answers, including IPv6.
 
 ## Coding agents
 
@@ -193,7 +195,7 @@ claude mcp add --scope user portside -- portside mcp
 codex mcp add portside -- portside mcp
 ```
 
-Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server), `restart_server`, `stop_server`, `server_logs`, `list_containers`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
+Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server), `restart_server` (waits for readiness, with an optional `timeout`, default `90s`), `stop_server`, `server_logs`, `list_containers`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Readiness failures include recent output lines for a crashed server. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
 
 Install the agent skill too:
 
@@ -201,7 +203,7 @@ Install the agent skill too:
 portside skill install
 ```
 
-It writes `SKILL.md` to `~/.claude/skills/portside/` and `~/.codex/skills/portside/` (once when one links to the other) for the agents set up on the account. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file, and `portside doctor` reports, for each agent on the account, whether it has the MCP server and the current skill, with the command that fixes it.
+It writes `SKILL.md` to `~/.claude/skills/portside/` and `~/.codex/skills/portside/` (once when one links to the other) for the agents set up on the account. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts with the default config and state paths, including login-service starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file, and `portside doctor` reports, for each agent on the account, whether it has the MCP server and the current skill, with the command that fixes it.
 
 ## Other computers
 
@@ -225,8 +227,8 @@ Only devices signed in to the same Tailscale user that are not tagged appear in 
 ## How it works
 
 - `portside daemon` owns every server process. It listens on `127.0.0.1:7878` (and `[::1]`) and serves the API, the dashboard (embedded in the binary) and the `*.localhost` proxy, routed by the `Host` header.
-- Each server runs as `bash -c <cmd>` in its own pseudo-terminal and process group. Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log` (rotated at 10 MiB).
-- State (which servers you want running, and the process groups in flight) is saved to `~/.local/state/portside/state.json`. After a crash of the daemon itself, leftover process groups are verified by start time and stopped before servers are restored.
+- Each server runs as `bash -c <cmd>` in its own pseudo-terminal and process group. Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log` (rotated at 10 MiB). A daemon restart reloads the last 256 KiB from the current and rotated files into scrollback, followed by a `daemon restarted` separator. Restored output has no line timestamps.
+- State (which servers you want running, the process groups in flight, and last exit codes, times and notes) is saved to `~/.local/state/portside/state.json`. A validated copy of the config is cached as `last-good-config.json` beside it, with mode `0600` because it can contain environment values. After a crash of the daemon itself, leftover process groups are verified by start time and stopped before servers are restored.
 - The macOS app (`macos/`, Swift) bundles the same binary in `Portside.app/Contents/Helpers/portside`, starts the daemon if needed and follows its event stream. Quitting the app leaves the daemon and your servers running; **Stop Daemon and Servers** in its menu stops them. **Launch at Login** registers the app as a login item.
 - Containers come from the Docker Engine API on the socket of the active Docker context (`DOCKER_HOST`, `DOCKER_CONTEXT`, then `currentContext` in `~/.docker/config.json`), read from your login-shell environment. An event stream keeps the list current and a stats stream per running container feeds CPU and memory. A container belongs to the server whose `dir` is its `com.docker.compose.project.working_dir`; when several servers share that directory, the one running `docker compose` wins, else the first. Recreate and rebuild run `docker compose up --detach --no-deps --force-recreate [--build] <service>` with the project's own files, because the engine API has no notion of Compose projects.
 - `portside service install` writes a launchd agent (`~/Library/LaunchAgents/app.foreverbeta.portside.plist`) or a systemd user unit.

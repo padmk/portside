@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,42 +14,45 @@ import (
 
 // View is the public, JSON-serialisable state of one server.
 type View struct {
-	Name       string          `json:"name"`
-	Group      string          `json:"group,omitempty"`
-	Dir        string          `json:"dir"`
-	DirDisplay string          `json:"dirDisplay"`
-	Cmd        string          `json:"cmd"`
-	Port       int             `json:"port"`
-	PortAuto   bool            `json:"portAuto,omitempty"`
-	URL        string          `json:"url,omitempty"`
-	Alias      string          `json:"alias,omitempty"`
-	Status     Status          `json:"status"`
-	Note       string          `json:"note,omitempty"`
-	PID        int             `json:"pid,omitempty"`
-	StartedAt  *time.Time      `json:"startedAt,omitempty"`
-	ReadyAt    *time.Time      `json:"readyAt,omitempty"`
-	ExitedAt   *time.Time      `json:"exitedAt,omitempty"`
-	ExitCode   *int            `json:"exitCode,omitempty"`
-	Listening  bool            `json:"listening"`
-	External   *ports.Listener `json:"external,omitempty"`
-	Stale      bool            `json:"stale,omitempty"`
-	Removed    bool            `json:"removed,omitempty"`
-	Enabled    bool            `json:"enabled"`
-	DependsOn  []string        `json:"dependsOn,omitempty"`
-	Restart    string          `json:"restart"`
-	Restarts   int             `json:"restarts,omitempty"`
-	CPU        float64         `json:"cpu"`
-	Mem        int64           `json:"mem"`
-	CPUHistory []float64       `json:"cpuHistory,omitempty"`
-	MemHistory []int64         `json:"memHistory,omitempty"`
-	HasIcon    bool            `json:"hasIcon"`
-	Tail       []string        `json:"tail"` // last few plain output lines
-	Wanted     bool            `json:"wanted"`
+	Name           string          `json:"name"`
+	Group          string          `json:"group,omitempty"`
+	Dir            string          `json:"dir"`
+	DirDisplay     string          `json:"dirDisplay"`
+	Cmd            string          `json:"cmd"`
+	Port           int             `json:"port"`
+	PortAuto       bool            `json:"portAuto,omitempty"`
+	URL            string          `json:"url,omitempty"`
+	Alias          string          `json:"alias,omitempty"`
+	Status         Status          `json:"status"`
+	Note           string          `json:"note,omitempty"`
+	PID            int             `json:"pid,omitempty"`
+	StartedAt      *time.Time      `json:"startedAt,omitempty"`
+	ReadyAt        *time.Time      `json:"readyAt,omitempty"`
+	ExitedAt       *time.Time      `json:"exitedAt,omitempty"`
+	ExitCode       *int            `json:"exitCode,omitempty"`
+	RestartPending bool            `json:"restartPending"`
+	ListenPorts    []int           `json:"listenPorts,omitempty"`
+	Listening      bool            `json:"listening"`
+	External       *ports.Listener `json:"external,omitempty"`
+	Stale          bool            `json:"stale,omitempty"`
+	Removed        bool            `json:"removed,omitempty"`
+	Enabled        bool            `json:"enabled"`
+	DependsOn      []string        `json:"dependsOn,omitempty"`
+	Restart        string          `json:"restart"`
+	Restarts       int             `json:"restarts,omitempty"`
+	CPU            float64         `json:"cpu"`
+	Mem            int64           `json:"mem"`
+	CPUHistory     []float64       `json:"cpuHistory,omitempty"`
+	MemHistory     []int64         `json:"memHistory,omitempty"`
+	HasIcon        bool            `json:"hasIcon"`
+	Tail           []string        `json:"tail"` // last few plain output lines
+	Wanted         bool            `json:"wanted"`
 }
 
 // Snapshot returns all servers in configuration order. daemonPort is used to
 // build *.localhost alias URLs served by the daemon's proxy.
 func (s *Supervisor) Snapshot(daemonPort int) []View {
+	base := s.env.cached()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]View, 0, len(s.order))
@@ -65,36 +69,38 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			active = p.running
 		}
 		v := View{
-			Name:       name,
-			Group:      c.Group,
-			Dir:        c.Dir,
-			DirDisplay: paths.ShortenHome(c.Dir),
-			Cmd:        c.Cmd,
-			Port:       active.Port,
-			PortAuto:   c.PortAuto,
-			Status:     p.status,
-			Note:       p.note,
-			PID:        p.pid,
-			Listening:  p.listening,
-			External:   p.external,
-			Stale:      p.stale(),
-			Removed:    p.removed,
-			Enabled:    c.Enabled,
-			DependsOn:  c.DependsOn,
-			Restart:    c.Restart,
-			Restarts:   p.retries,
-			CPU:        p.cpu,
-			Mem:        p.mem,
-			Wanted:     p.want,
-			HasIcon:    IconPath(c.Dir, c.Icon) != "",
-			Tail:       p.logs.Tail(6, 240),
+			Name:           name,
+			Group:          c.Group,
+			Dir:            c.Dir,
+			DirDisplay:     paths.ShortenHome(c.Dir),
+			Cmd:            c.Cmd,
+			Port:           active.Port,
+			PortAuto:       c.PortAuto,
+			Status:         p.status,
+			Note:           p.note,
+			PID:            p.pid,
+			Listening:      p.listening,
+			RestartPending: p.restartPending,
+			ListenPorts:    append([]int(nil), p.listenPorts...),
+			External:       p.external,
+			Stale:          p.stale(s.cfg, base),
+			Removed:        p.removed,
+			Enabled:        c.Enabled,
+			DependsOn:      c.DependsOn,
+			Restart:        c.Restart,
+			Restarts:       p.retries,
+			CPU:            p.cpu,
+			Mem:            p.mem,
+			Wanted:         p.want,
+			HasIcon:        IconPath(c.Dir, c.Icon) != "",
+			Tail:           p.logs.Tail(6, 240),
 		}
 		if p.pid != 0 {
 			v.CPUHistory = append([]float64(nil), p.hist.cpu...)
 			v.MemHistory = append([]int64(nil), p.hist.mem...)
 		}
 		if active.Port > 0 {
-			v.URL = "http://127.0.0.1:" + strconv.Itoa(active.Port) + c.Open
+			v.URL = "http://" + net.JoinHostPort(loopbackHost(p.listenHost), strconv.Itoa(active.Port)) + c.Open
 			v.Alias = "http://" + name + ".localhost"
 			if daemonPort != 80 {
 				v.Alias += ":" + strconv.Itoa(daemonPort)

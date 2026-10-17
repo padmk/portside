@@ -31,12 +31,13 @@ import (
 
 // Options configure a Server.
 type Options struct {
-	Supervisor *supervisor.Supervisor
-	Docker     *docker.Monitor
-	ConfigPath string
-	StateDir   string
-	Port       int
-	UI         fs.FS // dashboard assets; nil serves a placeholder
+	ConfigError string
+	Supervisor  *supervisor.Supervisor
+	Docker      *docker.Monitor
+	ConfigPath  string
+	StateDir    string
+	Port        int
+	UI          fs.FS // dashboard assets; nil serves a placeholder
 	// Token authenticates API clients; empty disables authentication.
 	Token string
 	// Shutdown is called when a client asks the daemon to exit.
@@ -65,7 +66,7 @@ type Server struct {
 
 // New builds the HTTP server.
 func New(opt Options) *Server {
-	s := &Server{opt: opt, sup: opt.Supervisor, started: time.Now(), devOrigins: map[string]bool{}}
+	s := &Server{opt: opt, sup: opt.Supervisor, cfgErr: opt.ConfigError, started: time.Now(), devOrigins: map[string]bool{}}
 	for _, o := range strings.Split(os.Getenv(app.Env("DEV_ORIGIN")), ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			s.devOrigins[strings.TrimRight(o, "/")] = true
@@ -181,7 +182,8 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, name string) {
 		s.proxyError(w, name, http.StatusNotFound, "There is no server called "+name+".")
 		return
 	}
-	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(port)}
+	address, _ := s.sup.ActiveAddress(name)
+	target := &url.URL{Scheme: "http", Host: address}
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
@@ -239,10 +241,15 @@ func (s *Server) WatchConfig(ctx context.Context) {
 }
 
 // reload re-reads the config; a broken file keeps the previous config live.
-func (s *Server) reload() error {
-	cfg, err := config.LoadAssignedPorts(s.opt.ConfigPath)
+func (s *Server) reload(rename ...string) error {
+	// Save automatic ports first; an invalid file is reported by Parse below.
+	_, _ = config.LoadAssignedPorts(s.opt.ConfigPath)
 	st, statErr := os.Stat(s.opt.ConfigPath)
-	data, _ := os.ReadFile(s.opt.ConfigPath)
+	data, err := os.ReadFile(s.opt.ConfigPath)
+	var cfg *config.Config
+	if err == nil {
+		cfg, err = config.Parse(s.opt.ConfigPath, data)
+	}
 	s.cfgMu.Lock()
 	if statErr == nil {
 		s.cfgMod = st.ModTime()
@@ -254,6 +261,9 @@ func (s *Server) reload() error {
 		log.Printf("config: %v", err)
 		s.sup.Apply(s.sup.Config()) // nudge subscribers so the error shows
 		return err
+	}
+	if err := config.CacheGood(s.opt.StateDir, s.opt.ConfigPath, data); err != nil {
+		log.Printf("cache config: %v", err)
 	}
 	s.cfgErr = ""
 	shareChanged := cfg.Share != s.shareWant
@@ -267,7 +277,11 @@ func (s *Server) reload() error {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("port changed to %d; restart the daemon to apply", cfg.Port))
 		cfg.Port = s.opt.Port
 	}
-	s.sup.Apply(cfg)
+	if len(rename) == 2 {
+		s.sup.ApplyRenamed(cfg, rename[0], rename[1])
+	} else {
+		s.sup.Apply(cfg)
+	}
 	return nil
 }
 

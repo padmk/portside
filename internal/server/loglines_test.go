@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
@@ -493,5 +495,25 @@ func TestStampedLinesFeedWriteLines(t *testing.T) {
 	body, _ := render(logQuery{lines: 10, since: time.Date(2020, 3, 4, 5, 6, 8, 0, time.UTC)}, stampedLines([]byte(data)))
 	if body != "b\n" {
 		t.Errorf("body = %q", body)
+	}
+}
+
+func TestClearLogsUnknownServer(t *testing.T) {
+	cfg := &config.Config{Servers: []config.Server{{Name: "web"}}}
+	sup := supervisor.New(cfg, t.TempDir())
+	defer sup.Shutdown()
+	srv := &Server{sup: sup}
+	for _, name := range []string{"missing", "web"} {
+		req := httptest.NewRequest("DELETE", "/api/servers/"+name+"/logs", nil)
+		req.SetPathValue("name", name)
+		rec := httptest.NewRecorder()
+		srv.clearLogs(rec, req)
+		want := http.StatusOK
+		if name == "missing" {
+			want = http.StatusNotFound
+		}
+		if rec.Code != want {
+			t.Fatalf("%s: status %d, want %d", name, rec.Code, want)
+		}
 	}
 }

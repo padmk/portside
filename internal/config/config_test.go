@@ -1,9 +1,14 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/padmk/portside/internal/app"
 )
 
 func TestValidName(t *testing.T) {
@@ -173,5 +178,80 @@ func TestParseTerminal(t *testing.T) {
 	cfg, err = Parse("/tmp/config.toml", nil)
 	if err != nil || cfg.Terminal != "" {
 		t.Fatalf("default = %+v, %v", cfg, err)
+	}
+}
+
+func TestRecoverableConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	state := filepath.Join(dir, "state")
+	good := "port = 18432\n[servers.web]\ncmd = 'echo ok'\ndir = 'relative'\nport = 4802\n"
+	if err := os.WriteFile(path, []byte(good), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadRecoverable(path, state)
+	if err != nil || cfg.Port != 18432 {
+		t.Fatalf("valid config: %v, %v", cfg, err)
+	}
+	if err := os.WriteFile(path, []byte("invalid = ["), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadRecoverable(path, state)
+	if err == nil || cfg.Port != 18432 || len(cfg.Servers) != 1 {
+		t.Fatalf("lost last good config: %v, %v", cfg, err)
+	}
+	if cfg.Servers[0].Dir != filepath.Join(dir, "relative") {
+		t.Fatal("cached config changed relative paths")
+	}
+	cfg, err = LoadRecoverable(path, t.TempDir())
+	if err == nil || cfg == nil || len(cfg.Servers) != 0 {
+		t.Fatalf("empty fallback: %v, %v", cfg, err)
+	}
+	if err := os.WriteFile(path, []byte("port = 18433\n[servers.web]\ncmd = ''\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if port, err := ReadPort(path); err != nil || port != 18433 {
+		t.Fatalf("port without server validation: %d, %v", port, err)
+	}
+	cfg, err = LoadRecoverable(path, t.TempDir())
+	if err == nil || cfg.Port != 18433 || len(cfg.Servers) != 0 {
+		t.Fatalf("raw port fallback: %v, %v", cfg, err)
+	}
+	if err := os.WriteFile(path, []byte(good), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadRecoverable(path, state)
+	if err != nil || cfg.Port != 18432 {
+		t.Fatalf("config repair: %v, %v", cfg, err)
+	}
+	blocked := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blocked, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := LoadRecoverable(path, blocked); err != nil || cfg.Port != 18432 {
+		t.Fatalf("cache failure invalidated live config: %v", err)
+	}
+}
+
+func TestReservedDashboardName(t *testing.T) {
+	if err := ValidName(app.ID); err == nil {
+		t.Fatal("dashboard name allowed for new entries")
+	}
+	text := fmt.Sprintf("[servers.%s]\ncmd = 'echo ok'\nport = 0\n", app.ID)
+	cfg, err := Parse("config.toml", []byte(text))
+	if err != nil || len(cfg.Servers) != 1 || len(cfg.Warnings) == 0 {
+		t.Fatalf("existing reserved name: %+v, %v", cfg, err)
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+		t.Fatal(err)
+	}
+	spec := SpecOf(cfg.Servers[0])
+	spec.Cmd = "echo edited"
+	if err := UpdateServer(path, app.ID, spec); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddServer(path, spec); err == nil {
+		t.Fatal("reserved entry could be added")
 	}
 }

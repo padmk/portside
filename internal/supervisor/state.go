@@ -11,8 +11,17 @@ import (
 // persisted survives daemon restarts: which servers the user wants running
 // and which process groups the previous daemon left behind.
 type persisted struct {
-	Running []string            `json:"running"`
-	Groups  map[string]pidStamp `json:"groups,omitempty"`
+	Running []string             `json:"running"`
+	Groups  map[string]pidStamp  `json:"groups,omitempty"`
+	Servers map[string]exitState `json:"servers,omitempty"`
+}
+
+type exitState struct {
+	Status  Status    `json:"status"`
+	Note    string    `json:"note,omitempty"`
+	Code    int       `json:"exitCode"`
+	HasExit bool      `json:"hasExit"`
+	At      time.Time `json:"exitedAt"`
 }
 
 type pidStamp struct {
@@ -24,12 +33,13 @@ func (s *Supervisor) saveLocked() {
 	if s.closing {
 		return // the wanted set was saved before shutdown began
 	}
-	st := persisted{Groups: map[string]pidStamp{}}
+	st := persisted{Groups: map[string]pidStamp{}, Servers: map[string]exitState{}}
 	for _, name := range s.order {
 		p := s.procs[name]
 		if p == nil {
 			continue
 		}
+		st.Servers[name] = exitState{Status: p.status, Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt}
 		if p.want {
 			st.Running = append(st.Running, name)
 		}
@@ -62,6 +72,16 @@ func (s *Supervisor) load() persisted {
 // config asks for it). Call once, before serving requests.
 func (s *Supervisor) Recover() {
 	st := s.load()
+	s.mu.Lock()
+	for name, last := range st.Servers {
+		if p := s.procs[name]; p != nil {
+			p.exitCode, p.hasExit, p.exitedAt = last.Code, last.HasExit, last.At
+			if last.Status == Crashed || last.Status == Exited || last.Status == Blocked {
+				p.status, p.note = last.Status, last.Note
+			}
+		}
+	}
+	s.mu.Unlock()
 	for _, g := range st.Groups {
 		if g.PID <= 1 || g.Start == "" {
 			continue

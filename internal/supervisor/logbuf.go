@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,13 +40,63 @@ func newLogBuffer(dir, name string) *LogBuffer {
 	if dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 		lb.path = filepath.Join(dir, name+".log")
+		lb.seedTail()
 		lb.openFile()
+		if len(lb.buf) > 0 {
+			_, _ = lb.Write([]byte("\r\n\x1b[2m== daemon restarted ==\x1b[0m\r\n"))
+		}
 	}
 	return lb
 }
 
+// seedTail reads bounded history without replaying it to disk or assigning
+// old output the current daemon's timestamps.
+func (lb *LogBuffer) seedTail() {
+	const limit = 256 << 10
+	readTail := func(path string, n int) []byte {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		st, err := f.Stat()
+		if err != nil {
+			return nil
+		}
+		off := max(st.Size()-int64(n), 0)
+		_, _ = f.Seek(off, io.SeekStart)
+		data, _ := io.ReadAll(io.LimitReader(f, int64(n)))
+		if off > 0 {
+			if i := bytes.IndexByte(data, '\n'); i >= 0 {
+				data = data[i+1:]
+			}
+		}
+		return data
+	}
+	current := readTail(lb.path, limit)
+	if len(current) < limit {
+		lb.buf = readTail(lb.path+".1", limit-len(current))
+	}
+	lb.buf = append(lb.buf, current...)
+}
+
 // NewMemoryLog returns a buffer that is kept only in memory.
 func NewMemoryLog() *LogBuffer { return newLogBuffer("", "") }
+
+func (lb *LogBuffer) retarget(dir, name string) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	if lb.file != nil {
+		lb.file.Close()
+		lb.file = nil
+	}
+	lb.path = filepath.Join(dir, name+".log")
+	lb.openFile()
+	if lb.file != nil {
+		n, _ := lb.file.Write(lb.buf)
+		lb.written += int64(n)
+	}
+}
 
 func (lb *LogBuffer) openFile() {
 	f, err := os.OpenFile(lb.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)

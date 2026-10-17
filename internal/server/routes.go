@@ -197,7 +197,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 // ── actions ──────────────────────────────────────────────────────────────
 
 type actionBody struct {
-	Takeover bool `json:"takeover"`
+	Takeover bool   `json:"takeover"`
+	Timeout  string `json:"timeout,omitempty"`
 }
 
 func (s *Server) action(kind string) http.HandlerFunc {
@@ -212,6 +213,15 @@ func (s *Server) action(kind string) http.HandlerFunc {
 			fail(w, http.StatusNotFound, fmt.Errorf("unknown server %q", name))
 			return
 		}
+		wait := time.Duration(0)
+		if body.Timeout != "" {
+			d, err := time.ParseDuration(body.Timeout)
+			if err != nil || d <= 0 {
+				fail(w, http.StatusBadRequest, errors.New("timeout must be a positive duration"))
+				return
+			}
+			wait = d
+		}
 		opt := supervisor.StartOptions{Takeover: body.Takeover}
 		var err error
 		switch kind {
@@ -225,6 +235,12 @@ func (s *Server) action(kind string) http.HandlerFunc {
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
+		}
+		if kind == "restart" && wait > 0 {
+			if err := s.sup.WaitReady(r.Context(), name, wait); err != nil {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "server": s.view(name)})
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, s.view(name))
 	}
@@ -376,6 +392,10 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) clearLogs(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.sup.Logs(r.PathValue("name")); !ok {
+		fail(w, http.StatusNotFound, errors.New("unknown server"))
+		return
+	}
 	s.sup.ClearLogs(r.PathValue("name"))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -513,11 +533,13 @@ func (s *Server) getSpec(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, config.SpecOf(sv))
 }
 
-func (s *Server) edit(w http.ResponseWriter, fn func() error, warnings ...string) {
+// edit applies fn to the config file and reloads it. warnings go back with the
+// new state; rename (old, new) carries a running server over to its new name.
+func (s *Server) edit(w http.ResponseWriter, fn func() error, warnings []string, rename ...string) {
 	s.editMu.Lock()
 	err := fn()
 	if err == nil {
-		err = s.reload()
+		err = s.reload(rename...)
 	}
 	s.editMu.Unlock()
 	if err != nil {
@@ -536,7 +558,7 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.normalizeSpec(&spec)
-	s.edit(w, func() error { return config.AddServer(s.opt.ConfigPath, spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir)...)
+	s.edit(w, func() error { return config.AddServer(s.opt.ConfigPath, spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir))
 }
 
 func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
@@ -546,7 +568,7 @@ func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.normalizeSpec(&spec)
-	s.edit(w, func() error { return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir)...)
+	s.edit(w, func() error { return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir), r.PathValue("name"), spec.Name)
 }
 
 func directoryWarnings(root, dir string) []string {
@@ -586,7 +608,7 @@ func (s *Server) normalizeSpec(sp *config.Spec) {
 
 func (s *Server) deleteServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	s.edit(w, func() error { return config.RemoveServer(s.opt.ConfigPath, name) })
+	s.edit(w, func() error { return config.RemoveServer(s.opt.ConfigPath, name) }, nil)
 }
 
 func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request) {
@@ -597,7 +619,7 @@ func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	s.edit(w, func() error { return config.SetEnabled(s.opt.ConfigPath, r.PathValue("name"), body.Enabled) })
+	s.edit(w, func() error { return config.SetEnabled(s.opt.ConfigPath, r.PathValue("name"), body.Enabled) }, nil)
 }
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,8 @@ package supervisor
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -386,5 +388,33 @@ func TestSubscribeReceivesWrites(t *testing.T) {
 	case got := <-ch:
 		t.Errorf("received %q after Unsubscribe", got)
 	default:
+	}
+}
+
+func TestSeedRotatedLogTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "web.log")
+	old := strings.Repeat("old line\n", 40000)
+	if err := os.WriteFile(path+".1", []byte(old), 0600); err != nil {
+		t.Fatal(err)
+	}
+	current := "recent output\n"
+	if err := os.WriteFile(path, []byte(current), 0600); err != nil {
+		t.Fatal(err)
+	}
+	lb := newLogBuffer(dir, "web")
+	defer lb.Close()
+	if raw := string(lb.Raw()); len(raw) > (256<<10)+100 || !strings.Contains(raw, "old line") || !strings.Contains(raw, current) || !strings.Contains(raw, "daemon restarted") {
+		t.Fatalf("seed tail length %d", len(raw))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "old line") {
+		t.Fatal("seed history was copied back to disk")
+	}
+	if got := lb.TimedLines()[0].At; !got.IsZero() {
+		t.Fatal("old output given a new timestamp")
 	}
 }

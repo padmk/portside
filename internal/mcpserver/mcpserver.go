@@ -39,7 +39,7 @@ func Run(ctx context.Context, c *client.Client) error {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_servers", Description: "List managed dev servers with status, URL, port, resource usage and the containers of their compose projects. Pass dir to see only the servers of one checkout.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.list)
 	mcp.AddTool(s, &mcp.Tool{Name: "ensure_server", Description: "Start a server (and its dependencies) if it is not running, wait until it accepts connections, and return its URL and whether it was reused or started. Safe to call repeatedly."}, t.ensure)
-	mcp.AddTool(s, &mcp.Tool{Name: "restart_server", Description: "Restart a server. Use after a change that hot reload cannot pick up, or to recover from a crash after reading its logs."}, t.restart)
+	mcp.AddTool(s, &mcp.Tool{Name: "restart_server", Description: "Restart a server and wait until it is ready (default 90s). Use after a change that hot reload cannot pick up, or to recover from a crash after reading its logs."}, t.restart)
 	mcp.AddTool(s, &mcp.Tool{Name: "stop_server", Description: "Stop a server gracefully."}, t.stop)
 	mcp.AddTool(s, &mcp.Tool{Name: "server_logs", Description: "Return the last lines of a server's terminal output as plain text, optionally only lines matching a pattern.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.logs)
@@ -62,18 +62,21 @@ func (t *tools) ready(ctx context.Context) error {
 
 // Server is the compact view returned to agents.
 type Server struct {
-	Name     string  `json:"name"`
-	Group    string  `json:"group,omitempty"`
-	Status   string  `json:"status" jsonschema:"stopped, starting, running, stopping, crashed, exited or blocked"`
-	URL      string  `json:"url,omitempty" jsonschema:"direct URL on 127.0.0.1"`
-	Alias    string  `json:"alias,omitempty" jsonschema:"same server through http://<name>.localhost"`
-	Port     int     `json:"port,omitempty"`
-	Dir      string  `json:"dir"`
-	Cmd      string  `json:"cmd"`
-	Note     string  `json:"note,omitempty"`
-	External string  `json:"external,omitempty" jsonschema:"set when another process holds the port"`
-	CPU      float64 `json:"cpuPercent,omitempty"`
-	MemMB    int64   `json:"memMB,omitempty"`
+	RestartPending bool    `json:"restartPending"`
+	ListenPorts    []int   `json:"listenPorts,omitempty"`
+	Listening      bool    `json:"listening"`
+	Name           string  `json:"name"`
+	Group          string  `json:"group,omitempty"`
+	Status         string  `json:"status" jsonschema:"stopped, starting, running, stopping, crashed, exited or blocked"`
+	URL            string  `json:"url,omitempty" jsonschema:"direct URL on loopback"`
+	Alias          string  `json:"alias,omitempty" jsonschema:"same server through http://<name>.localhost"`
+	Port           int     `json:"port,omitempty"`
+	Dir            string  `json:"dir"`
+	Cmd            string  `json:"cmd"`
+	Note           string  `json:"note,omitempty"`
+	External       string  `json:"external,omitempty" jsonschema:"set when another process holds the port"`
+	CPU            float64 `json:"cpuPercent,omitempty"`
+	MemMB          int64   `json:"memMB,omitempty"`
 
 	Containers []Container `json:"containers,omitempty" jsonschema:"containers of the compose project in the server's directory"`
 	Outcome    string      `json:"outcome,omitempty" jsonschema:"what ensure_server did: reused (already running) or started"`
@@ -145,7 +148,7 @@ func (t *tools) withContainers(ctx context.Context, s Server) Server {
 
 func compact(v supervisor.View) Server {
 	s := Server{Name: v.Name, Group: v.Group, Status: string(v.Status), URL: v.URL, Alias: v.Alias, Port: v.Port,
-		Dir: v.Dir, Cmd: v.Cmd, Note: v.Note, CPU: v.CPU, MemMB: v.Mem >> 20}
+		Dir: v.Dir, Cmd: v.Cmd, Note: v.Note, RestartPending: v.RestartPending, ListenPorts: v.ListenPorts, Listening: v.Listening, CPU: v.CPU, MemMB: v.Mem >> 20}
 	if v.External != nil && v.PID == 0 {
 		s.External = fmt.Sprintf("%s (pid %d) in %s", v.External.Command, v.External.PID, v.External.Cwd)
 	}
@@ -267,9 +270,21 @@ func (t *tools) action(ctx context.Context, name, action string) (Server, error)
 	return t.withContainers(ctx, compact(v)), nil
 }
 
-func (t *tools) restart(ctx context.Context, _ *mcp.CallToolRequest, in nameIn) (*mcp.CallToolResult, Server, error) {
-	s, err := t.action(ctx, in.Name, "restart")
-	return nil, s, err
+func (t *tools) restart(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn) (*mcp.CallToolResult, Server, error) {
+	if err := t.ready(ctx); err != nil {
+		return nil, Server{}, err
+	}
+	timeout := in.Timeout
+	if timeout == "" {
+		timeout = "90s"
+	}
+	var v supervisor.View
+	if err := t.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/restart", map[string]string{"timeout": timeout}, &v); err != nil {
+		return nil, Server{}, fmt.Errorf("%w (read server_logs for details)", err)
+	}
+	s := t.withContainers(ctx, compact(v))
+	s.Outcome = "restarted"
+	return nil, s, nil
 }
 
 func (t *tools) stop(ctx context.Context, _ *mcp.CallToolRequest, in nameIn) (*mcp.CallToolResult, Server, error) {

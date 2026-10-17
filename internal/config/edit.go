@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"unicode/utf8"
+
+	"github.com/padmk/portside/internal/app"
 )
 
 // Spec describes a server as written to the file. Empty fields are omitted.
@@ -447,8 +449,10 @@ func AddServer(path string, s Spec) error {
 // UpdateServer patches changed fields of name with s (which may carry a new name).
 // Comment lines directly above the table are kept unless s.Comment is set.
 func UpdateServer(path, name string, s Spec) error {
-	if err := ValidName(s.Name); err != nil {
-		return err
+	if s.Name != name || name != app.ID {
+		if err := ValidName(s.Name); err != nil {
+			return err
+		}
 	}
 	return edit(path, func(d *doc) ([]string, error) {
 		start, head, _, ok := d.block(name)
