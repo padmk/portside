@@ -59,7 +59,7 @@ func cmdAttach(e *env, args []string) error {
 	name := names[0]
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
-	ws, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://127.0.0.1:%d/api/servers/%s/terminal", c.Port, url.PathEscape(name)),
+	ws, _, err := websocket.Dial(ctx, c.WebSocketURL("/api/servers/"+url.PathEscape(name)+"/terminal"),
 		&websocket.DialOptions{HTTPHeader: c.Header()})
 	if err != nil {
 		return err
@@ -67,7 +67,11 @@ func cmdAttach(e *env, args []string) error {
 	defer ws.CloseNow()
 	ws.SetReadLimit(-1)
 
-	fmt.Fprintf(os.Stderr, "\x1b[2mattached to %s (Ctrl-] detaches)\x1b[0m\r\n", name)
+	where := name
+	if e.conn != nil {
+		where += " on " + e.conn.Peer.Name
+	}
+	fmt.Fprintf(os.Stderr, "\x1b[2mattached to %s (Ctrl-] detaches)\x1b[0m\r\n", where)
 	old, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		return err

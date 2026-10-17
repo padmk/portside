@@ -83,7 +83,7 @@ export function DetailPane({ server: v, servers, docker }: Props) {
         <ServerMenu server={v} className="icon-btn icon-btn--boxed icon-btn--lg" />
       </header>
 
-      {v.external && <PortBanner server={v} />}
+      {(v.external || v.forwardedFrom) && <PortBanner server={v} />}
       {v.stale && alive && (
         <div className="banner banner--warn" role="status">
           <AlertTriangle size={18} aria-hidden="true" />

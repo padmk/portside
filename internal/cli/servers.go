@@ -32,6 +32,9 @@ func (e *env) state() (*server.State, error) {
 	if err := c.Do(e.ctx, http.MethodGet, "/api/state", nil, &st); err != nil {
 		return nil, err
 	}
+	for i := range st.Servers {
+		e.localize(&st.Servers[i])
+	}
 	return &st, nil
 }
 
@@ -48,8 +51,15 @@ func cmdStatus(e *env, args []string) error {
 	if *asJSON {
 		return printJSON(e, st.Servers)
 	}
+	if e.conn != nil {
+		fmt.Fprintf(e.out, "%s\n", e.paint(dim, "on "+e.conn.Peer.Name))
+	}
 	if st.Config.Error != "" {
 		fmt.Fprintf(e.errOut, "%s %s\n\n", e.paint(red, "config error:"), st.Config.Error)
+	}
+	if len(st.Servers) == 0 && e.conn != nil {
+		fmt.Fprintln(e.out, "No servers.")
+		return nil
 	}
 	if len(st.Servers) == 0 {
 		fmt.Fprintf(e.out, "No servers yet. Add one with `portside add`, find some with `portside scan`,\nor open the dashboard: http://127.0.0.1:%d\n", st.Daemon.Port)
@@ -96,6 +106,8 @@ func cmdStatus(e *env, args []string) error {
 		note := s.Note
 		if s.External != nil && s.PID == 0 {
 			note = fmt.Sprintf("port held by %s (pid %d)", s.External.Command, s.External.PID)
+		} else if s.ForwardedFrom != "" {
+			note = "port forwarded from " + s.ForwardedFrom
 		}
 		if s.Stale {
 			note = strings.TrimSpace(note + " config changed, restart to apply")
@@ -103,7 +115,9 @@ func cmdStatus(e *env, args []string) error {
 		fmt.Fprintf(e.out, "  %s %-*s  %-9s %s  %-16s %s\n",
 			e.statusDot(s), nameW, s.Name, e.statusWord(s), port, usage, e.paint(dim, note))
 	}
-	fmt.Fprintf(e.out, "\n%s http://127.0.0.1:%d\n", e.paint(dim, "dashboard"), st.Daemon.Port)
+	if e.conn == nil {
+		fmt.Fprintf(e.out, "\n%s http://127.0.0.1:%d\n", e.paint(dim, "dashboard"), st.Daemon.Port)
+	}
 	return nil
 }
 
@@ -215,6 +229,7 @@ func waitAndReport(e *env, c *client.Client, names []string, all bool) error {
 			fmt.Fprintf(e.errOut, "%s %s: %v\n", e.paint(red, "✗"), s.Name, err)
 			continue
 		}
+		e.localize(&v)
 		fmt.Fprintf(e.out, "%s %-20s %s\n", e.paint(green, "●"), v.Name, v.URL)
 	}
 	if failed {
@@ -254,6 +269,7 @@ func cmdEnsure(e *env, args []string) error {
 		}
 		return err
 	}
+	e.localize(&v)
 	if *asJSON {
 		return printJSON(e, v)
 	}
@@ -317,7 +333,7 @@ func cmdLogs(e *env, args []string) error {
 	}
 	// Follow: scrollback and live output come over one subscription, so
 	// nothing printed in between is lost. The first message is the scrollback.
-	ws, _, err := websocket.Dial(e.ctx, "ws://127.0.0.1:"+fmt.Sprint(c.Port)+"/api/servers/"+url.PathEscape(name)+"/terminal?always=1&readonly=1",
+	ws, _, err := websocket.Dial(e.ctx, c.WebSocketURL("/api/servers/"+url.PathEscape(name)+"/terminal?always=1&readonly=1"),
 		&websocket.DialOptions{HTTPHeader: c.Header()})
 	if err != nil {
 		return err

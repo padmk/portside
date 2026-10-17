@@ -15,6 +15,10 @@ A server runs one checkout. In a worktree or another clone, compare the server's
 
 Never run a second copy of a managed server in your own shell, not even on another port. A server shown as `external` (or `blocked`) has its port held by a process {{.Name}} did not start: find the owner with `{{.ID}} ports` or `list_ports` and leave it alone unless the user asks; `{{.ID}} up <name> --takeover` replaces it.
 
+## Another computer
+
+The user may run projects on another computer and connect this one to it (`{{.ID}} computers` shows the connection). Its servers' ports are then forwarded here, so `127.0.0.1:<port>` can reach a server on that computer; a stopped local server noted as forwarded from a computer has its port taken by that forward, and starting it takes the port back. To act on the connected computer, pass `--on <computer>` to `status`, `ensure`, `logs`, `up`, `down`, `restart` or `containers`, or `computer` to the server and container tools. Do not connect, disconnect or pair computers unless the user asks.
+
 ## Diagnose
 
 A running process can lose its listener while a wrapper stays alive. Check `note` and use `ensure` before trusting its URL. Startup notes identify a waiting port or failing health path; `listenPorts` identifies ports the process tree opened instead. `restartPending` means an automatic retry is scheduled; an authorized stop cancels it. Crash readiness errors include recent output lines.

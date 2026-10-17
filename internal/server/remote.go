@@ -32,6 +32,7 @@ func (s *Server) remoteRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/remote/connect", s.remoteConnect)
 	m.HandleFunc("POST /api/remote/disconnect", s.remoteDisconnect)
 	m.HandleFunc("POST /api/remote/pair", s.remotePair)
+	m.HandleFunc("PUT /api/remote/ports", s.remotePort)
 	m.HandleFunc("PUT /api/remote/share", s.setShare)
 	m.HandleFunc("POST /api/remote/share/code", s.shareCode)
 	m.HandleFunc("DELETE /api/remote/share/devices/{id}", s.revokeDevice)
@@ -103,6 +104,25 @@ func (s *Server) remotePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := s.opt.Remote.Pair(r.Context(), body.Peer, body.Code)
+	if err != nil {
+		failRemote(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// remotePort forwards a port of the connected computer to another local
+// port; local 0 forwards it to the same number again.
+func (s *Server) remotePort(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Port  int `json:"port"`
+		Local int `json:"local"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	info, err := s.opt.Remote.SetLocalPort(body.Port, body.Local)
 	if err != nil {
 		failRemote(w, err)
 		return

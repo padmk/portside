@@ -548,8 +548,57 @@ func (m *Manager) Connect(ctx context.Context, target string) (Info, error) {
 	go c.run()
 	m.notify(true)
 	log.Printf("remote: connected to %s", node.DNSName)
+	if err := m.store.setConnection(savedFrom(node, port)); err != nil {
+		log.Printf("remote: %v", err)
+	}
 	m.mu.Lock()
 	info := c.infoLocked()
 	m.mu.Unlock()
 	return info, nil
+}
+
+// Resume reconnects, in the background, to the computer this daemon was
+// connected to when it stopped. The connection shows as connecting and
+// retries until the other computer answers, the user disconnects, or the
+// other computer no longer accepts this one's pairing.
+func (m *Manager) Resume(ctx context.Context) {
+	s, ok := m.store.connection()
+	if !ok {
+		return
+	}
+	node := s.node()
+	cred, ok := m.tokens.Get(node.DNSName)
+	if !ok {
+		// Paired no longer: there is nothing to resume.
+		_ = m.store.setConnection(nil)
+		return
+	}
+	// Prefer what Tailscale knows now; it may not be running yet at login,
+	// so the saved addresses serve until then.
+	if st, err := m.ts.Fresh(ctx); err == nil {
+		for _, n := range st.Peers {
+			if !strings.EqualFold(n.DNSName, node.DNSName) {
+				continue
+			}
+			if !st.Owned(n) {
+				log.Printf("remote: not reconnecting to %s: it belongs to another Tailscale user or is tagged", n.DNSName)
+				return
+			}
+			node = n
+		}
+	}
+	c := newConn(m, node, s.Port, cred, peerTransport(node))
+	c.status, c.down = Connecting, time.Now()
+	m.mu.Lock()
+	if _, still := m.store.connection(); m.c != nil || !still {
+		// Connected or disconnected meanwhile; that choice wins.
+		m.mu.Unlock()
+		c.close()
+		return
+	}
+	m.c = c
+	m.mu.Unlock()
+	log.Printf("remote: reconnecting to %s", node.DNSName)
+	go c.run()
+	m.notify(true)
 }

@@ -15,12 +15,18 @@ interface Live {
 }
 
 /** The remote's port is forwarded to the same port here, so localhost:<port> opens it. */
-export const isMirrored = (r: RemoteConnection, port: number) => r.mirrors.some((m) => m.port === port && m.state === 'mirrored')
+export const isMirrored = (r: RemoteConnection, port: number) => r.mirrors.some((m) => m.port === port && !m.local && m.state === 'mirrored')
+
+/** The local port the remote's port is forwarded to, or 0 when it is not forwarded. */
+const forwardedTo = (r: RemoteConnection, port: number) => {
+  const m = r.mirrors.find((x) => x.port === port && x.state === 'mirrored')
+  return m ? (m.local ?? m.port) : 0
+}
 
 /**
- * Server URLs as this computer can open them. A remote port forwarded to the
- * same local port keeps its direct URL; anything else goes through the local
- * daemon's proxy at <server>.<peer>.localhost.
+ * Server URLs as this computer can open them. A forwarded remote port keeps
+ * its direct URL, at the local port it is forwarded to; anything else goes
+ * through the local daemon's proxy at <server>.<peer>.localhost.
  */
 function localUrls(v: ServerView, r: RemoteConnection): ServerView {
   const proxied = (raw: string) => {
@@ -33,14 +39,18 @@ function localUrls(v: ServerView, r: RemoteConnection): ServerView {
   }
   let url = v.url
   if (url) {
-    let port = 0
     try {
       const u = new URL(url)
-      port = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+      const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+      const local = forwardedTo(r, port)
+      if (!local) url = proxied(url)
+      else if (local !== port) {
+        u.port = String(local)
+        url = u.toString()
+      }
     } catch {
       /* keep the original */
     }
-    if (!isMirrored(r, port)) url = proxied(url)
   }
   return { ...v, url, alias: v.alias ? proxied(v.alias) : v.alias }
 }

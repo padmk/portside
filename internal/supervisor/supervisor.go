@@ -102,6 +102,9 @@ type Supervisor struct {
 	// release frees a port this daemon holds for another purpose before a
 	// server that needs it starts.
 	release func(port int)
+	// forwarded reports a port this daemon forwards to another computer,
+	// and that computer's name.
+	forwarded func(port int) (string, bool)
 	// desktopClients counts connected apps that show crash notifications
 	// themselves; while any is connected the daemon stays quiet.
 	desktopClients int
@@ -142,6 +145,25 @@ func (s *Supervisor) SetPortRelease(fn func(port int)) {
 	s.mu.Lock()
 	s.release = fn
 	s.mu.Unlock()
+}
+
+// SetForwarded registers fn, which reports a port forwarded to another
+// computer. Such a port is not probed for a stopped server (a connection
+// would reach the other computer) and is shown as forwarded instead.
+func (s *Supervisor) SetForwarded(fn func(port int) (string, bool)) {
+	s.mu.Lock()
+	s.forwarded = fn
+	s.mu.Unlock()
+}
+
+// forwardedFromLocked returns the computer a stopped server's port is
+// forwarded to, or "".
+func (s *Supervisor) forwardedFromLocked(p *proc) string {
+	if s.forwarded == nil || p.pid != 0 || p.cfg.Port <= 0 {
+		return ""
+	}
+	name, _ := s.forwarded(p.cfg.Port)
+	return name
 }
 
 // Config returns the configuration currently applied.
@@ -1106,6 +1128,7 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 	}
 	var checks []check
 	hasLive := false
+	forwarded := map[string]bool{} // stopped servers whose port forwards to another computer
 	s.mu.Lock()
 	for name, p := range s.procs {
 		if p.pid != 0 {
@@ -1126,6 +1149,7 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 				pid = p.external.PID
 			}
 			checks = append(checks, check{name, port, p.pid != 0, pid, p.externalStart})
+			forwarded[name] = s.forwardedFromLocked(p) != ""
 		}
 	}
 	s.mu.Unlock()
@@ -1134,7 +1158,8 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 		_ = s.env.get()
 	}
 	for _, c := range checks {
-		listening := ports.Listening(c.port)
+		// A forwarded port answers from the other computer; nothing here holds it.
+		listening := !forwarded[c.name] && ports.Listening(c.port)
 		var owner *ports.Listener
 		if !c.alive && listening {
 			if knownExternal[c.name] != c.port || c.pid == 0 || c.start == "" || processStart(c.pid) != c.start {

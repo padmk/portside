@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -80,7 +81,7 @@ func TestBindLeavesTakenPortsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer wild.Close()
-	if lns := c.bind(wild.Addr().(*net.TCPAddr).Port); lns != nil {
+	if lns := c.bind(wild.Addr().(*net.TCPAddr).Port, 1); lns != nil {
 		closeAll(lns)
 		t.Error("bound a port that a listener on 0.0.0.0 holds")
 	}
@@ -88,14 +89,14 @@ func TestBindLeavesTakenPortsAlone(t *testing.T) {
 	// Another process on IPv6 loopback only.
 	if v6, err := net.Listen("tcp6", "[::1]:0"); err == nil {
 		defer v6.Close()
-		if lns := c.bind(v6.Addr().(*net.TCPAddr).Port); lns != nil {
+		if lns := c.bind(v6.Addr().(*net.TCPAddr).Port, 1); lns != nil {
 			closeAll(lns)
 			t.Error("bound a port that a listener on ::1 holds")
 		}
 	}
 
 	p := freePort(t)
-	lns := c.bind(p)
+	lns := c.bind(p, p)
 	if lns == nil {
 		t.Fatal("did not bind a free port")
 	}
@@ -212,5 +213,201 @@ func TestBindEndsWithLife(t *testing.T) {
 	case <-r.Context().Done():
 	case <-time.After(time.Second):
 		t.Error("request context did not end with the connection")
+	}
+}
+
+// mirrorState applies a remote state in which server web runs on port and
+// returns its mirror.
+func mirrorState(t *testing.T, m *Manager, c *conn, port int) Mirror {
+	t.Helper()
+	data, _ := json.Marshal(map[string]any{"servers": []map[string]any{{"name": "web", "port": port, "pid": 42}}})
+	var rs remoteState
+	if err := json.Unmarshal(data, &rs); err != nil {
+		t.Fatal(err)
+	}
+	c.apply(data, &rs)
+	return mirrorOf(t, m, port)
+}
+
+func mirrorOf(t *testing.T, m *Manager, port int) Mirror {
+	t.Helper()
+	for _, mr := range m.Info().Mirrors {
+		if mr.Port == port {
+			return mr
+		}
+	}
+	t.Fatalf("no mirror for port %d in %+v", port, m.Info().Mirrors)
+	return Mirror{}
+}
+
+func TestMirrorGivesWayToALocalListener(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("only macOS lets a wildcard bind succeed next to the mirror")
+	}
+	m, c := connected(t)
+	p := freePort(t)
+	if mr := mirrorState(t, m, c, p); mr.State != "mirrored" {
+		t.Fatalf("mirror = %+v", mr)
+	}
+	if name, ok := m.Forwarded(p); !ok || name != "devbox" {
+		t.Errorf("Forwarded(%d) = %q, %v", p, name, ok)
+	}
+	c.update(c.reconcileLocked)
+	if mr := mirrorOf(t, m, p); mr.State != "mirrored" {
+		t.Fatalf("the probe took the mirror's own sockets for another listener: %+v", mr)
+	}
+
+	// A local process, such as docker publishing a port, binds all
+	// addresses after the mirror; the system allows it.
+	local, err := net.Listen("tcp4", "0.0.0.0:"+strconv.Itoa(p))
+	if err != nil {
+		t.Fatalf("local bind next to the mirror: %v", err)
+	}
+	defer local.Close()
+	c.update(c.reconcileLocked)
+	if mr := mirrorOf(t, m, p); mr.State != "busy" {
+		t.Fatalf("mirror kept the port next to a local listener: %+v", mr)
+	}
+	if _, ok := m.Forwarded(p); ok {
+		t.Error("Forwarded after giving the port up")
+	}
+	accepted := make(chan struct{})
+	go func() {
+		if cn, err := local.Accept(); err == nil {
+			cn.Close()
+			close(accepted)
+		}
+	}()
+	cn, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cn.Close()
+	select {
+	case <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Error("127.0.0.1 did not reach the local listener")
+	}
+}
+
+func TestMirrorsDropWhileDisconnected(t *testing.T) {
+	m, c := connected(t)
+	p := freePort(t)
+	mirrorState(t, m, c, p)
+
+	c.update(func() { c.down = time.Now().Add(-2 * dropAfter) })
+	c.update(c.reconcileLocked)
+	if n := len(m.Info().Mirrors); n != 0 {
+		t.Fatalf("%d mirrors after the connection stayed down", n)
+	}
+	if l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p)); err != nil {
+		t.Errorf("port still held: %v", err)
+	} else {
+		l.Close()
+	}
+
+	c.setStatus(Open, nil)
+	c.update(c.reconcileLocked)
+	if mr := mirrorOf(t, m, p); mr.State != "mirrored" {
+		t.Errorf("mirror after reconnecting: %+v", mr)
+	}
+}
+
+func TestSetLocalPort(t *testing.T) {
+	m, c := connected(t)
+	p, alt, other := freePort(t), freePort(t), freePort(t)
+	data, _ := json.Marshal(map[string]any{"servers": []map[string]any{
+		{"name": "web", "port": p, "pid": 42}, {"name": "api", "port": other, "pid": 43}}})
+	var rs remoteState
+	_ = json.Unmarshal(data, &rs)
+	c.apply(data, &rs)
+
+	if _, err := m.SetLocalPort(p, other); err == nil {
+		t.Error("forwarded a port to another mirror's port")
+	}
+	info, err := m.SetLocalPort(p, alt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mr := range info.Mirrors {
+		if mr.Port == p && (mr.Local != alt || mr.State != "mirrored") {
+			t.Errorf("mirror = %+v, want forwarded to %d", mr, alt)
+		}
+	}
+	if _, ok := m.Forwarded(alt); !ok {
+		t.Errorf("port %d not forwarded", alt)
+	}
+	if l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(p)); err != nil {
+		t.Errorf("the remote port's own number is still bound here: %v", err)
+	} else {
+		l.Close()
+	}
+	// Kept for that computer.
+	if got := m.store.locals(devbox.DNSName); got[p] != alt {
+		t.Errorf("stored = %v", got)
+	}
+	m.Release(alt)
+	if _, ok := m.Forwarded(alt); ok {
+		t.Error("Release left the chosen local port bound")
+	}
+
+	if _, err := m.SetLocalPort(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.store.locals(devbox.DNSName); len(got) != 0 {
+		t.Errorf("stored after reset = %v", got)
+	}
+}
+
+func TestResume(t *testing.T) {
+	m := New(7878, t.TempDir(), tailnet.Preloaded(&tailnet.Status{Self: tailnet.Node{Name: "mbp", DNSName: "mbp.t.ts.net"}}))
+	t.Cleanup(m.Disconnect)
+	m.Resume(context.Background())
+	if m.Info() != nil {
+		t.Fatal("resumed without a saved connection")
+	}
+
+	// A closed local port stands in for a computer that does not answer.
+	node := devbox
+	node.IPs = []string{"127.0.0.1"}
+	if err := m.tokens.Set(node.DNSName, testCred()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.setConnection(savedFrom(node, freePort(t))); err != nil {
+		t.Fatal(err)
+	}
+	m.Resume(context.Background())
+	if info := m.Info(); info == nil || info.Peer.DNSName != node.DNSName || info.Status == Open {
+		t.Fatalf("Info after Resume = %+v", info)
+	}
+
+	// A daemon that stops keeps the connection for the next one.
+	m.Close()
+	if _, ok := m.store.connection(); !ok {
+		t.Fatal("Close forgot the saved connection")
+	}
+	m.Resume(context.Background())
+	if m.Info() == nil {
+		t.Fatal("did not resume after Close")
+	}
+
+	m.Disconnect()
+	if _, ok := m.store.connection(); ok {
+		t.Error("Disconnect kept the saved connection")
+	}
+	m.Resume(context.Background())
+	if m.Info() != nil {
+		t.Error("resumed after Disconnect")
+	}
+
+	// Without a pairing there is nothing to resume.
+	_ = m.store.setConnection(savedFrom(node, 7878))
+	_ = m.tokens.Set(node.DNSName, share.Credential{})
+	m.Resume(context.Background())
+	if m.Info() != nil {
+		t.Error("resumed without a pairing")
+	}
+	if _, ok := m.store.connection(); ok {
+		t.Error("kept a saved connection without a pairing")
 	}
 }

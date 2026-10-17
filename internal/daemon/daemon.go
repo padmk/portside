@@ -74,6 +74,7 @@ func Run(cfgPath string) error {
 	ts := tailnet.NewCache(time.Minute)
 	rem := remote.New(cfg.Port, stateDir, ts)
 	sup.SetPortRelease(rem.Release)
+	sup.SetForwarded(rem.Forwarded)
 	sh := share.New(cfg.Port, stateDir, ts)
 
 	srv := server.New(server.Options{
@@ -133,6 +134,8 @@ func Run(cfgPath string) error {
 		}
 		sh.Run(ctx)
 	}()
+	// The computer this daemon was connected to when it stopped.
+	go rem.Resume(ctx)
 
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -149,7 +152,7 @@ func Run(cfgPath string) error {
 		os.Exit(1)
 	}()
 	cancel()
-	rem.Disconnect()
+	rem.Close()
 	cctx, ccancel := context.WithTimeout(context.Background(), 5*time.Second)
 	sh.Close(cctx)
 	ccancel()

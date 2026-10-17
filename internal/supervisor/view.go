@@ -47,6 +47,10 @@ type View struct {
 	HasIcon        bool            `json:"hasIcon"`
 	Tail           []string        `json:"tail"` // last few plain output lines
 	Wanted         bool            `json:"wanted"`
+
+	// ForwardedFrom names the connected computer whose server answers on
+	// this stopped server's port, forwarded here.
+	ForwardedFrom string `json:"forwardedFrom,omitempty"`
 }
 
 // Snapshot returns all servers in configuration order. daemonPort is used to
@@ -95,6 +99,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			HasIcon:        IconPath(c.Dir, c.Icon) != "",
 			Tail:           p.logs.Tail(6, 240),
 		}
+		v.ForwardedFrom = s.forwardedFromLocked(p)
 		if p.pid != 0 {
 			v.CPUHistory = append([]float64(nil), p.hist.cpu...)
 			v.MemHistory = append([]int64(nil), p.hist.mem...)

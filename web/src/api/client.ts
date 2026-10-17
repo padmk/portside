@@ -162,6 +162,8 @@ export const api = {
   /** Pairs with a peer using the code it issued, then connects; 403 `pairing_failed` for a wrong or expired code. */
   pair: (peer: string, code: string) => request<RemoteConnection>('POST', `${LOCAL}/remote/pair`, { peer, code }),
   disconnect: () => request<{ ok: boolean }>('POST', `${LOCAL}/remote/disconnect`, {}),
+  /** Forwards the connected computer's port to another local port; 0 forwards it to the same number again. */
+  forwardPort: (port: number, local: number) => request<RemoteConnection>('PUT', `${LOCAL}/remote/ports`, { port, local }),
   share: (enabled: boolean) => request<RemoteOverview>('PUT', `${LOCAL}/remote/share`, { enabled }).then(overview),
   pairingCode: () => request<PairingCode>('POST', `${LOCAL}/remote/share/code`, {}),
   revokeDevice: (id: string) => request<RemoteOverview>('DELETE', `${LOCAL}/remote/share/devices/${enc(id)}`).then(overview),

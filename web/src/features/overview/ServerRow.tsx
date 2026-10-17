@@ -51,6 +51,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
           <span className={`status-text--${status}`}>{t(`status.${status}`)}</span>
           {alive && v.startedAt && <span className="num dim">{formatUptime(v.startedAt, now)}</span>}
           {note && <span className="dim row-note">{note}</span>}
+          {!note && v.forwardedFrom && <span className="dim row-note">{t('banner.forwarded', { port: v.port, computer: v.forwardedFrom })}</span>}
         </p>
       </div>
       <div className="row-addr mono">

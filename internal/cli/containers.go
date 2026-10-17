@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/coder/websocket"
@@ -93,7 +92,7 @@ func containerLogs(e *env, c *client.Client, name string, q url.Values, follow b
 	if !follow {
 		return c.Do(e.ctx, http.MethodGet, path+"?"+q.Encode(), nil, e.out)
 	}
-	ws, _, err := websocket.Dial(e.ctx, "ws://127.0.0.1:"+strconv.Itoa(c.Port)+path, &websocket.DialOptions{HTTPHeader: c.Header()})
+	ws, _, err := websocket.Dial(e.ctx, c.WebSocketURL(path), &websocket.DialOptions{HTTPHeader: c.Header()})
 	if err != nil {
 		return err
 	}

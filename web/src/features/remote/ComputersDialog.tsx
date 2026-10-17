@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { KeyRound, Laptop, Loader2, Monitor, RefreshCw, Server, Smartphone, Unplug } from 'lucide-react'
+import { KeyRound, Laptop, Loader2, Monitor, RefreshCw, Server, Smartphone, Unplug, X } from 'lucide-react'
 import { api, ApiError, errorText } from '../../api/client'
-import type { PairedDevice, PairingCode, Peer, PeersResponse, RemoteConnection, RemoteShare } from '../../api/types'
+import type { Mirror, PairedDevice, PairingCode, Peer, PeersResponse, RemoteConnection, RemoteShare } from '../../api/types'
 import { brand } from '../../brand'
 import { useT } from '../../i18n'
 import { useRemote } from '../../state/live'
@@ -11,6 +11,7 @@ import { toast, toastError } from '../../state/toasts'
 import { Dialog } from '../../ui/Dialog'
 import { useNow } from '../../ui/hooks'
 import { useBusy } from '../servers/actions'
+import { CopyButton } from '../servers/Address'
 import { connectTo, disconnectRemote, pairWith } from './actions'
 import './remote.css'
 
@@ -99,21 +100,106 @@ function Connected({ remote }: { remote: RemoteConnection }) {
         </p>
       )}
       {remote.error && <p className="form-error" role="alert">{remote.error}</p>}
-      {remote.mirrors.length > 0 && (
-        <div className="mirrors">
-          <h4>{t('remote.ports')}</h4>
-          <ul>
-            {remote.mirrors.map((m) => (
-              <li key={m.port} className={`mirror mirror--${m.state}`} title={m.server ?? m.container}>
-                <span className="mono num">{m.port}</span>
-                {t(m.state === 'mirrored' ? 'remote.mirrored' : 'remote.busy')}
-              </li>
-            ))}
-          </ul>
-          <p className="mirrors-hint">{t('remote.portsHint')}</p>
-        </div>
-      )}
+      {remote.mirrors.length > 0 && <Mirrors mirrors={remote.mirrors} />}
     </section>
+  )
+}
+
+/** A suggestion for a busy port's local stand-in: the same digits, 10000 higher. */
+const suggestPort = (port: number) => (port + 10000 <= 65535 ? String(port + 10000) : '')
+
+/** Forwarded ports; a busy one can be forwarded to another local port instead. */
+function Mirrors({ mirrors }: { mirrors: Mirror[] }) {
+  const t = useT()
+  const [editing, setEditing] = useState<number | null>(null)
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const forward = async (port: number, local: number) => {
+    setSaving(true)
+    setError('')
+    try {
+      await api.forwardPort(port, local)
+      setEditing(null)
+    } catch (e) {
+      if (editing === port) setError(errorText(e) ?? '')
+      else toastError(e)
+    } finally {
+      setSaving(false)
+    }
+  }
+  const local = Number(value)
+  const valid = Number.isInteger(local) && local > 0 && local <= 65535
+
+  return (
+    <div className="mirrors">
+      <h4>{t('remote.ports')}</h4>
+      <ul>
+        {mirrors.map((m) => {
+          const address = `127.0.0.1:${m.local ?? m.port}`
+          return (
+            <li key={m.port} className={`mirror mirror--${m.state}`} title={m.server ?? m.container}>
+              <span className="mono num">{m.local ? `${m.port} → ${m.local}` : m.port}</span>
+              {t(m.state === 'mirrored' ? 'remote.mirrored' : 'remote.busy')}
+              {m.local && m.state === 'mirrored' && (
+                <CopyButton text={address} label={t('common.copyUrl', { url: address })} className="icon-btn mirror-btn" size={13} />
+              )}
+              {m.state === 'busy' && editing !== m.port && (
+                <button
+                  type="button"
+                  className="mirror-action"
+                  onClick={() => {
+                    setEditing(m.port)
+                    setValue(suggestPort(m.port))
+                    setError('')
+                  }}
+                >
+                  {t('remote.usePort')}
+                </button>
+              )}
+              {m.local && (
+                <button type="button" className="icon-btn mirror-btn" disabled={saving} aria-label={t('remote.samePort', { port: m.port })} title={t('remote.samePort', { port: m.port })} onClick={() => void forward(m.port, 0)}>
+                  <X size={13} aria-hidden="true" />
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      {editing !== null && (
+        <form
+          className="port-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (valid && !saving) void forward(editing, local)
+          }}
+        >
+          <label htmlFor="mirror-local">{t('remote.forwardTo', { port: editing })}</label>
+          <input
+            id="mirror-local"
+            className="input input--mono port-input"
+            inputMode="numeric"
+            value={value}
+            autoFocus
+            aria-invalid={!!error}
+            onChange={(e) => {
+              setValue(e.target.value.replace(/\D/g, '').slice(0, 5))
+              setError('')
+            }}
+          />
+          <button type="submit" className="btn btn--primary btn--sm" disabled={!valid || saving}>
+            {saving && <Loader2 size={14} className="spin" aria-hidden="true" />}
+            {t('remote.forward')}
+          </button>
+          <button type="button" className="btn btn--sm" onClick={() => setEditing(null)}>
+            {t('common.cancel')}
+          </button>
+          {error && <p className="form-error" role="alert">{error}</p>}
+        </form>
+      )}
+      <p className="mirrors-hint">{t('remote.portsHint')}</p>
+    </div>
   )
 }
 

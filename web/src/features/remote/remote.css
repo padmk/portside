@@ -177,6 +177,38 @@
 .mirror--busy .num {
   color: inherit;
 }
+.mirror-btn {
+  width: 20px;
+  height: 20px;
+  margin-right: -6px;
+  border-radius: 10px;
+  color: inherit;
+}
+.mirror-action {
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.port-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+.port-input {
+  width: 9ch;
+}
+.port-form .form-error {
+  flex-basis: 100%;
+}
 .mirrors-hint {
   color: var(--text-2);
   font-size: var(--fs-xs);

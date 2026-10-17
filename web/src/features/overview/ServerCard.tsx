@@ -39,8 +39,10 @@ export function ServerCard({ server: v, density, now, cursor }: Props) {
   if (!note && status === 'crashed' && v.exitCode !== undefined) note = translateNote(locale, `exited with code ${v.exitCode}`)
   const held = v.external
     ? t('banner.portUsed', { port: v.port, process: v.external.command, pid: v.external.pid })
-    : ''
-  const ago = !alive ? formatAgo(v.exitedAt, now) : ''
+    : v.forwardedFrom
+      ? t('banner.forwarded', { port: v.port, computer: v.forwardedFrom })
+      : ''
+  const ago =!alive ? formatAgo(v.exitedAt, now) : ''
   const containers = containersOf(useLive().state?.docker, v.name)
   const issue = containerIssues(v, containers)[0]
 

@@ -5,14 +5,28 @@ import { startServer, useBusy } from './actions'
 import { shortenHome } from './format'
 import { useProtectedReason } from './holder'
 
-/** Explains that another process holds the server's port and offers to take it over. */
+/**
+ * Explains that another process holds the server's port and offers to take it
+ * over, or that the port forwards to the connected computer.
+ */
 export function PortBanner({ server: v }: { server: ServerView }) {
   const t = useT()
   const busy = useBusy(v.name)
   const ext = v.external
   const reason = useProtectedReason(ext?.pid, v.port)
 
-  if (!ext) return null
+  if (!ext) {
+    if (!v.forwardedFrom) return null
+    return (
+      <div className="banner banner--info" role="status">
+        <Plug size={18} aria-hidden="true" />
+        <div className="body">
+          <strong>{t('banner.forwarded', { port: v.port, computer: v.forwardedFrom })}</strong>
+          <p className="banner-sub">{t('banner.forwardedHint')}</p>
+        </div>
+      </div>
+    )
+  }
   const vars = { port: v.port, process: ext.command, pid: ext.pid, dir: ext.cwd ? shortenHome(ext.cwd) : '' }
   return (
     <div className="banner banner--info" role="status">

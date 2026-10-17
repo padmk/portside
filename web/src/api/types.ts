@@ -29,6 +29,8 @@ export interface ServerView {
   exitCode?: number
   listening: boolean
   external?: Listener
+  /** The connected computer whose server answers on this stopped server's port, forwarded here. */
+  forwardedFrom?: string
   stale?: boolean
   removed?: boolean
   enabled: boolean
@@ -261,9 +263,11 @@ export interface PairingCode {
   expiresAt: string
 }
 
-/** A remote port forwarded to the same port on this computer, or busy here. */
+/** A remote port forwarded to this computer, or busy here. */
 export interface Mirror {
   port: number
+  /** The local port it is forwarded to, when the user chose one other than `port`. */
+  local?: number
   server?: string
   container?: string
   state: 'mirrored' | 'busy'

@@ -23,6 +23,9 @@ type command struct {
 	summary string
 	run     func(e *env, args []string) error
 	section string
+	// remote: the command takes --on <computer> and then acts on that
+	// connected computer.
+	remote bool
 }
 
 // env carries what every command needs.
@@ -32,6 +35,10 @@ type env struct {
 	out     io.Writer
 	errOut  io.Writer
 	color   bool
+	// on names the connected computer that commands act on, from --on.
+	on string
+	// conn is the connection to that computer, once client() resolved it.
+	conn *client.Connection
 }
 
 // port is where commands reach the daemon: the port a running daemon
@@ -76,12 +83,43 @@ func (e *env) envPort() int {
 }
 
 // client returns a client for a running daemon, starting one if needed.
+// With --on its API requests go to that connected computer.
 func (e *env) client() (*client.Client, error) {
 	c := client.New(e.port())
 	if _, err := c.Ensure(e.ctx); err != nil {
 		return nil, err
 	}
-	return c, nil
+	if e.on == "" {
+		return c, nil
+	}
+	on, cn, err := c.On(e.ctx, e.on)
+	if err != nil {
+		return nil, err
+	}
+	e.conn = cn
+	return on, nil
+}
+
+// takeOn removes --on <computer> or --on=<computer> from args.
+func takeOn(args []string) (rest []string, on string, err error) {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--on" || a == "-on":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return nil, "", usageError{"--on needs a computer name"}
+			}
+			on = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--on=") || strings.HasPrefix(a, "-on="):
+			_, on, _ = strings.Cut(a, "=")
+			if on == "" {
+				return nil, "", usageError{"--on needs a computer name"}
+			}
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return rest, on, nil
 }
 
 // clientIfRunning returns a client only if a daemon is already up.
@@ -97,16 +135,21 @@ var commands []*command
 
 func init() {
 	commands = []*command{
-		{names: []string{"status", "ls", "ps", "st"}, section: "Servers", usage: "status [--json]", summary: "List servers with state, port and usage", run: cmdStatus},
-		{names: []string{"up", "start"}, section: "Servers", usage: "up <name|group>... | --all [--wait] [--takeover]", summary: "Start servers (dependencies first)", run: cmdUp},
-		{names: []string{"down", "stop"}, section: "Servers", usage: "down <name|group>... | --all", summary: "Stop servers gracefully", run: cmdDown},
-		{names: []string{"restart"}, section: "Servers", usage: "restart <name|group>...", summary: "Restart servers", run: cmdRestart},
-		{names: []string{"ensure"}, section: "Servers", usage: "ensure <name> [--timeout 90s] [--json]", summary: "Start if needed, wait until ready, print the URL", run: cmdEnsure},
-		{names: []string{"logs", "log"}, section: "Servers", usage: "logs <name> [-n 200] [-f] [--raw] [--grep <regexp> [-C N]] [-t] [--since 10m]", summary: "Print, search or follow a server's or container's output", run: cmdLogs},
-		{names: []string{"attach", "a"}, section: "Servers", usage: "attach <name>", summary: "Interactive terminal of a server (Ctrl-] detaches)", run: cmdAttach},
+		{names: []string{"status", "ls", "ps", "st"}, section: "Servers", usage: "status [--json]", summary: "List servers with state, port and usage", run: cmdStatus, remote: true},
+		{names: []string{"up", "start"}, section: "Servers", usage: "up <name|group>... | --all [--wait] [--takeover]", summary: "Start servers (dependencies first)", run: cmdUp, remote: true},
+		{names: []string{"down", "stop"}, section: "Servers", usage: "down <name|group>... | --all", summary: "Stop servers gracefully", run: cmdDown, remote: true},
+		{names: []string{"restart"}, section: "Servers", usage: "restart <name|group>...", summary: "Restart servers", run: cmdRestart, remote: true},
+		{names: []string{"ensure"}, section: "Servers", usage: "ensure <name> [--timeout 90s] [--json]", summary: "Start if needed, wait until ready, print the URL", run: cmdEnsure, remote: true},
+		{names: []string{"logs", "log"}, section: "Servers", usage: "logs <name> [-n 200] [-f] [--raw] [--grep <regexp> [-C N]] [-t] [--since 10m]", summary: "Print, search or follow a server's or container's output", run: cmdLogs, remote: true},
+		{names: []string{"attach", "a"}, section: "Servers", usage: "attach <name>", summary: "Interactive terminal of a server (Ctrl-] detaches)", run: cmdAttach, remote: true},
 		{names: []string{"open"}, section: "Servers", usage: "open [name] [--alias]", summary: "Open the dashboard or a server in the browser", run: cmdOpen},
-		{names: []string{"containers"}, section: "Servers", usage: "containers [server|project]... [--json]", summary: "List containers, their state and the server each belongs to", run: cmdContainers},
+		{names: []string{"containers"}, section: "Servers", usage: "containers [server|project]... [--json]", summary: "List containers, their state and the server each belongs to", run: cmdContainers, remote: true},
 		{names: []string{"ports"}, section: "Servers", usage: "ports [--json]", summary: "Show every listening TCP port and its owner", run: cmdPorts},
+
+		{names: []string{"computers"}, section: "Other computers", usage: "computers [--json]", summary: "List your other computers that share their servers, and the connection", run: cmdComputers},
+		{names: []string{"pair"}, section: "Other computers", usage: "pair <computer> <code>", summary: "Pair with a computer using the code it shows, then connect", run: cmdPair},
+		{names: []string{"connect"}, section: "Other computers", usage: "connect <computer>", summary: "Connect to a paired computer; --on <computer> then acts on it", run: cmdConnect},
+		{names: []string{"disconnect"}, section: "Other computers", usage: "disconnect", summary: "End the connection to another computer", run: cmdDisconnect},
 
 		{names: []string{"add"}, section: "Configuration", usage: "add <name> --cmd <command> [--dir <dir>] [--port N] [--group G]", summary: "Add a server to the config", run: cmdAdd},
 		{names: []string{"rm", "remove"}, section: "Configuration", usage: "rm <name>", summary: "Remove a server from the config", run: cmdRemove},
@@ -148,6 +191,12 @@ func Main(args []string) int {
 			e.cfgPath = paths.ExpandHome(strings.TrimPrefix(args[0], "--config="))
 			explicitConfig = true
 			args = args[1:]
+		case args[0] == "--on" && len(args) > 1:
+			e.on = args[1]
+			args = args[2:]
+		case strings.HasPrefix(args[0], "--on="):
+			e.on = strings.TrimPrefix(args[0], "--on=")
+			args = args[1:]
 		case args[0] == "-h" || args[0] == "--help":
 			usage(e.out)
 			return 0
@@ -178,6 +227,9 @@ func Main(args []string) int {
 		if len(args) > 1 {
 			if c := find(args[1]); c != nil {
 				fmt.Fprintf(e.out, "%s %s\n\n%s\n", app.ID, c.usage, c.summary)
+				if c.remote {
+					fmt.Fprintln(e.out, "--on <computer> runs it on the connected computer.")
+				}
 				return 0
 			}
 		}
@@ -189,7 +241,17 @@ func Main(args []string) int {
 		fmt.Fprintf(e.errOut, "unknown command %q; see `%s help`\n", args[0], app.ID)
 		return 2
 	}
-	if err := c.run(e, args[1:]); err != nil {
+	rest, on, err := takeOn(args[1:])
+	if on != "" {
+		e.on = on
+	}
+	if err == nil && e.on != "" && !c.remote {
+		err = usageError{fmt.Sprintf("--on works with %s", strings.Join(remoteCommands(), ", "))}
+	}
+	if err == nil {
+		err = c.run(e, rest)
+	}
+	if err != nil {
 		var ue usageError
 		if errors.As(err, &ue) {
 			fmt.Fprintf(e.errOut, "usage: %s %s\n", app.ID, c.usage)
@@ -230,7 +292,7 @@ func (s silentError) Error() string { return fmt.Sprintf("exit %d", s.code) }
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, "%s keeps your local dev servers running, in one place.\n\n", app.Name)
-	fmt.Fprintf(w, "Usage: %s [--config FILE] <command> [arguments]\n", app.ID)
+	fmt.Fprintf(w, "Usage: %s [--config FILE] [--on COMPUTER] <command> [arguments]\n", app.ID)
 	section := ""
 	for _, c := range commands {
 		if c.section != section {
@@ -239,8 +301,20 @@ func usage(w io.Writer) {
 		}
 		fmt.Fprintf(w, "  %-10s %s\n", c.names[0], c.summary)
 	}
+	fmt.Fprintf(w, "\n--on COMPUTER runs %s on the connected computer.\n", strings.Join(remoteCommands(), ", "))
 	fmt.Fprintf(w, "\nConfig: %s\nDashboard: http://127.0.0.1:%d\nRun `%s help <command>` for arguments.\n",
 		paths.ShortenHome(paths.ConfigFile()), app.DefaultPort, app.ID)
+}
+
+// remoteCommands names the commands that take --on.
+func remoteCommands() []string {
+	var out []string
+	for _, c := range commands {
+		if c.remote {
+			out = append(out, c.names[0])
+		}
+	}
+	return out
 }
 
 // parse parses flags that may appear anywhere among positional arguments.

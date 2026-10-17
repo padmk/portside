@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -41,9 +42,11 @@ const (
 	Reconnecting = "reconnecting"
 )
 
-// Mirror is a remote port forwarded to the same port on this machine.
+// Mirror is a remote port forwarded to this machine: to the same port, or
+// to Local when the user chose another one.
 type Mirror struct {
 	Port      int    `json:"port"`
+	Local     int    `json:"local,omitempty"`
 	Server    string `json:"server,omitempty"`
 	Container string `json:"container,omitempty"`
 	// State is "mirrored", or "busy" when the port is taken here.
@@ -73,6 +76,7 @@ type Manager struct {
 	localPort int
 	ts        *tailnet.Cache
 	tokens    *tokens
+	store     *store
 
 	mu       sync.Mutex
 	c        *conn
@@ -84,7 +88,7 @@ type Manager struct {
 // New creates a manager for the daemon listening on localPort that keeps
 // its pairings in stateDir.
 func New(localPort int, stateDir string, ts *tailnet.Cache) *Manager {
-	return &Manager{localPort: localPort, ts: ts, tokens: newTokens(stateDir), known: map[string]int{},
+	return &Manager{localPort: localPort, ts: ts, tokens: newTokens(stateDir), store: newStore(stateDir), known: map[string]int{},
 		subs: map[chan struct{}]struct{}{}, infoSubs: map[chan struct{}]struct{}{}}
 }
 
@@ -137,8 +141,18 @@ func (m *Manager) Info() *Info {
 	return &info
 }
 
-// Disconnect ends the current connection.
+// Disconnect ends the current connection, and the daemon no longer
+// resumes it when it starts.
 func (m *Manager) Disconnect() {
+	if err := m.store.setConnection(nil); err != nil {
+		log.Printf("remote: %v", err)
+	}
+	m.Close()
+}
+
+// Close ends the current connection as the daemon stops; the next daemon
+// resumes it.
+func (m *Manager) Close() {
 	if c := m.current(); c != nil {
 		m.disconnect(c)
 	}
@@ -179,20 +193,22 @@ type conn struct {
 	// Guarded by m.mu.
 	epoch   string // the remote listener's epoch, from its last proof
 	status  string
+	down    time.Time // when the connection was lost; zero while open
 	err     string
 	version string
 	state   json.RawMessage
-	servers map[string]int // remote server name to port
-	want    map[int]Mirror
-	mirrors map[int]*mirror
-	held    map[int]time.Time // ports left free for a local server
+	servers map[string]int    // remote server name to port
+	want    map[int]Mirror    // by remote port
+	mirrors map[int]*mirror   // by remote port
+	locals  map[int]int       // remote port to the local port chosen for it
+	held    map[int]time.Time // local ports left free for a local server
 }
 
 func newConn(m *Manager, node tailnet.Node, port int, cred share.Credential, tr *http.Transport) *conn {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &conn{m: m, node: node, host: net.JoinHostPort(node.DNSName, strconv.Itoa(port)),
 		ctx: ctx, cancel: cancel, peerTr: tr, since: time.Now(), status: Open, port: port, cred: cred,
-		servers: map[string]int{}, mirrors: map[int]*mirror{}, held: map[int]time.Time{}}
+		servers: map[string]int{}, mirrors: map[int]*mirror{}, held: map[int]time.Time{}, locals: m.store.locals(node.DNSName)}
 	c.devTr = &http.Transport{
 		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
 			_, p, err := net.SplitHostPort(addr)
@@ -231,7 +247,11 @@ func (c *conn) infoLocked() Info {
 		if len(mr.lns) > 0 {
 			state = "mirrored"
 		}
-		info.Mirrors = append(info.Mirrors, Mirror{Port: mr.port, Server: mr.server, Container: mr.container, State: state})
+		local := 0
+		if mr.local != mr.port {
+			local = mr.local
+		}
+		info.Mirrors = append(info.Mirrors, Mirror{Port: mr.port, Local: local, Server: mr.server, Container: mr.container, State: state})
 	}
 	sort.Slice(info.Mirrors, func(i, j int) bool { return info.Mirrors[i].Port < info.Mirrors[j].Port })
 	return info
@@ -255,6 +275,12 @@ func (c *conn) update(fn func()) {
 func (c *conn) setStatus(status string, err error) {
 	c.update(func() {
 		c.status = status
+		switch {
+		case status == Open:
+			c.down = time.Time{}
+		case c.down.IsZero():
+			c.down = time.Now()
+		}
 		c.err = ""
 		if err != nil {
 			c.err = friendly(c.node.Name, err)
@@ -296,9 +322,12 @@ func (c *conn) run() {
 		}
 		log.Printf("remote: %s: %v", c.node.DNSName, err)
 		if errors.Is(err, errRevoked) {
-			// Revoked on the other side: end the connection. The credential
-			// stays until pairing again replaces it, since the reply that said
-			// so cannot prove where it came from.
+			// Revoked on the other side: end the connection and stop resuming
+			// it. The credential stays until pairing again replaces it, since
+			// the reply that said so cannot prove where it came from.
+			if err := c.m.store.forget(c.node.DNSName); err != nil {
+				log.Printf("remote: %v", err)
+			}
 			c.m.disconnect(c)
 			return
 		}
@@ -438,7 +467,8 @@ func (c *conn) apply(data []byte, rs *remoteState) {
 // ── port mirrors ────────────────────────────────────────────────────────
 
 type mirror struct {
-	port              int
+	port              int // on the remote machine
+	local             int // bound here
 	server, container string
 	lns               []net.Listener // empty while the port is busy here
 	tried             time.Time      // last bind attempt, to space out retries
@@ -451,7 +481,22 @@ func (mr *mirror) close() {
 	mr.lns = nil
 }
 
-// reconcileLocked binds wanted ports that are free here and releases the rest.
+// dropAfter is how long mirrors outlive a lost connection: long enough for
+// a brief network change, short enough that local tools stop reaching a
+// computer that went away and its ports are free for local servers again.
+const dropAfter = time.Minute
+
+// localFor returns the local port a remote port is forwarded to.
+func (c *conn) localFor(port int) int {
+	if l := c.locals[port]; l > 0 {
+		return l
+	}
+	return port
+}
+
+// reconcileLocked binds wanted ports that are free here and releases the
+// rest: ports no longer wanted, ports another local process now listens on,
+// and every port once the connection has been down for dropAfter.
 func (c *conn) reconcileLocked() {
 	now := time.Now()
 	for port, until := range c.held {
@@ -459,34 +504,50 @@ func (c *conn) reconcileLocked() {
 			delete(c.held, port)
 		}
 	}
+	offline := !c.down.IsZero() && now.Sub(c.down) > dropAfter
 	for port, mr := range c.mirrors {
-		if _, ok := c.want[port]; !ok {
+		if _, ok := c.want[port]; !ok || offline || mr.local != c.localFor(port) {
 			mr.close()
 			delete(c.mirrors, port)
 		}
 	}
+	if offline {
+		return
+	}
 	for port, w := range c.want {
+		local := c.localFor(port)
 		mr := c.mirrors[port]
 		if mr == nil {
-			mr = &mirror{port: port}
+			mr = &mirror{port: port, local: local}
 			c.mirrors[port] = mr
 		}
 		mr.server, mr.container = w.Server, w.Container
-		if len(mr.lns) > 0 || port == c.m.localPort || now.Before(c.held[port]) || now.Sub(mr.tried) < 9*time.Second {
+		if len(mr.lns) > 0 {
+			if wildcardTaken(local) {
+				// A local process started listening on the port: it gets
+				// the traffic, and the mirror waits until the port is free.
+				log.Printf("remote: port %d is now in use on this computer; no longer forwarding it", local)
+				mr.close()
+				mr.tried = now
+			}
+			continue
+		}
+		if local == c.m.localPort || now.Before(c.held[local]) || now.Sub(mr.tried) < 9*time.Second {
 			continue
 		}
 		mr.tried = now
-		mr.lns = c.bind(port)
+		mr.lns = c.bind(local, port)
 	}
 }
 
-// bind listens on loopback, IPv4 and (where available) IPv6, when the port
-// is free here. A port counts as taken when any address of it is bound:
+// bind listens on loopback port local, IPv4 and (where available) IPv6,
+// when it is free here, and forwards connections to port on the remote
+// machine. A port counts as taken when any address of it is bound:
 // 127.0.0.1 can be bound next to a process listening on all addresses and
 // would steal its traffic. Binds are tried instead of connecting, so local
 // servers never see probe connections.
-func (c *conn) bind(port int) []net.Listener {
-	p := strconv.Itoa(port)
+func (c *conn) bind(local, port int) []net.Listener {
+	p := strconv.Itoa(local)
 	ctx := context.Background()
 	all, err := exclusive.Listen(ctx, "tcp", ":"+p)
 	if err != nil {
@@ -558,9 +619,12 @@ func (c *conn) dialPort(ctx context.Context, port int) (net.Conn, error) {
 	return websocket.NetConn(c.ctx, ws, websocket.MessageBinary), nil
 }
 
-// retryMirrors binds ports that were busy once they become free.
+// retryMirrors reconciles the mirrors every few seconds: it notices a local
+// process taking a forwarded port soon after it starts, binds busy ports
+// again once they are free (every 9 s at most), and drops the mirrors of a
+// connection that stays down.
 func (c *conn) retryMirrors() {
-	t := time.NewTicker(10 * time.Second)
+	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	for {
 		select {
@@ -572,8 +636,8 @@ func (c *conn) retryMirrors() {
 	}
 }
 
-// Release frees port for a local server about to start, and keeps it free
-// long enough for that server to bind it.
+// Release frees local port for a local server about to start, and keeps it
+// free long enough for that server to bind it.
 func (m *Manager) Release(port int) {
 	c := m.current()
 	if c == nil {
@@ -581,10 +645,75 @@ func (m *Manager) Release(port int) {
 	}
 	c.update(func() {
 		c.held[port] = time.Now().Add(30 * time.Second)
-		if mr := c.mirrors[port]; mr != nil {
-			mr.close()
+		for _, mr := range c.mirrors {
+			if mr.local == port {
+				mr.close()
+			}
 		}
 	})
+}
+
+// Forwarded reports whether local port currently forwards to the connected
+// computer, with that computer's name. A connection to the port reaches the
+// other computer, not a process here.
+func (m *Manager) Forwarded(port int) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.c == nil {
+		return "", false
+	}
+	for _, mr := range m.c.mirrors {
+		if mr.local == port && len(mr.lns) > 0 {
+			return m.c.node.Name, true
+		}
+	}
+	return "", false
+}
+
+// SetLocalPort forwards the connected computer's port to local on this
+// computer instead of the same number, or to the same number again when
+// local is 0 or port. The choice is kept for that computer.
+func (m *Manager) SetLocalPort(port, local int) (Info, error) {
+	c := m.current()
+	if c == nil {
+		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to another computer"}
+	}
+	if local == 0 {
+		local = port
+	}
+	if port <= 0 || port > 65535 || local <= 0 || local > 65535 {
+		return Info{}, &Error{Status: http.StatusBadRequest, Msg: "invalid port"}
+	}
+	if local == m.localPort {
+		return Info{}, &Error{Status: http.StatusConflict, Msg: fmt.Sprintf("port %d is %s's own port", local, app.Name)}
+	}
+	var conflict error
+	c.update(func() {
+		for p := range c.want {
+			if p != port && c.localFor(p) == local {
+				conflict = &Error{Status: http.StatusConflict, Msg: fmt.Sprintf("port %d already forwards port %d of %s", local, p, c.node.Name)}
+				return
+			}
+		}
+		if local == port {
+			delete(c.locals, port)
+		} else {
+			c.locals[port] = local
+		}
+		c.reconcileLocked()
+	})
+	if conflict != nil {
+		return Info{}, conflict
+	}
+	if err := m.store.setLocal(c.node.DNSName, port, local); err != nil {
+		return Info{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.c != c {
+		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to " + c.node.Name}
+	}
+	return c.infoLocked(), nil
 }
 
 // ── relaying ────────────────────────────────────────────────────────────

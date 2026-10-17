@@ -29,14 +29,15 @@ or call ensure_server to start it and get its URL. Never launch a second copy of
 server in your own shell. Read server_logs (match narrows it to e.g. "error|warn") before
 restarting a crashed server. A server lists the containers of its compose project; when one
 is unhealthy, restarting or exited with an error, read container_logs. Do not stop or restart
-servers the user did not ask about.`
+servers the user did not ask about. While this machine is connected to another of the user's
+computers, the server and container tools act there when given its name as computer.`
 
 // Run serves MCP on stdin/stdout until the client disconnects.
 func Run(ctx context.Context, c *client.Client) error {
 	s := mcp.NewServer(&mcp.Implementation{Name: app.ID, Version: app.Version}, &mcp.ServerOptions{Instructions: instructions})
 	t := &tools{c: c}
 
-	mcp.AddTool(s, &mcp.Tool{Name: "list_servers", Description: "List managed dev servers with status, URL, port, resource usage and the containers of their compose projects. Pass dir to see only the servers of one checkout.",
+	mcp.AddTool(s, &mcp.Tool{Name: "list_servers", Description: "List managed dev servers with status, URL, port, resource usage and the containers of their compose projects. Pass dir to see only the servers of one checkout, and computer to see another computer's servers while this one is connected to it.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.list)
 	mcp.AddTool(s, &mcp.Tool{Name: "ensure_server", Description: "Start a server (and its dependencies) if it is not running, wait until it accepts connections, and return its URL and whether it was reused or started. Safe to call repeatedly."}, t.ensure)
 	mcp.AddTool(s, &mcp.Tool{Name: "restart_server", Description: "Restart a server and wait until it is ready (default 90s). Use after a change that hot reload cannot pick up, or to recover from a crash after reading its logs."}, t.restart)
@@ -60,6 +61,51 @@ func (t *tools) ready(ctx context.Context) error {
 	return err
 }
 
+// target is the computer a tool call acts on: this one, or the connected
+// computer named by its computer argument, reached through this daemon.
+type target struct {
+	c  *client.Client
+	cn *client.Connection // nil for this computer
+}
+
+// on makes sure the daemon runs and resolves the computer argument.
+func (t *tools) on(ctx context.Context, computer string) (target, error) {
+	if err := t.ready(ctx); err != nil {
+		return target{}, err
+	}
+	if strings.TrimSpace(computer) == "" {
+		return target{c: t.c}, nil
+	}
+	c, cn, err := t.c.On(ctx, computer)
+	if err != nil {
+		return target{}, err
+	}
+	return target{c: c, cn: cn}, nil
+}
+
+// computer names the computer for results, "" for this one.
+func (g target) computer() string {
+	if g.cn == nil {
+		return ""
+	}
+	return g.cn.Peer.Name
+}
+
+// server is the compact view of v, with URLs that open from this computer.
+func (g target) server(v supervisor.View) Server {
+	s := compact(v)
+	if g.cn != nil {
+		s.Computer = g.cn.Peer.Name
+		if s.URL != "" {
+			s.URL = g.cn.LocalURL(v.Name, s.URL)
+		}
+		if s.Alias != "" {
+			s.Alias = g.cn.LocalURL(v.Name, s.Alias)
+		}
+	}
+	return s
+}
+
 // Server is the compact view returned to agents.
 type Server struct {
 	RestartPending bool    `json:"restartPending"`
@@ -80,6 +126,7 @@ type Server struct {
 
 	Containers []Container `json:"containers,omitempty" jsonschema:"containers of the compose project in the server's directory"`
 	Outcome    string      `json:"outcome,omitempty" jsonschema:"what ensure_server did: reused (already running) or started"`
+	Computer   string      `json:"computer,omitempty" jsonschema:"the other computer the server runs on; its URLs open from this one"`
 }
 
 // Container is the compact view of a container returned to agents.
@@ -128,15 +175,15 @@ func engine(d docker.State) string {
 	return d.Status
 }
 
-func (t *tools) state(ctx context.Context) (server.State, error) {
+func (g target) state(ctx context.Context) (server.State, error) {
 	var st server.State
-	err := t.c.Do(ctx, http.MethodGet, "/api/state", nil, &st)
+	err := g.c.Do(ctx, http.MethodGet, "/api/state", nil, &st)
 	return st, err
 }
 
 // withContainers adds the server's containers from the current state.
-func (t *tools) withContainers(ctx context.Context, s Server) Server {
-	if st, err := t.state(ctx); err == nil {
+func (g target) withContainers(ctx context.Context, s Server) Server {
+	if st, err := g.state(ctx); err == nil {
 		for _, c := range st.Docker.Containers {
 			if slices.Contains(c.Servers(), s.Name) {
 				s.Containers = append(s.Containers, brief(c))
@@ -151,6 +198,8 @@ func compact(v supervisor.View) Server {
 		Dir: v.Dir, Cmd: v.Cmd, Note: v.Note, RestartPending: v.RestartPending, ListenPorts: v.ListenPorts, Listening: v.Listening, CPU: v.CPU, MemMB: v.Mem >> 20}
 	if v.External != nil && v.PID == 0 {
 		s.External = fmt.Sprintf("%s (pid %d) in %s", v.External.Command, v.External.PID, v.External.Cwd)
+	} else if v.ForwardedFrom != "" {
+		s.Note = strings.TrimSpace(s.Note + " port " + strconv.Itoa(v.Port) + " is forwarded from " + v.ForwardedFrom + "; starting this server takes it back")
 	}
 	if v.Stale {
 		s.Note = strings.TrimSpace(s.Note + " config changed since start; restart to apply")
@@ -164,10 +213,12 @@ type listOut struct {
 	Servers   []Server `json:"servers"`
 	Dashboard string   `json:"dashboard"`
 	Docker    string   `json:"docker" jsonschema:"container engine: ready, connecting or unavailable, with the reason"`
+	Computer  string   `json:"computer,omitempty" jsonschema:"the other computer these servers run on"`
 }
 
 type listIn struct {
-	Dir string `json:"dir,omitempty" jsonschema:"only servers for this checkout: its own directory, one inside it, or one containing it. Pass the task's working directory to tell a worktree from the main checkout"`
+	Dir      string `json:"dir,omitempty" jsonschema:"only servers for this checkout: its own directory, one inside it, or one containing it. Pass the task's working directory to tell a worktree from the main checkout"`
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, to list its servers instead"`
 }
 
 // related reports whether a server in dir belongs to the checkout at want.
@@ -196,29 +247,35 @@ func canonical(p string) string {
 }
 
 func (t *tools) list(ctx context.Context, _ *mcp.CallToolRequest, in listIn) (*mcp.CallToolResult, listOut, error) {
-	if err := t.ready(ctx); err != nil {
-		return nil, listOut{}, err
-	}
-	st, err := t.state(ctx)
+	g, err := t.on(ctx, in.Computer)
 	if err != nil {
 		return nil, listOut{}, err
 	}
-	out := listOut{Dashboard: t.c.Base, Servers: []Server{}, Docker: engine(st.Docker)}
+	st, err := g.state(ctx)
+	if err != nil {
+		return nil, listOut{}, err
+	}
+	out := listOut{Dashboard: t.c.Base, Servers: []Server{}, Docker: engine(st.Docker), Computer: g.computer()}
 	byServer := map[string][]Container{}
 	for _, c := range st.Docker.Containers {
 		for _, name := range c.Servers() {
 			byServer[name] = append(byServer[name], brief(c))
 		}
 	}
+	// Directories on another computer cannot be resolved here.
+	resolve := canonical
+	if g.cn != nil {
+		resolve = filepath.Clean
+	}
 	want := ""
 	if in.Dir != "" {
-		want = canonical(in.Dir)
+		want = resolve(in.Dir)
 	}
 	for _, v := range st.Servers {
-		if want != "" && !related(canonical(v.Dir), want) {
+		if want != "" && !related(resolve(v.Dir), want) {
 			continue
 		}
-		s := compact(v)
+		s := g.server(v)
 		s.Containers = byServer[v.Name]
 		out.Servers = append(out.Servers, s)
 	}
@@ -226,16 +283,19 @@ func (t *tools) list(ctx context.Context, _ *mcp.CallToolRequest, in listIn) (*m
 }
 
 type nameIn struct {
-	Name string `json:"name" jsonschema:"server name as shown by list_servers"`
+	Name     string `json:"name" jsonschema:"server name as shown by list_servers"`
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, when the server runs there"`
 }
 
 type ensureIn struct {
-	Name    string `json:"name" jsonschema:"server name as shown by list_servers"`
-	Timeout string `json:"timeout,omitempty" jsonschema:"how long to wait for readiness, e.g. 90s (default)"`
+	Name     string `json:"name" jsonschema:"server name as shown by list_servers"`
+	Timeout  string `json:"timeout,omitempty" jsonschema:"how long to wait for readiness, e.g. 90s (default)"`
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, when the server runs there"`
 }
 
 func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn) (*mcp.CallToolResult, Server, error) {
-	if err := t.ready(ctx); err != nil {
+	g, err := t.on(ctx, in.Computer)
+	if err != nil {
 		return nil, Server{}, err
 	}
 	timeout := in.Timeout
@@ -243,7 +303,7 @@ func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn)
 		timeout = "90s"
 	}
 	outcome := "started"
-	if st, err := t.state(ctx); err == nil {
+	if st, err := g.state(ctx); err == nil {
 		for _, v := range st.Servers {
 			if v.Name == in.Name && v.Status == supervisor.Running {
 				outcome = "reused"
@@ -251,27 +311,29 @@ func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn)
 		}
 	}
 	var v supervisor.View
-	if err := t.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/ensure", map[string]string{"timeout": timeout}, &v); err != nil {
+	if err := g.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/ensure", map[string]string{"timeout": timeout}, &v); err != nil {
 		return nil, Server{}, fmt.Errorf("%w (read server_logs for details)", err)
 	}
-	s := t.withContainers(ctx, compact(v))
+	s := g.withContainers(ctx, g.server(v))
 	s.Outcome = outcome
 	return nil, s, nil
 }
 
-func (t *tools) action(ctx context.Context, name, action string) (Server, error) {
-	if err := t.ready(ctx); err != nil {
+func (t *tools) action(ctx context.Context, in nameIn, action string) (Server, error) {
+	g, err := t.on(ctx, in.Computer)
+	if err != nil {
 		return Server{}, err
 	}
 	var v supervisor.View
-	if err := t.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(name)+"/"+action, nil, &v); err != nil {
+	if err := g.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/"+action, nil, &v); err != nil {
 		return Server{}, err
 	}
-	return t.withContainers(ctx, compact(v)), nil
+	return g.withContainers(ctx, g.server(v)), nil
 }
 
 func (t *tools) restart(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn) (*mcp.CallToolResult, Server, error) {
-	if err := t.ready(ctx); err != nil {
+	g, err := t.on(ctx, in.Computer)
+	if err != nil {
 		return nil, Server{}, err
 	}
 	timeout := in.Timeout
@@ -279,46 +341,50 @@ func (t *tools) restart(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn
 		timeout = "90s"
 	}
 	var v supervisor.View
-	if err := t.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/restart", map[string]string{"timeout": timeout}, &v); err != nil {
+	if err := g.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/restart", map[string]string{"timeout": timeout}, &v); err != nil {
 		return nil, Server{}, fmt.Errorf("%w (read server_logs for details)", err)
 	}
-	s := t.withContainers(ctx, compact(v))
+	s := g.withContainers(ctx, g.server(v))
 	s.Outcome = "restarted"
 	return nil, s, nil
 }
 
 func (t *tools) stop(ctx context.Context, _ *mcp.CallToolRequest, in nameIn) (*mcp.CallToolResult, Server, error) {
-	s, err := t.action(ctx, in.Name, "stop")
+	s, err := t.action(ctx, in, "stop")
 	return nil, s, err
 }
 
 type logsIn struct {
-	Name    string `json:"name" jsonschema:"server name as shown by list_servers"`
-	Lines   int    `json:"lines,omitempty" jsonschema:"number of trailing lines (default 150, max 2000)"`
-	Match   string `json:"match,omitempty" jsonschema:"case-insensitive regular expression; returns only matching lines, searched across the whole output"`
-	Context int    `json:"context,omitempty" jsonschema:"with match, lines to include before and after each match (max 20), e.g. for stack traces"`
-	Since   string `json:"since,omitempty" jsonschema:"only lines since then: a duration such as 10m, or an RFC 3339 time"`
+	Name     string `json:"name" jsonschema:"server name as shown by list_servers"`
+	Lines    int    `json:"lines,omitempty" jsonschema:"number of trailing lines (default 150, max 2000)"`
+	Match    string `json:"match,omitempty" jsonschema:"case-insensitive regular expression; returns only matching lines, searched across the whole output"`
+	Context  int    `json:"context,omitempty" jsonschema:"with match, lines to include before and after each match (max 20), e.g. for stack traces"`
+	Since    string `json:"since,omitempty" jsonschema:"only lines since then: a duration such as 10m, or an RFC 3339 time"`
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, when the server runs there"`
 }
 
 type containerLogsIn struct {
-	Name    string `json:"name" jsonschema:"container name as shown by list_containers or list_servers"`
-	Lines   int    `json:"lines,omitempty" jsonschema:"number of trailing lines (default 150, max 2000)"`
-	Match   string `json:"match,omitempty" jsonschema:"case-insensitive regular expression; returns only matching lines among the last 20000"`
-	Context int    `json:"context,omitempty" jsonschema:"with match, lines to include before and after each match (max 20)"`
-	Since   string `json:"since,omitempty" jsonschema:"only lines since then: a duration such as 10m, or an RFC 3339 time"`
+	Name     string `json:"name" jsonschema:"container name as shown by list_containers or list_servers"`
+	Lines    int    `json:"lines,omitempty" jsonschema:"number of trailing lines (default 150, max 2000)"`
+	Match    string `json:"match,omitempty" jsonschema:"case-insensitive regular expression; returns only matching lines among the last 20000"`
+	Context  int    `json:"context,omitempty" jsonschema:"with match, lines to include before and after each match (max 20)"`
+	Since    string `json:"since,omitempty" jsonschema:"only lines since then: a duration such as 10m, or an RFC 3339 time"`
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, when the container runs there"`
 }
 
 func (t *tools) logs(ctx context.Context, _ *mcp.CallToolRequest, in logsIn) (*mcp.CallToolResult, any, error) {
-	return t.text(ctx, "/api/servers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context, in.Since)
+	return t.text(ctx, in.Computer, "/api/servers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context, in.Since)
 }
 
 func (t *tools) containerLogs(ctx context.Context, _ *mcp.CallToolRequest, in containerLogsIn) (*mcp.CallToolResult, any, error) {
-	return t.text(ctx, "/api/containers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context, in.Since)
+	return t.text(ctx, in.Computer, "/api/containers/"+url.PathEscape(in.Name)+"/logs", in.Lines, in.Match, in.Context, in.Since)
 }
 
-// text fetches plain log lines from path, each with its local time.
-func (t *tools) text(ctx context.Context, path string, lines int, match string, around int, since string) (*mcp.CallToolResult, any, error) {
-	if err := t.ready(ctx); err != nil {
+// text fetches plain log lines from path, each with its local time, on
+// computer ("" for this one).
+func (t *tools) text(ctx context.Context, computer, path string, lines int, match string, around int, since string) (*mcp.CallToolResult, any, error) {
+	g, err := t.on(ctx, computer)
+	if err != nil {
 		return nil, nil, err
 	}
 	n := lines
@@ -339,7 +405,10 @@ func (t *tools) text(ctx context.Context, path string, lines int, match string, 
 		}
 	}
 	var b strings.Builder
-	if err := t.c.Do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, &b); err != nil {
+	if g.cn != nil {
+		b.WriteString("[on " + g.computer() + "]\n")
+	}
+	if err := g.c.Do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, &b); err != nil {
 		return nil, nil, err
 	}
 	text := b.String()
@@ -370,21 +439,24 @@ func onlyNotes(text string) bool {
 type containersOut struct {
 	Containers []Container `json:"containers"`
 	Docker     string      `json:"docker" jsonschema:"container engine: ready, connecting or unavailable, with the reason"`
+	Computer   string      `json:"computer,omitempty" jsonschema:"the other computer these containers run on"`
 }
 
 type containersIn struct {
-	Server string `json:"server,omitempty" jsonschema:"only the containers of this server"`
+	Server   string `json:"server,omitempty" jsonschema:"only the containers of this server"`
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, to list its containers instead"`
 }
 
 func (t *tools) containers(ctx context.Context, _ *mcp.CallToolRequest, in containersIn) (*mcp.CallToolResult, containersOut, error) {
-	if err := t.ready(ctx); err != nil {
-		return nil, containersOut{}, err
-	}
-	st, err := t.state(ctx)
+	g, err := t.on(ctx, in.Computer)
 	if err != nil {
 		return nil, containersOut{}, err
 	}
-	out := containersOut{Containers: []Container{}, Docker: engine(st.Docker)}
+	st, err := g.state(ctx)
+	if err != nil {
+		return nil, containersOut{}, err
+	}
+	out := containersOut{Containers: []Container{}, Docker: engine(st.Docker), Computer: g.computer()}
 	for _, c := range st.Docker.Containers {
 		if in.Server == "" || slices.Contains(c.Servers(), in.Server) {
 			out.Containers = append(out.Containers, brief(c))
