@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"bufio"
+	"encoding/json"
 	"context"
 	"fmt"
 	"io"
@@ -15,6 +16,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/ports"
@@ -270,7 +274,7 @@ func TestRecoverCrashStateAndLogs(t *testing.T) {
 	recovered := New(s.cfg, filepath.Dir(s.state))
 	recovered.env.env, recovered.env.fetched = os.Environ(), time.Now()
 	t.Cleanup(recovered.Shutdown)
-	recovered.Recover()
+	recovered.Recover(true)
 	v := recovered.Snapshot(19000)[0]
 	if v.Status != Crashed || v.ExitCode == nil || *v.ExitCode != 9 || v.ExitedAt == nil {
 		t.Fatalf("lost crash: %+v", v)
@@ -387,5 +391,148 @@ func TestSampleRefreshesStaleExternalOwner(t *testing.T) {
 	s.sample(context.Background(), map[string]int{"web": port})
 	if p.external == nil || p.external.Command == "cached" || p.external.PID != os.Getpid() || p.externalStart == "stale process identity" {
 		t.Fatalf("owner not refreshed: %+v", p.external)
+	}
+}
+
+// waitLog waits until a server's scrollback contains want.
+func waitLog(t *testing.T, s *Supervisor, name, want string) {
+	t.Helper()
+	lb, _ := s.Logs(name)
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(string(lb.Raw()), want) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s output lacks %q: %q", name, want, lb.Raw())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A server handed off by the daemon this process replaced keeps running:
+// its output flows into the new supervisor, Recover leaves it alone, and
+// Stop ends it through the adopted process.
+func TestAdoptHandedOffServer(t *testing.T) {
+	s := lifecycleSupervisor(t, "unused", config.RestartNo)
+	cmd := exec.Command("sh", "-c", `i=0; while :; do i=$((i+1)); echo "tick $i"; sleep 0.1; done`)
+	f, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	// The handoff carries a descriptor number, as after an exec.
+	fd, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	h := Handoff{Name: "web", PID: pid, PIDStart: processStart(pid), PTY: fd, Config: s.procs["web"].cfg,
+		Status: Running, Want: true, StartedAt: time.Now().Add(-time.Minute), ReadyAt: time.Now().Add(-time.Minute)}
+	if got := s.Adopt([]Handoff{h}); len(got) != 1 {
+		t.Fatalf("adopted %v", got)
+	}
+	waitLog(t, s, "web", "tick 3")
+	waitLog(t, s, "web", "tick 6")
+	s.Recover(true)
+	v := s.Snapshot(19000)[0]
+	if v.PID != pid || v.Status != Running || !v.Wanted {
+		t.Fatalf("after adoption: pid %d status %s wanted %v", v.PID, v.Status, v.Wanted)
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("Recover ended the adopted process: %v", err)
+	}
+	if err := s.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	if v := s.Snapshot(19000)[0]; v.Status != Stopped || v.PID != 0 {
+		t.Fatalf("after stop: status %s pid %d", v.Status, v.PID)
+	}
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Fatal("the adopted process survived Stop")
+	}
+}
+
+// Preparing a handoff keeps each live terminal open across exec and refuses
+// new launches; cancelling it restores both.
+func TestPrepareAndCancelHandoff(t *testing.T) {
+	s := lifecycleSupervisor(t, "echo up; sleep 60", config.RestartNo)
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitLog(t, s, "web", "up")
+	cloexec := func(fd int) bool {
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return flags&unix.FD_CLOEXEC != 0
+	}
+	hs, err := s.PrepareHandoff()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hs) != 1 || hs[0].PID != s.procs["web"].pid || hs[0].Config.Cmd != "echo up; sleep 60" {
+		t.Fatalf("handoff %+v", hs)
+	}
+	if err := s.Start("web", StartOptions{}); err == nil {
+		t.Error("Start succeeded during a handoff")
+	}
+	if err := KeepTerminalsOnExec(hs, true); err != nil {
+		t.Fatal(err)
+	}
+	if hs[0].PTY <= 2 || cloexec(hs[0].PTY) {
+		t.Errorf("terminal descriptor %d would close on exec", hs[0].PTY)
+	}
+	if err := KeepTerminalsOnExec(hs, false); err != nil {
+		t.Fatal(err)
+	}
+	if !cloexec(hs[0].PTY) {
+		t.Error("the terminal stays open across exec")
+	}
+	s.CancelHandoff()
+	if err := s.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// After an upgrade, Recover still sees the state the previous daemon left:
+// a wanted server waiting for its automatic restart starts again, and a
+// server whose handoff fails has its process group ended and is restored.
+func TestRecoverAfterHandoffKeepsPreviousState(t *testing.T) {
+	pgid, done := startGroup(t, "sleep 60 & echo ready; wait")
+	dir, state := t.TempDir(), t.TempDir()
+	prev := persisted{
+		Running: []string{"web", "api"},
+		Groups:  map[string]pidStamp{"api": {PID: pgid, Start: processStart(pgid)}},
+		Servers: map[string]exitState{"web": {Status: Crashed, Note: "exit status 3", Code: 3, HasExit: true, At: time.Now()}},
+	}
+	data, err := json.Marshal(prev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "state.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Shell: "sh", Port: 19000, Restore: true, Servers: []config.Server{
+		{Name: "web", Cmd: "sleep 60", Dir: dir, Enabled: true, Restart: config.RestartOnFailure, Stop: time.Second},
+		{Name: "api", Cmd: "sleep 60", Dir: dir, Enabled: true, Restart: config.RestartNo, Stop: time.Second},
+	}}
+	s := New(cfg, state)
+	s.env.env, s.env.fetched = os.Environ(), time.Now()
+	t.Cleanup(s.Shutdown)
+	// The terminal descriptor is not usable, so the handoff fails.
+	h := Handoff{Name: "api", PID: pgid, PIDStart: processStart(pgid), PTY: 1 << 20, Status: Running, Want: true}
+	if got := s.Adopt([]Handoff{h}); len(got) != 0 {
+		t.Fatalf("adopted %v", got)
+	}
+	s.Recover(true)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the process group of the failed handoff was not ended")
+	}
+	for _, v := range s.Snapshot(19000) {
+		if !v.Wanted || v.PID == 0 || v.PID == pgid {
+			t.Errorf("%s not restored: %+v", v.Name, v)
+		}
 	}
 }

@@ -74,12 +74,23 @@ func (s *Supervisor) load() persisted {
 
 // Recover ends process groups orphaned by a daemon that died without
 // cleaning up, then starts the servers that were running before (if the
-// config asks for it). Call once, before serving requests.
-func (s *Supervisor) Recover() {
-	st := s.load()
+// config asks for it and restore is set). Servers taken over by Adopt are
+// left running. Call once, before serving requests.
+func (s *Supervisor) Recover(restore bool) {
 	s.mu.Lock()
+	st := s.previous
+	s.previous = persisted{}
+	removed := s.adoptedRemoved
+	s.adoptedRemoved = nil
+	// Servers adopted from the daemon this process replaced keep running.
+	adopted := map[int]bool{}
+	for _, p := range s.procs {
+		if p.pid != 0 {
+			adopted[p.pid] = true
+		}
+	}
 	for name, last := range st.Servers {
-		if p := s.procs[name]; p != nil {
+		if p := s.procs[name]; p != nil && p.pid == 0 {
 			p.exitCode, p.hasExit, p.exitedAt = last.Code, last.HasExit, last.At
 			if last.Status == Crashed || last.Status == Exited || last.Status == Blocked {
 				p.status, p.note = last.Status, last.Note
@@ -88,7 +99,7 @@ func (s *Supervisor) Recover() {
 	}
 	s.mu.Unlock()
 	for _, g := range st.Groups {
-		if g.PID <= 1 || g.Start == "" {
+		if g.PID <= 1 || g.Start == "" || adopted[g.PID] {
 			continue
 		}
 		// A live leader must be the same process (same start time), not an
@@ -108,24 +119,23 @@ func (s *Supervisor) Recover() {
 		_ = syscall.Kill(-g.PID, syscall.SIGKILL)
 	}
 	s.mu.Lock()
-	restore := s.cfg.Restore
+	restore = restore && s.cfg.Restore
 	s.mu.Unlock()
-	if !restore {
-		s.mu.Lock()
-		s.saveLocked()
-		s.mu.Unlock()
-		return
-	}
-	for _, name := range st.Running {
-		s.mu.Lock()
-		p, ok := s.procs[name]
-		enabled := ok && p.cfg.Enabled
-		s.mu.Unlock()
-		if enabled {
-			_ = s.Start(name, StartOptions{})
+	if restore {
+		for _, name := range st.Running {
+			s.mu.Lock()
+			p, ok := s.procs[name]
+			enabled := ok && p.cfg.Enabled && !p.removed
+			s.mu.Unlock()
+			if enabled {
+				_ = s.Start(name, StartOptions{})
+			}
 		}
 	}
 	s.mu.Lock()
 	s.saveLocked()
 	s.mu.Unlock()
+	for _, name := range removed {
+		go func() { _ = s.Stop(name) }()
+	}
 }

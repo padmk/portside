@@ -140,11 +140,18 @@ func cmdService(e *env, args []string) error {
 // not recorded as deliberate.
 var restartBody = map[string]bool{"restart": true}
 
-// daemonRestart stops the daemon and starts a new one, through the login
-// service when it runs this daemon, so the service keeps supervising it.
+// daemonRestart replaces a running daemon with this binary in place,
+// keeping its servers running. A daemon too old for that, or none at all,
+// is stopped and started again, through the login service when it runs
+// this daemon, so the service keeps supervising it.
 func daemonRestart(e *env, c *client.Client) error {
 	old, pingErr := c.Ping(e.ctx)
 	running := pingErr == nil
+	if running {
+		if done, err := upgradeInPlace(e, c, old); done || err != nil {
+			return err
+		}
+	}
 	// The new daemon listens where the config says now.
 	next := client.New(e.configPort())
 	if service.Owns(e.cfgPath) {
@@ -189,6 +196,50 @@ func daemonRestart(e *env, c *client.Client) error {
 	}
 	fmt.Fprintf(e.out, "daemon restarted (pid %d) at %s; servers that were running are being restored\n", h.PID, next.Base)
 	return nil
+}
+
+// upgradeInPlace asks the daemon to re-execute this binary and waits until
+// the new one answers with this version. It reports false without an error
+// when the daemon predates in-place upgrades.
+func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return false, nil
+	}
+	err = c.Do(e.ctx, http.MethodPost, "/api/upgrade", map[string]string{"exe": exe}, nil)
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusNotImplemented {
+			return false, nil
+		}
+		return true, fmt.Errorf("the daemon keeps running %s: %s", old.Version, apiErr.Msg)
+	}
+	// On success the old daemon drops the connection as it turns into the
+	// new one, so err is usually a transport error here.
+	next := client.New(e.configPort())
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		h, err := next.Ping(e.ctx)
+		if err == nil && h.PID == old.PID && !h.StartedAt.Equal(old.StartedAt) {
+			if h.Version != app.Version {
+				return true, fmt.Errorf("the daemon now runs version %s, not %s", h.Version, app.Version)
+			}
+			fmt.Fprintf(e.out, "daemon upgraded in place to %s (pid %d) at %s; servers kept running\n", h.Version, h.PID, next.Base)
+			return true, nil
+		}
+		if err == nil && h.PID != old.PID {
+			fmt.Fprintf(e.out, "daemon restarted (pid %d) at %s; servers that were running are being restored\n", h.PID, next.Base)
+			return true, nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	// The new binary did not come up. A fresh daemon recovers the servers
+	// as after a crash.
+	h, err := next.Ensure(e.ctx)
+	if err != nil {
+		return true, fmt.Errorf("the upgraded daemon did not answer and none could be started: %w; see %s", err, paths.ShortenHome(paths.DaemonLog()))
+	}
+	return true, fmt.Errorf("the upgraded daemon did not answer; started a fresh one (pid %d), which restores servers that were running; see %s", h.PID, paths.ShortenHome(paths.DaemonLog()))
 }
 
 // Exit codes of `daemon info` besides 0 (running) and 1 (other errors).

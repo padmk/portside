@@ -13,7 +13,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -55,13 +57,30 @@ func Run(cfgPath string) error {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return err
 	}
-	lock, err := acquireLock(filepath.Join(stateDir, "daemon.lock"))
-	if err != nil {
-		return err
+	// A daemon that re-executed itself to upgrade left its lock, sockets
+	// and servers to this process.
+	ho := takeHandoff(stateDir)
+	lockPath := filepath.Join(stateDir, "daemon.lock")
+	var lock *os.File
+	if ho != nil {
+		var err error
+		if lock, err = inheritLock(ho.Lock, lockPath); err != nil {
+			log.Printf("handoff: lock: %v", err)
+		}
+	}
+	if lock == nil {
+		var err error
+		if lock, err = acquireLock(lockPath); err != nil {
+			return err
+		}
 	}
 	defer lock.Close()
-	// Whoever started this daemon wants it running, so the stop is over.
-	_ = os.Remove(paths.StopMarker())
+	// Whoever started this daemon wants it running, so the stop is over;
+	// but a stop requested while the previous binary handed over wins.
+	stopDuringUpgrade := ho != nil && Stopped()
+	if !stopDuringUpgrade {
+		_ = os.Remove(paths.StopMarker())
+	}
 
 	if _, err := os.Stat(cfgPath); errors.Is(err, os.ErrNotExist) {
 		if err := config.WriteStarter(cfgPath); err != nil {
@@ -94,6 +113,14 @@ func Run(cfgPath string) error {
 	var once sync.Once
 	stop := make(chan struct{})
 	shutdown := func() { once.Do(func() { close(stop) }) }
+	stopping := func() bool {
+		select {
+		case <-stop:
+			return true
+		default:
+			return false
+		}
+	}
 	// A stop requested over the API is deliberate unless a restart follows.
 	// The marker is written before the listeners close, so a client that
 	// finds the daemon gone also finds the marker.
@@ -112,6 +139,36 @@ func Run(cfgPath string) error {
 	sup.SetForwarded(rem.Forwarded)
 	sh := share.New(cfg.Port, stateDir, ts)
 
+	upgrades := make(chan upgradeRequest)
+	// upgrade checks the new binary, then has the main loop exec it. It
+	// returns only when the exec did not happen.
+	upgrade := func(exe string) error {
+		if exe == "" {
+			var err error
+			if exe, err = selfExecutable(); err != nil {
+				return err
+			}
+		}
+		// A compose job's output pipe would not survive the exec.
+		if jobs := dock.RunningJobs(); len(jobs) > 0 {
+			return fmt.Errorf("a compose job runs for %s; try again once it has finished", strings.Join(jobs, ", "))
+		}
+		version, err := checkBinary(exe)
+		if err != nil {
+			return err
+		}
+		if stopping() {
+			return errors.New("the daemon is shutting down")
+		}
+		req := upgradeRequest{exe: exe, version: version, result: make(chan error, 1)}
+		select {
+		case upgrades <- req:
+		case <-stop:
+			return errors.New("the daemon is shutting down")
+		}
+		return <-req.result
+	}
+
 	srv := server.New(server.Options{
 		Supervisor:  sup,
 		ConfigError: errorText(configErr),
@@ -122,27 +179,48 @@ func Run(cfgPath string) error {
 		UI:          web.Assets(),
 		Token:       token,
 		Shutdown:    requestShutdown,
+		Upgrade:     upgrade,
 		Remote:      rem,
 		Share:       sh,
 	})
 	sh.SetHandler(srv.PeerHandler())
 
-	listeners, err := listen(cfg.Port)
-	if err != nil {
-		return err
+	var listeners []net.Listener
+	if ho != nil {
+		listeners = inheritListeners(ho.Listeners, cfg.Port)
+	}
+	if listeners == nil {
+		if listeners, err = listen(cfg.Port); err != nil {
+			return err
+		}
+	}
+	if ho != nil {
+		adopted := sup.Adopt(ho.Servers)
+		log.Printf("upgraded from %s to %s; kept %d of %d running servers", ho.Version, app.Version, len(adopted), len(ho.Servers))
 	}
 	// Recover before serving: a request handled earlier could overwrite the
 	// state file that records the previous run's process groups.
-	sup.Recover()
-	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
-	for _, ln := range listeners {
-		go func(ln net.Listener) {
-			if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Printf("http: %v", err)
-				shutdown()
-			}
-		}(ln)
+	sup.Recover(!stopDuringUpgrade)
+	if stopDuringUpgrade {
+		log.Printf("a stop was requested during the upgrade")
+		shutdown()
 	}
+	httpSrv :=&http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	// serve runs the API on lns. Closing them for an upgrade sets the
+	// returned flag first, so that is not taken for a failure.
+	serve := func(lns []net.Listener) *atomic.Bool {
+		var handedOff atomic.Bool
+		for _, ln := range lns {
+			go func(ln net.Listener) {
+				if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) && !handedOff.Load() {
+					log.Printf("http: %v", err)
+					shutdown()
+				}
+			}(ln)
+		}
+		return &handedOff
+	}
+	handedOff := serve(listeners)
 	log.Printf("%s %s listening on http://127.0.0.1:%d (pid %d)", app.Name, app.Version, cfg.Port, os.Getpid())
 	// Clients find a daemon whose config has since moved to another port here.
 	portFile := filepath.Join(stateDir, "daemon.port")
@@ -173,13 +251,116 @@ func Run(cfgPath string) error {
 	// The computer this daemon was connected to when it stopped.
 	go rem.Resume(ctx)
 
+	// reexec replaces this process with req.exe and hands the servers over.
+	// It returns only when the exec failed, with everything running again.
+	reexec := func(req upgradeRequest) error {
+		nonce, err := newNonce()
+		if err != nil {
+			return err
+		}
+		files, err := listenerFiles(listeners)
+		if err != nil {
+			return fmt.Errorf("listening sockets: %w", err)
+		}
+		servers, err := sup.PrepareHandoff()
+		if err != nil {
+			closeFiles(files)
+			return err
+		}
+		hoPath := handoffPath(stateDir)
+		// A descriptor kept open across the exec would leak into any process
+		// started meanwhile (a server, lsof, git, an editor), so nothing
+		// starts from the first such descriptor until the exec or until
+		// all of them close on exec again.
+		syscall.ForkLock.Lock()
+		forkLocked := true
+		closeOnExec := func() {
+			if !forkLocked {
+				return
+			}
+			_, _ = keepOnExec(files, false)
+			_, _ = keepOnExec([]*os.File{lock}, false)
+			_ = supervisor.KeepTerminalsOnExec(servers, false)
+			syscall.ForkLock.Unlock()
+			forkLocked = false
+		}
+		fail := func(err error) error {
+			closeOnExec()
+			sup.CancelHandoff()
+			_ = os.Remove(hoPath)
+			closeFiles(files)
+			return err
+		}
+		fds, err := keepOnExec(files, true)
+		if err != nil {
+			return fail(fmt.Errorf("listening sockets: %w", err))
+		}
+		lockFD, err := supervisor.KeepOnExec(lock, true)
+		if err != nil {
+			return fail(err)
+		}
+		if err := supervisor.KeepTerminalsOnExec(servers, true); err != nil {
+			return fail(err)
+		}
+		h := handoff{Nonce: nonce, PID: os.Getpid(), Version: app.Version,
+			Lock: lockFD, Port: cfg.Port, Listeners: fds, Servers: servers}
+		if err := writeHandoff(hoPath, h); err != nil {
+			return fail(err)
+		}
+		// A stop requested from here on finds its marker in the new daemon.
+		if stopping() {
+			return fail(errors.New("the daemon is shutting down"))
+		}
+		// The sockets stay open in files: connections wait in the backlog
+		// until the new binary accepts them.
+		handedOff.Store(true)
+		for _, ln := range listeners {
+			ln.Close()
+		}
+		log.Printf("upgrading to %s %s (%s); %d running servers keep running", app.Name, req.version, req.exe, len(servers))
+		env := append(withoutEnv(os.Environ(), handoffEnv), handoffEnv+"="+nonce)
+		execErr := syscall.Exec(req.exe, append([]string{req.exe}, os.Args[1:]...), env)
+		// Still this binary: serve again on the same sockets.
+		closeOnExec()
+		var lns []net.Listener
+		for _, f := range files {
+			if ln, err := net.FileListener(f); err == nil {
+				lns = append(lns, ln)
+			}
+		}
+		if len(lns) == 0 {
+			if lns, err = listen(cfg.Port); err != nil {
+				log.Printf("upgrade: %v", err)
+				shutdown()
+			}
+		}
+		listeners = lns
+		handedOff = serve(lns)
+		return fail(fmt.Errorf("could not run %s: %w", req.exe, execErr))
+	}
+
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	select {
-	case s := <-sig:
-		log.Printf("received %s, stopping servers", s)
-	case <-stop:
-		log.Printf("shutdown requested, stopping servers")
+wait:
+	for {
+		select {
+		case s := <-sig:
+			log.Printf("received %s, stopping servers", s)
+			break wait
+		case <-stop:
+			log.Printf("shutdown requested, stopping servers")
+			break wait
+		case req := <-upgrades:
+			// A stop requested at the same time wins.
+			if stopping() {
+				req.result <- errors.New("the daemon is shutting down")
+				log.Printf("shutdown requested, stopping servers")
+				break wait
+			}
+			err := reexec(req)
+			log.Printf("upgrade: %v; still running %s", err, app.Version)
+			req.result <- err
+		}
 	}
 	// A second signal skips the graceful wait.
 	go func() {

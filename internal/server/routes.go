@@ -61,6 +61,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/free-port", s.freePort)
 	m.HandleFunc("POST /api/open", s.open)
 	m.HandleFunc("POST /api/shutdown", s.shutdown)
+	m.HandleFunc("POST /api/upgrade", s.upgrade)
 	s.containerRoutes(m)
 	s.remoteRoutes(m)
 
@@ -1006,6 +1007,29 @@ func terminalCommand(terminal, dir string, lookup func(string) string) (*exec.Cm
 		}
 	}
 	return nil, errors.New("no terminal emulator found")
+}
+
+// upgrade replaces the daemon's binary in place with the one at the
+// optional {"exe": path}, keeping servers running. On success the process
+// becomes the new daemon and this connection drops without a reply; a reply
+// means the old daemon still runs, and says why.
+func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Exe string `json:"exe"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if s.opt.Upgrade == nil {
+		fail(w, http.StatusNotImplemented, errors.New("this daemon cannot upgrade in place"))
+		return
+	}
+	if err := s.opt.Upgrade(body.Exe); err != nil {
+		fail(w, http.StatusConflict, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // shutdown stops the daemon. The optional body {"restart": true} says a new

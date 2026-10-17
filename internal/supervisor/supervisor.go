@@ -59,7 +59,7 @@ type proc struct {
 	running        config.Server // configuration the live process was started with
 	status         Status
 	note           string // short human explanation of the status
-	cmd            *exec.Cmd
+	process        *os.Process
 	pty            *os.File
 	pid            int
 	pidStart       string
@@ -110,6 +110,12 @@ type Supervisor struct {
 	// desktopClients counts connected apps that show crash notifications
 	// themselves; while any is connected the daemon stays quiet.
 	desktopClients int
+	// previous is the state file as the previous daemon left it, read once
+	// in New so that nothing this process saves hides it from Recover.
+	previous persisted
+	// adoptedRemoved lists adopted servers that are no longer configured;
+	// Recover stops them once it has read the previous state.
+	adoptedRemoved []string
 }
 
 // AddDesktopClient registers a client that notifies the user itself and
@@ -139,7 +145,8 @@ func New(cfg *config.Config, stateDir string) *Supervisor {
 		selfPID:  os.Getpid(),
 	}
 	s.applyLocked(cfg)
-	s.restoreTemporaryLocked(s.load().Temporary)
+	s.previous = s.load()
+	s.restoreTemporaryLocked(s.previous.Temporary)
 	return s
 }
 
@@ -529,7 +536,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	}
 	p.gen++
 	gen := p.gen
-	p.cmd = cmd
+	p.process = cmd.Process
 	p.pty = f
 	p.pid = cmd.Process.Pid
 	p.pidStart = processStart(p.pid)
@@ -660,21 +667,26 @@ func launchEnv(base []string, sv config.Server, prepend []string, global map[str
 	return mergeEnv(base, over)
 }
 
-// wait reaps the process and decides what happens next.
-func (s *Supervisor) wait(name string, p *proc, gen int) {
-	err := p.cmd.Wait()
-	code := 0
-	if err != nil {
-		code = -1
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-				code = 128 + int(ws.Signal())
-			} else {
-				code = ee.ExitCode()
-			}
-		}
+// exitCode is a shell-style exit code: 128 plus the signal for a process
+// a signal ended, -1 when the status is unknown.
+func exitCode(st *os.ProcessState, err error) int {
+	if err != nil || st == nil {
+		return -1
 	}
+	if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal())
+	}
+	return st.ExitCode()
+}
+
+// wait reaps the process and decides what happens next. The process is a
+// child of this daemon, also when it was adopted from the binary this one
+// replaced, so waiting on its pid works either way.
+func (s *Supervisor) wait(name string, p *proc, gen int) {
+	s.mu.Lock()
+	process := p.process
+	s.mu.Unlock()
+	code := exitCode(process.Wait())
 	pgid := p.pid
 	s.mu.Lock()
 	stopping := p.stopping || s.closing

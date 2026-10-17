@@ -10,6 +10,7 @@ func TestPeerDenied(t *testing.T) {
 		"/api/containers/db/shell":   false,
 		"/api/open":                  true, // acts on this computer's desktop
 		"/api/shutdown":              true,
+		"/api/upgrade":               true, // runs a binary on this computer
 		"/api/auth/code":             true, // mints sign-in links
 		"/api/remote":                true, // sharing and onward connections
 		"/api/remote/share":          true,

@@ -87,7 +87,8 @@ func loginShellEnv() []string {
 		}
 		k := s[:strings.IndexByte(s, '=')]
 		switch k {
-		case "SHLVL", "PWD", "OLDPWD", "_", "TERM_PROGRAM", "TERM_SESSION_ID", "TMUX", "TMUX_PANE":
+		// Per-session values differ on every read and would mark servers stale.
+		case "SHLVL", "PWD", "OLDPWD", "_", "TERM_PROGRAM", "TERM_SESSION_ID", "TMUX", "TMUX_PANE", "STARSHIP_SESSION_KEY":
 			continue
 		}
 		env = append(env, s)

@@ -43,6 +43,10 @@ type Options struct {
 	// Shutdown is called when a client asks the daemon to exit; restart is
 	// true when the client starts a daemon again right after.
 	Shutdown func(restart bool)
+	// Upgrade re-executes the daemon from the binary at exe (its own when
+	// empty), keeping servers running. It returns only when that did not
+	// happen.
+	Upgrade func(exe string) error
 	// Remote connects to the daemon on another of the owner's devices.
 	Remote *remote.Manager
 	// Share lets the owner's other devices connect to this daemon.

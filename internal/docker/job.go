@@ -249,3 +249,16 @@ func (j *Job) Wait(ctx context.Context) (JobResult, error) {
 	}
 	return JobResult{JobView: j.view(), Output: strings.Join(j.logs.Tail(100, 1000), "\n")}, nil
 }
+
+// RunningJobs names the containers whose compose job is still running.
+func (m *Monitor) RunningJobs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for name, j := range m.jobs {
+		if j.running {
+			out = append(out, name)
+		}
+	}
+	return out
+}

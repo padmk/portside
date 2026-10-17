@@ -210,10 +210,11 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 
 // Health is the daemon's identity.
 type Health struct {
-	App     string `json:"app"`
-	Version string `json:"version"`
-	PID     int    `json:"pid"`
-	Port    int    `json:"port"`
+	App       string    `json:"app"`
+	Version   string    `json:"version"`
+	PID       int       `json:"pid"`
+	Port      int       `json:"port"`
+	StartedAt time.Time `json:"startedAt"`
 }
 
 // Ping returns the daemon's identity, or an error if none is answering.
