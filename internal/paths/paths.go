@@ -50,6 +50,10 @@ func LogDir() string { return filepath.Join(StateDir(), "logs") }
 // DaemonLog returns the daemon's own log file.
 func DaemonLog() string { return filepath.Join(StateDir(), "daemon.log") }
 
+// StopMarker returns the file a deliberate daemon stop leaves behind; while it
+// exists, background clients such as the menu bar app do not start a daemon.
+func StopMarker() string { return filepath.Join(StateDir(), "stopped") }
+
 // ExpandHome replaces a leading ~ and expands $VARS.
 func ExpandHome(p string) string {
 	p = os.ExpandEnv(p)

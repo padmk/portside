@@ -90,6 +90,7 @@ func installLaunchd(exe, file, configPath string) error {
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ProcessType</key><string>Interactive</string>
+  <key>ExitTimeOut</key><integer>60</integer>
   <key>StandardOutPath</key><string>%s</string>
   <key>StandardErrorPath</key><string>%s</string>
 </dict>
@@ -99,12 +100,8 @@ func installLaunchd(exe, file, configPath string) error {
 	if err := os.WriteFile(file, []byte(plist), 0o644); err != nil {
 		return err
 	}
-	domain := "gui/" + strconv.Itoa(os.Getuid())
-	_ = exec.Command("launchctl", "bootout", domain+"/"+app.ServiceLabel).Run()
-	if out, err := exec.Command("launchctl", "bootstrap", domain, file).CombinedOutput(); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	_ = exec.Command("launchctl", "bootout", launchdTarget()).Run()
+	return run("launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), file)
 }
 
 func installSystemd(exe, file, configPath string) error {
@@ -137,7 +134,7 @@ func Uninstall() error {
 	file := File()
 	switch runtime.GOOS {
 	case "darwin":
-		_ = exec.Command("launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid())+"/"+app.ServiceLabel).Run()
+		_ = exec.Command("launchctl", "bootout", launchdTarget()).Run()
 	case "linux":
 		_ = exec.Command("systemctl", "--user", "disable", "--now", app.ID+".service").Run()
 	}
@@ -158,7 +155,7 @@ func Query() Status {
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		out, err := exec.Command("launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+app.ServiceLabel).Output()
+		out, err := exec.Command("launchctl", "print", launchdTarget()).Output()
 		if err == nil {
 			st.Running = strings.Contains(string(out), "state = running")
 		}
@@ -168,4 +165,87 @@ func Query() Status {
 		st.Running = st.Detail == "active"
 	}
 	return st
+}
+
+// launchdTarget is the agent's service target in the user's GUI domain.
+func launchdTarget() string {
+	return "gui/" + strconv.Itoa(os.Getuid()) + "/" + app.ServiceLabel
+}
+
+// Owns reports whether the installed service runs the daemon for configPath
+// with the default state directory and port, so starting the service starts
+// the daemon that a client with these settings talks to.
+func Owns(configPath string) bool {
+	if os.Getenv(app.Env("STATE_DIR")) != "" || os.Getenv(app.Env("PORT")) != "" {
+		return false
+	}
+	data, err := os.ReadFile(File())
+	if err != nil {
+		return false
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return strings.Contains(string(data), "<string>"+xmlEscape(configPath)+"</string>")
+	case "linux":
+		return strings.Contains(string(data), "="+strconv.Quote(configPath)+"\n")
+	}
+	return false
+}
+
+// Start starts the installed service's daemon if it is not running.
+func Start() error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run("launchctl", "kickstart", launchdTarget())
+	case "linux":
+		return run("systemctl", "--user", "start", app.ID+".service")
+	}
+	return fmt.Errorf("services are not supported on %s", runtime.GOOS)
+}
+
+// Restart stops the service's daemon, if it runs, and starts it again.
+func Restart() error {
+	switch runtime.GOOS {
+	case "darwin":
+		return run("launchctl", "kickstart", "-k", launchdTarget())
+	case "linux":
+		return run("systemctl", "--user", "restart", app.ID+".service")
+	}
+	return fmt.Errorf("services are not supported on %s", runtime.GOOS)
+}
+
+func run(name string, args ...string) error {
+	if out, err := exec.Command(name, args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("%s %s: %v: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// LingerOff reports whether systemd ends the account's user services at
+// logout (Linux only), so the daemon neither outlives a session nor starts at
+// boot. It is false when this cannot be determined.
+func LingerOff() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	user := os.Getenv("USER")
+	if user == "" {
+		return false
+	}
+	out, err := exec.Command("loginctl", "show-user", user, "-p", "Linger").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "Linger=no"
+}
+
+// MenuBarAppStartsDaemon reports whether the macOS menu bar app opens at
+// login, which starts the daemon too. The app records that setting in its
+// preferences.
+func MenuBarAppStartsDaemon() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	out, err := exec.Command("defaults", "read", app.MenuBarAppID, "launchAtLogin").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "1"
 }

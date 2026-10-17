@@ -11,6 +11,8 @@ const (
 	ID = "portside"
 	// ServiceLabel identifies the background service in launchd.
 	ServiceLabel = "app.foreverbeta.portside"
+	// MenuBarAppID is the macOS menu bar app's bundle identifier.
+	MenuBarAppID = ServiceLabel + ".app"
 	// DefaultPort is where the daemon serves the dashboard, API and *.localhost proxy.
 	DefaultPort = 7878
 	// PeerHeader marks requests between daemons on the owner's devices.

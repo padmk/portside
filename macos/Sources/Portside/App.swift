@@ -27,9 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             NSApp.appearance = NSAppearance(named: arg.hasSuffix("dark") ? .darkAqua : .aqua)
         }
         AppIconStyle.apply()
+        _ = LoginItem.isEnabled // records the setting for the CLI
         notifier.setUp()
         notifier.onRestart = { [weak self] name in self?.store.perform("restart", name) }
-        notifier.onShow = { [weak self] name in self?.openDashboard(name, terminal: true) }
+        notifier.onShow = { [weak self] name, terminal in self?.showLocalServer(name, terminal: terminal) }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = StatusIcon.image(for: Store.Summary(offline: true))
@@ -38,8 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
         let actions = AppActions(
-            openDashboard: { [weak self] name in self?.openDashboard(name) },
-            openLogs: { [weak self] name in self?.openDashboard(name, terminal: true) },
+            openDashboard: { [weak self] name in
+                if let name { self?.showLocalServer(name, terminal: false) } else { self?.openDashboard(nil) }
+            },
+            openLogs: { [weak self] name in self?.showLocalServer(name, terminal: true) },
             openURL: { [weak self] url in
                 self?.popover.performClose(nil)
                 if let u = URL(string: url) { NSWorkspace.shared.open(u) }
@@ -64,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self?.statusItem.button?.setAccessibilityLabel(StatusIcon.accessibility(s))
         }
         store.onCrash = { [weak self] v in self?.notifier.crashed(v) }
+        store.onContainerIssue = { [weak self] server, containers in self?.notifier.containerIssue(server, containers) }
+        store.onStatusChange = { [weak self] _ in self?.refreshDashboard() }
         store.start()
 
         // `--render-panel=PATH` draws the panel offscreen to a PNG once data
@@ -113,35 +118,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    /// The dashboard route to open once the daemon answers.
+    private var pendingTarget: String?
+
     private func openDashboard(_ server: String?, terminal: Bool = false) {
-        let target = server.map { terminal ? $0 + "/terminal" : $0 }
         popover.performClose(nil)
         if dashboard == nil {
             let wc = DashboardWindowController()
-            wc.onClose = {
+            wc.onClose = { [weak self] in
                 // No window left: back to a menu bar app without a Dock icon.
+                self?.pendingTarget = nil
                 NSApp.setActivationPolicy(.accessory)
             }
-            wc.onRetry = { [weak self, weak wc] in
-                guard let self, let wc, wc.window?.isVisible == true else { return }
-                wc.show(api: self.store.api, server: nil)
+            wc.onRetry = { [weak self] in self?.refreshDashboard() }
+            wc.onAction = { [weak self] action in
+                switch action {
+                case "start": self?.store.startDaemon()
+                case "edit-config": self?.store.open("config")
+                default: break
+                }
             }
             dashboard = wc
         }
         NSApp.setActivationPolicy(.regular)
         AppIconStyle.apply()
-        dashboard?.show(api: store.api, server: target)
-        if store.api == nil {
-            // Load the real dashboard as soon as the daemon answers.
-            Task { @MainActor in
-                for _ in 0..<40 {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    if let api = store.api {
-                        dashboard?.show(api: api, server: target)
-                        return
-                    }
-                }
-            }
+        dashboard?.present()
+        pendingTarget = server.map { terminal ? $0 + "/terminal" : $0 }
+        if let api = store.api {
+            dashboard?.load(api: api, server: pendingTarget)
+            pendingTarget = nil
+        } else {
+            dashboard?.showStatus(store.daemonStatus)
+        }
+    }
+
+    /// Follows the daemon in an open dashboard window: loads the dashboard
+    /// once the daemon answers, and shows a stopped daemon or a config error
+    /// with what fixes it. While the daemon is only away for a moment the
+    /// dashboard reconnects on its own.
+    private func refreshDashboard() {
+        guard let dashboard, dashboard.window?.isVisible == true else { return }
+        let status = store.daemonStatus
+        if let api = store.api {
+            // Keeps a loaded dashboard unless the daemon moved to another port.
+            dashboard.load(api: api, server: pendingTarget)
+            pendingTarget = nil
+        } else if dashboard.showsStatus || status.needsUser {
+            dashboard.showStatus(status)
+        }
+    }
+
+    /// Opens a server of this computer. While the dashboard shows another
+    /// computer, it asks to disconnect first, since the dashboard would
+    /// otherwise show the other computer's server of that name.
+    private func showLocalServer(_ name: String, terminal: Bool) {
+        guard let remote = store.remote else {
+            openDashboard(name, terminal: terminal)
+            return
+        }
+        popover.performClose(nil)
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = L.t("The dashboard shows \(remote.peer.name)", "Panel pokazuje \(remote.peer.name)")
+        alert.informativeText = L.t("Disconnect from \(remote.peer.name) to show \(name) on this computer?",
+                                    "Rozłączyć się z \(remote.peer.name), aby pokazać \(name) na tym komputerze?")
+        alert.addButton(withTitle: L.t("Disconnect and Show", "Rozłącz i pokaż"))
+        alert.addButton(withTitle: L.t("Cancel", "Anuluj"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task { @MainActor in
+            if await store.disconnectRemote() { openDashboard(name, terminal: terminal) }
         }
     }
 

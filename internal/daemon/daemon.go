@@ -30,7 +30,26 @@ import (
 	"github.com/padmk/portside/web"
 )
 
-// Run blocks until the daemon is asked to stop.
+// ErrAlreadyRunning means another daemon holds the state directory's lock.
+var ErrAlreadyRunning = errors.New("another daemon is already running")
+
+// MarkStopped records a deliberate stop, so background clients do not start
+// a daemon again until something starts one explicitly.
+func MarkStopped() error {
+	if err := os.MkdirAll(paths.StateDir(), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(paths.StopMarker(), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+// Stopped reports whether the daemon was stopped deliberately and none started since.
+func Stopped() bool {
+	_, err := os.Stat(paths.StopMarker())
+	return err == nil
+}
+
+// Run blocks until the daemon is asked to stop. It returns ErrAlreadyRunning
+// when another daemon owns the state directory.
 func Run(cfgPath string) error {
 	stateDir := paths.StateDir()
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
@@ -41,6 +60,8 @@ func Run(cfgPath string) error {
 		return err
 	}
 	defer lock.Close()
+	// Whoever started this daemon wants it running, so the stop is over.
+	_ = os.Remove(paths.StopMarker())
 
 	if _, err := os.Stat(cfgPath); errors.Is(err, os.ErrNotExist) {
 		if err := config.WriteStarter(cfgPath); err != nil {
@@ -73,6 +94,17 @@ func Run(cfgPath string) error {
 	var once sync.Once
 	stop := make(chan struct{})
 	shutdown := func() { once.Do(func() { close(stop) }) }
+	// A stop requested over the API is deliberate unless a restart follows.
+	// The marker is written before the listeners close, so a client that
+	// finds the daemon gone also finds the marker.
+	requestShutdown := func(restart bool) {
+		if !restart {
+			if err := MarkStopped(); err != nil {
+				log.Printf("stop marker: %v", err)
+			}
+		}
+		shutdown()
+	}
 
 	ts := tailnet.NewCache(time.Minute)
 	rem := remote.New(cfg.Port, stateDir, ts)
@@ -89,7 +121,7 @@ func Run(cfgPath string) error {
 		Port:        cfg.Port,
 		UI:          web.Assets(),
 		Token:       token,
-		Shutdown:    shutdown,
+		Shutdown:    requestShutdown,
 		Remote:      rem,
 		Share:       sh,
 	})
@@ -191,7 +223,7 @@ func acquireLock(path string) (*os.File, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("another %s daemon is already running (lock %s)", app.Name, paths.ShortenHome(path))
+		return nil, fmt.Errorf("%w (lock %s)", ErrAlreadyRunning, paths.ShortenHome(path))
 	}
 	_ = f.Truncate(0)
 	_, _ = f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)

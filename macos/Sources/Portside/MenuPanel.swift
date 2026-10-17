@@ -166,7 +166,10 @@ struct MenuPanel: View {
         let s = store.summary
         switch store.connection {
         case .connecting: return L.t("Connecting...", "Łączenie...")
-        case .offline: return store.daemonStopped ? L.t("Daemon stopped", "Demon zatrzymany") : L.t("Daemon not reachable", "Brak połączenia z demonem")
+        case .offline:
+            if store.daemonStopped { return L.t("Daemon stopped", "Demon zatrzymany") }
+            if store.configError != nil { return L.t("Config error", "Błąd konfiguracji") }
+            return L.t("Daemon not reachable", "Brak połączenia z demonem")
         case .connected: break
         }
         if s.total == 0 { return L.t("No servers yet", "Brak serwerów") }
@@ -189,21 +192,23 @@ struct MenuPanel: View {
             Button(L.t("Edit Configuration", "Edytuj konfigurację")) { store.open("config") }
             Button(L.t("Show Logs Folder", "Pokaż folder logów")) { store.open("logs") }
             Divider()
-            Toggle(L.t("Launch at Login", "Uruchamiaj przy logowaniu"), isOn: Binding(
-                get: { launchAtLogin },
-                set: { on in
-                    LoginItem.set(on) { err in store.lastError = err }
-                    launchAtLogin = LoginItem.isEnabled
-                }))
-            Picker(L.t("App Icon", "Ikona aplikacji"), selection: Binding(
-                get: { iconStyle },
-                set: { style in
-                    AppIconStyle.current = style
-                    iconStyle = style
-                })) {
-                ForEach(AppIconStyle.allCases, id: \.self) { Text($0.label).tag($0) }
+            Menu(L.t("Settings", "Ustawienia")) {
+                Toggle(L.t("Launch at Login", "Uruchamiaj przy logowaniu"), isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { on in
+                        LoginItem.set(on) { err in store.lastError = err }
+                        launchAtLogin = LoginItem.isEnabled
+                    }))
+                Picker(L.t("App Icon", "Ikona aplikacji"), selection: Binding(
+                    get: { iconStyle },
+                    set: { style in
+                        AppIconStyle.current = style
+                        iconStyle = style
+                    })) {
+                    ForEach(AppIconStyle.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Button(L.t("Install Command Line Tool...", "Zainstaluj narzędzie wiersza poleceń...")) { actions.installCLI() }
             }
-            Button(L.t("Install Command Line Tool...", "Zainstaluj narzędzie wiersza poleceń...")) { actions.installCLI() }
             Divider()
             if store.daemonStopped {
                 Button(L.t("Start Daemon", "Uruchom demona")) { store.startDaemon() }
@@ -228,8 +233,12 @@ struct MenuPanel: View {
     // MARK: banners
 
     @ViewBuilder private var banners: some View {
-        if case .offline(let msg) = store.connection, !store.daemonStopped {
+        if case .offline(let msg) = store.connection, !store.daemonStopped, store.configError == nil {
             banner(icon: "bolt.horizontal.circle", text: L.t("Starting the daemon... ", "Uruchamianie demona... ") + msg, tint: .orange)
+        }
+        if let remote = store.remote {
+            banner(icon: "desktopcomputer", text: L.t("Dashboard shows \(remote.peer.name)", "Panel pokazuje \(remote.peer.name)"), tint: .purple,
+                   button: (L.t("Disconnect", "Rozłącz"), { Task { _ = await store.disconnectRemote() } }))
         }
         if store.daemonStopped {
             banner(icon: "pause.circle", text: L.t("The daemon is stopped. Servers are not running.", "Demon jest zatrzymany. Serwery nie działają."), tint: .secondary,
@@ -239,8 +248,9 @@ struct MenuPanel: View {
             banner(icon: "exclamationmark.triangle", text: L.t("Config error: ", "Błąd konfiguracji: ") + err, tint: .red,
                    button: (L.t("Edit", "Edytuj"), { store.open("config") }))
         }
-        if store.updateAvailable {
-            banner(icon: "arrow.triangle.2.circlepath", text: L.t("The daemon runs an older version.", "Działa starsza wersja demona."), tint: .blue,
+        if store.connection == .connected, store.versionDiffers, let running = store.daemonVersion {
+            banner(icon: "arrow.triangle.2.circlepath",
+                   text: L.t("The daemon runs version \(running), which differs from this app.", "Demon działa w wersji \(running), innej niż ta aplikacja."), tint: .blue,
                    button: (L.t("Restart", "Uruchom ponownie"), { store.restartDaemon() }))
         }
         if let err = store.lastError {
@@ -275,7 +285,7 @@ struct MenuPanel: View {
             }
             .frame(maxWidth: .infinity)
             .padding(24)
-        } else {
+        } else if !store.servers.isEmpty {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(store.sections, id: \.id) { section in
@@ -291,6 +301,9 @@ struct MenuPanel: View {
                 .padding(.vertical, 6)
             }
             .frame(height: listHeight)
+            // Without a daemon the last known rows stay for orientation, without actions.
+            .disabled(store.connection != .connected)
+            .opacity(store.connection == .connected ? 1 : 0.45)
         }
     }
 
@@ -327,7 +340,7 @@ struct MenuPanel: View {
 
     private func row(_ v: Server) -> some View {
         let status = v.displayStatus
-        let isHovered = hovered == v.name
+        let isHovered = hovered == v.name && store.connection == .connected
         let issues = store.containerIssues[v.name] ?? []
         return HStack(spacing: 9) {
             Lamp(status: status)
@@ -351,12 +364,15 @@ struct MenuPanel: View {
         .background(isHovered ? Color.primary.opacity(0.07) : Color.clear)
         .contentShape(Rectangle())
         .onHover { hovered = $0 ? v.name : (hovered == v.name ? nil : hovered) }
-        .onTapGesture { actions.openDashboard(v.name) }
+        .onTapGesture { if store.connection == .connected { actions.openDashboard(v.name) } }
         .contextMenu { contextMenu(v) }
         .help(v.dirDisplay)
     }
 
     private func detail(_ v: Server) -> String {
+        if let from = store.forwardedFrom(v) {
+            return L.t("port forwarded from \(from)", "port przekierowany z \(from)")
+        }
         switch v.displayStatus {
         case "external":
             if let cmd = v.external?.command { return L.t("port held by \(cmd)", "port zajmuje \(cmd)") }
@@ -381,7 +397,7 @@ struct MenuPanel: View {
             if v.isAlive {
                 iconButton("arrow.clockwise", L.t("Restart", "Uruchom ponownie")) { store.perform("restart", v.name) }
                 iconButton("stop.fill", L.t("Stop", "Zatrzymaj")) { store.perform("stop", v.name) }
-            } else if v.external != nil {
+            } else if v.external != nil, store.forwardedFrom(v) == nil {
                 iconButton("arrow.right.circle", L.t("Stop the other process and start", "Zatrzymaj proces zajmujący port i uruchom")) {
                     store.perform("start", v.name, takeover: true)
                 }
@@ -417,7 +433,8 @@ struct MenuPanel: View {
             Button(L.t("Stop", "Zatrzymaj")) { store.perform("stop", v.name) }
         } else {
             Button(L.t("Start", "Uruchom")) { store.perform("start", v.name) }
-            if v.external != nil {
+            // The daemon frees a forwarded port itself; only a foreign holder needs a takeover.
+            if v.external != nil, store.forwardedFrom(v) == nil {
                 Button(L.t("Stop the Other Process and Start", "Zatrzymaj proces zajmujący port i uruchom")) { store.perform("start", v.name, takeover: true) }
             }
         }

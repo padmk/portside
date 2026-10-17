@@ -946,12 +946,18 @@ func terminalCommand(terminal, dir string, lookup func(string) string) (*exec.Cm
 	return nil, errors.New("no terminal emulator found")
 }
 
+// shutdown stops the daemon. The optional body {"restart": true} says a new
+// daemon follows; without it the stop is deliberate and stays in effect.
 func (s *Server) shutdown(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Restart bool `json:"restart"`
+	}
+	_ = readJSON(r, &body)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	if s.opt.Shutdown != nil {
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			s.opt.Shutdown()
+			s.opt.Shutdown(body.Restart)
 		}()
 	}
 }

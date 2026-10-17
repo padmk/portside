@@ -9,6 +9,29 @@ struct DaemonState: Decodable {
     let servers: [Server]
     let groups: [String]?
     let docker: DockerState?
+    /// The daemon-wide connection to another computer, which the dashboard shows instead of this one.
+    let remote: RemoteInfo?
+}
+
+struct RemoteInfo: Decodable, Equatable {
+    struct Peer: Decodable, Equatable {
+        let name: String
+        let dnsName: String
+    }
+
+    struct Mirror: Decodable, Equatable {
+        let port: Int
+        let state: String
+    }
+
+    let peer: Peer
+    let status: String
+    let mirrors: [Mirror]?
+
+    /// Whether the other computer's port is forwarded to the same port here.
+    func mirrors(_ port: Int) -> Bool {
+        port > 0 && (mirrors ?? []).contains { $0.port == port && $0.state == "mirrored" }
+    }
 }
 
 struct DockerState: Decodable {
@@ -69,6 +92,11 @@ struct Server: Decodable, Identifiable, Hashable {
     let enabled: Bool
     let cpu: Double
     let mem: Int64
+    let exitedAt: String?
+    /// True while a crashed or exited server waits for an automatic restart.
+    let restartPending: Bool?
+    /// The computer whose server holds this port through a forward, if any.
+    let forwardedFrom: String?
 
     var id: String { name }
 
@@ -79,15 +107,24 @@ struct Server: Decodable, Identifiable, Hashable {
     }
 
     var isAlive: Bool { status == "running" || status == "starting" || status == "stopping" }
+
+    /// Whether the daemon restarts it on its own; daemons without the field
+    /// say so in the note.
+    var waitsForRestart: Bool { restartPending ?? (note?.contains("restarting in") ?? false) }
 }
 
+/// What `daemon info` reports (see internal/cli/daemoncmds.go).
 struct DaemonInfo: Decodable {
-    let url: String
-    let port: Int
-    let pid: Int
-    let version: String
-    let cli: String
+    let running: Bool?
+    let url: String?
+    let version: String?
+    let config: String?
+    let stateDir: String?
     let tokenFile: String?
+    /// The daemon was stopped on purpose and nothing started it since.
+    let stopped: Bool?
+    /// The config file does not load, so no daemon can start.
+    let configError: String?
 
     /// The API token, read from its private file (never passed through argv or logs).
     var token: String? {
@@ -115,8 +152,14 @@ enum DaemonCLI {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/portside")
     }
 
-    /// Runs the helper with arguments and returns stdout.
-    static func run(_ args: [String]) async throws -> Data {
+    struct Output {
+        let status: Int32
+        let stdout: Data
+        let stderr: String
+    }
+
+    /// Runs the helper with arguments and returns its exit status and output.
+    static func exec(_ args: [String]) async throws -> Output {
         let url = helperURL
         guard FileManager.default.isExecutableFile(atPath: url.path) else { throw DaemonError.helperMissing }
         let p = Process()
@@ -131,12 +174,8 @@ enum DaemonCLI {
             p.terminationHandler = { proc in
                 let data = out.fileHandleForReading.readDataToEndOfFile()
                 let errData = err.fileHandleForReading.readDataToEndOfFile()
-                if proc.terminationStatus == 0 {
-                    cont.resume(returning: data)
-                } else {
-                    let msg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    cont.resume(throwing: DaemonError.failed(msg.isEmpty ? "portside \(args.joined(separator: " ")) failed" : msg))
-                }
+                let msg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                cont.resume(returning: Output(status: proc.terminationStatus, stdout: data, stderr: msg))
             }
             do { try p.run() } catch { cont.resume(throwing: error) }
             }
@@ -146,10 +185,25 @@ enum DaemonCLI {
         }
     }
 
-    /// Starts the daemon if needed and returns where it listens.
-    static func info() async throws -> DaemonInfo {
-        let data = try await run(["daemon", "info"])
-        return try JSONDecoder().decode(DaemonInfo.self, from: data)
+    /// Runs the helper with arguments and returns stdout; a failure throws its message.
+    static func run(_ args: [String]) async throws -> Data {
+        let out = try await exec(args)
+        guard out.status == 0 else {
+            throw DaemonError.failed(out.stderr.isEmpty ? "portside \(args.joined(separator: " ")) failed" : out.stderr)
+        }
+        return out.stdout
+    }
+
+    /// Where the daemon listens. With `start` it starts one if needed;
+    /// otherwise it only reports a running daemon. A daemon that is not
+    /// running (exit 3) or a config that does not load (exit 4) is an
+    /// answer, not an error.
+    static func info(start: Bool) async throws -> DaemonInfo {
+        let out = try await exec(start ? ["daemon", "info"] : ["daemon", "info", "--no-start"])
+        guard [0, 3, 4].contains(out.status), let info = try? JSONDecoder().decode(DaemonInfo.self, from: out.stdout) else {
+            throw DaemonError.failed(out.stderr.isEmpty ? L.t("Could not start the daemon.", "Nie udało się uruchomić demona.") : out.stderr)
+        }
+        return info
     }
 
     static func bundledVersion() async -> String? {

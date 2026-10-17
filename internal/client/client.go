@@ -21,6 +21,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/paths"
+	"github.com/padmk/portside/internal/service"
 )
 
 // Client is an HTTP client bound to the daemon's port.
@@ -255,35 +256,58 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	if errors.As(err, &apiErr) || (h.App != "" && h.App != app.ID) {
 		return h, err
 	}
-	if err := SpawnDaemon(); err != nil {
+	exited, err := startDaemon()
+	if err != nil {
 		return h, fmt.Errorf("starting daemon: %w", err)
 	}
+	failed := fmt.Errorf("daemon did not come up; see %s", paths.ShortenHome(paths.DaemonLog()))
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(150 * time.Millisecond)
 		if h, err = c.Ping(ctx); err == nil {
 			return h, nil
 		}
+		select {
+		case err := <-exited:
+			// A daemon that lost the lock to another one exits cleanly and
+			// the other answers soon; any other exit is a failed start.
+			if err != nil {
+				return h, failed
+			}
+			exited = nil
+		default:
+		}
 	}
-	return h, fmt.Errorf("daemon did not come up; see %s", paths.ShortenHome(paths.DaemonLog()))
+	return h, failed
 }
 
-// SpawnDaemon starts `<self> daemon` detached from the terminal, logging to
+// startDaemon starts a daemon for the current settings: through the login
+// service when it runs that daemon, else as a detached child process. The
+// channel delivers the child's exit (nil for a clean exit); it is nil when
+// the service started the daemon.
+func startDaemon() (<-chan error, error) {
+	if service.Owns(paths.ConfigFile()) && service.Start() == nil {
+		return nil, nil
+	}
+	return spawnDaemon()
+}
+
+// spawnDaemon starts `<self> daemon` detached from the terminal, logging to
 // the daemon log file.
-func SpawnDaemon() error {
+func spawnDaemon() (<-chan error, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
 	if err := os.MkdirAll(paths.StateDir(), 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	logf, err := os.OpenFile(paths.DaemonLog(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer logf.Close()
 	cmd := exec.Command(exe, "daemon")
@@ -293,7 +317,10 @@ func SpawnDaemon() error {
 	cmd.Dir = "/"
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
-	return cmd.Process.Release()
+	// Waiting reaps the child if it exits while this process still runs.
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return exited, nil
 }
