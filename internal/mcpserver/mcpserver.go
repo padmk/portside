@@ -5,9 +5,11 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -26,7 +28,8 @@ import (
 const instructions = `This machine runs local dev servers under ` + app.Name + `.
 Before starting a dev server yourself, call list_servers: reuse a server that is running,
 or call ensure_server to start it and get its URL. Never launch a second copy of a managed
-server in your own shell. Read server_logs (match narrows it to e.g. "error|warn") before
+server in your own shell. In a git worktree or another clone, pass your working directory as dir:
+ensure_server then runs a temporary copy of the server from your checkout. Read server_logs (match narrows it to e.g. "error|warn") before
 restarting a crashed server. A server lists the containers of its compose project; when one
 is unhealthy, restarting or exited with an error, read container_logs. Use container_action
 for authorized container changes; recreate waits for its output. Do not stop or restart
@@ -40,9 +43,9 @@ func Run(ctx context.Context, c *client.Client) error {
 
 	mcp.AddTool(s, &mcp.Tool{Name: "list_servers", Description: "List managed dev servers with status, URL, port, resource usage and the containers of their compose projects. Pass dir to see only the servers of one checkout, and computer to see another computer's servers while this one is connected to it.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.list)
-	mcp.AddTool(s, &mcp.Tool{Name: "ensure_server", Description: "Start a server (and its dependencies) if it is not running, wait until it accepts connections, and return its URL and whether it was reused or started. Safe to call repeatedly."}, t.ensure)
+	mcp.AddTool(s, &mcp.Tool{Name: "ensure_server", Description: "Start a server (and its dependencies) if it is not running, wait until it accepts connections, and return its URL and whether it was reused or started. Safe to call repeatedly. Pass dir (your working directory) when working in a git worktree or another clone: the server then runs from that checkout as a temporary copy on its own port."}, t.ensure)
 	mcp.AddTool(s, &mcp.Tool{Name: "restart_server", Description: "Restart a server and wait until it is ready (default 90s). Use after a change that hot reload cannot pick up, or to recover from a crash after reading its logs."}, t.restart)
-	mcp.AddTool(s, &mcp.Tool{Name: "stop_server", Description: "Stop a server gracefully."}, t.stop)
+	mcp.AddTool(s, &mcp.Tool{Name: "stop_server", Description: "Stop a server gracefully. Stopping a temporary server also removes it."}, t.stop)
 	mcp.AddTool(s, &mcp.Tool{Name: "server_logs", Description: "Return the last lines of a server's terminal output as plain text, optionally only lines matching a pattern.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, t.logs)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_containers", Description: "List every container on the active Docker engine with its state, health, published ports and the server it belongs to.",
@@ -129,6 +132,9 @@ type Server struct {
 	Containers []Container `json:"containers,omitempty" jsonschema:"containers attached by project mapping, directory or local project ID"`
 	Outcome    string      `json:"outcome,omitempty" jsonschema:"what ensure_server did: reused (already running) or started"`
 	Computer   string      `json:"computer,omitempty" jsonschema:"the other computer the server runs on; its URLs open from this one"`
+	Temporary  bool        `json:"temporary,omitempty" jsonschema:"a copy of the configured server origin running in another checkout; removed when stopped or when the checkout is deleted"`
+	Origin     string      `json:"origin,omitempty" jsonschema:"the configured server a temporary server copies"`
+	Worktree   string      `json:"worktree,omitempty" jsonschema:"the checkout a temporary server runs in"`
 }
 
 // Container is the compact view of a container returned to agents.
@@ -198,7 +204,8 @@ func (g target) withContainers(ctx context.Context, s Server) Server {
 
 func compact(v supervisor.View) Server {
 	s := Server{Name: v.Name, Group: v.Group, Status: string(v.Status), URL: v.URL, Alias: v.Alias, Port: v.Port,
-		Dir: v.Dir, Cmd: v.Cmd, Note: v.Note, RestartPending: v.RestartPending, ListenPorts: v.ListenPorts, Listening: v.Listening, CPU: v.CPU, MemMB: v.Mem >> 20}
+		Dir: v.Dir, Cmd: v.Cmd, Note: v.Note, RestartPending: v.RestartPending, ListenPorts: v.ListenPorts, Listening: v.Listening, CPU: v.CPU, MemMB: v.Mem >> 20,
+		Temporary: v.Temporary, Origin: v.Origin, Worktree: v.Worktree}
 	if v.External != nil && v.PID == 0 {
 		s.External = fmt.Sprintf("%s (pid %d) in %s", v.External.Command, v.External.PID, v.External.Cwd)
 	} else if v.ForwardedFrom != "" {
@@ -220,7 +227,7 @@ type listOut struct {
 }
 
 type listIn struct {
-	Dir      string `json:"dir,omitempty" jsonschema:"only servers for this checkout: its own directory, one inside it, or one containing it. Pass the task's working directory to tell a worktree from the main checkout"`
+	Dir      string `json:"dir,omitempty" jsonschema:"only servers for this checkout: its own directory, one inside it, or one containing it, including temporary servers running there. Pass the task's working directory to tell a worktree from the main checkout"`
 	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, to list its servers instead"`
 }
 
@@ -228,6 +235,29 @@ type listIn struct {
 func related(dir, want string) bool {
 	inside := func(a, b string) bool { return a == b || strings.HasPrefix(a, b+string(filepath.Separator)) }
 	return inside(dir, want) || inside(want, dir)
+}
+
+// sameCheckout reports whether a server in dir belongs to the checkout at
+// want. Besides the directory relation, both must lie in the same git
+// working tree when they are in one, so a worktree nested in the main
+// checkout (such as .claude/worktrees/...) does not match the main
+// checkout's servers.
+func sameCheckout(dir, want string, top func(string) string) bool {
+	if !related(dir, want) {
+		return false
+	}
+	a, b := top(dir), top(want)
+	return a == "" || b == "" || a == b
+}
+
+// checkoutTop returns the top directory of the git working tree holding
+// dir, or "" when there is none.
+func checkoutTop(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return canonical(strings.TrimSpace(string(out)))
 }
 
 func canonical(p string) string {
@@ -274,8 +304,20 @@ func (t *tools) list(ctx context.Context, _ *mcp.CallToolRequest, in listIn) (*m
 	if in.Dir != "" {
 		want = resolve(in.Dir)
 	}
+	tops := map[string]string{}
+	top := func(dir string) string {
+		if g.cn != nil {
+			return "" // another computer's checkouts cannot be inspected here
+		}
+		t, ok := tops[dir]
+		if !ok {
+			t = checkoutTop(dir)
+			tops[dir] = t
+		}
+		return t
+	}
 	for _, v := range st.Servers {
-		if want != "" && !related(resolve(v.Dir), want) {
+		if want != "" && !sameCheckout(resolve(v.Dir), want, top) {
 			continue
 		}
 		s := g.server(v)
@@ -296,7 +338,14 @@ type ensureIn struct {
 	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, when the server runs there"`
 }
 
-func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn) (*mcp.CallToolResult, Server, error) {
+type ensureServerIn struct {
+	Name     string `json:"name" jsonschema:"server name as shown by list_servers"`
+	Dir      string `json:"dir,omitempty" jsonschema:"absolute path of your checkout; in another git worktree or clone of the server's repository a temporary copy of the server runs there on its own port"`
+	Timeout  string `json:"timeout,omitempty" jsonschema:"how long to wait for readiness, e.g. 90s (default)"`
+	Computer string `json:"computer,omitempty" jsonschema:"another computer this one is connected to, by name, when the server runs there"`
+}
+
+func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureServerIn) (*mcp.CallToolResult, Server, error) {
 	g, err := t.on(ctx, in.Computer)
 	if err != nil {
 		return nil, Server{}, err
@@ -305,20 +354,33 @@ func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn)
 	if timeout == "" {
 		timeout = "90s"
 	}
-	outcome := "started"
+	body := map[string]string{"timeout": timeout}
+	if in.Dir != "" {
+		body["dir"] = in.Dir
+		if g.cn == nil {
+			body["dir"] = canonical(in.Dir)
+		}
+	}
+	running := map[string]bool{}
 	if st, err := g.state(ctx); err == nil {
 		for _, v := range st.Servers {
-			if v.Name == in.Name && v.Status == supervisor.Running {
-				outcome = "reused"
-			}
+			running[v.Name] = v.Status == supervisor.Running
 		}
 	}
 	var v supervisor.View
-	if err := g.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/ensure", map[string]string{"timeout": timeout}, &v); err != nil {
+	if err := g.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/ensure", body, &v); err != nil {
+		// A refused dir has nothing in the logs to read.
+		var apiErr *client.APIError
+		if in.Dir != "" && errors.As(err, &apiErr) && apiErr.Status != http.StatusConflict {
+			return nil, Server{}, err
+		}
 		return nil, Server{}, fmt.Errorf("%w (read server_logs for details)", err)
 	}
 	s := g.withContainers(ctx, g.server(v))
-	s.Outcome = outcome
+	s.Outcome = "started"
+	if running[v.Name] {
+		s.Outcome = "reused"
+	}
 	return nil, s, nil
 }
 

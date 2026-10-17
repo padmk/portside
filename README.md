@@ -157,9 +157,10 @@ The daemon is often started by launchd or systemd with a bare environment, so it
 ```text
 portside status [--json]                 list servers with state, port and usage
 portside up <name|group>... | --all      start (dependencies first); --wait, --takeover
-portside down <name|group>... | --all    stop gracefully
+portside down <name|group>... | --all    stop gracefully; removes temporary servers
 portside restart <name|group>...
-portside ensure <name> [--json]          start if needed, wait until ready, print the URL
+portside ensure <name> [--json]          start if needed, wait until ready, print the URL;
+                                         --dir <checkout> runs it from another git worktree
 portside logs <name> [-n 200] [-f]       print or follow a server's or container's output;
                                          --grep <regexp> [-C N] searches it,
                                          -t adds times, --since 10m limits it
@@ -204,7 +205,13 @@ claude mcp add --scope user portside -- portside mcp
 codex mcp add portside -- portside mcp
 ```
 
-Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server), `restart_server` (waits for readiness, with an optional `timeout`, default `90s`), `stop_server`, `server_logs`, `list_containers`, `container_action`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Readiness failures include recent output lines for a crashed server. `container_action` takes `name`, `action` (`start`, `stop`, `restart` or `recreate`), and optional `build` or `pull` for recreation; recreate waits and returns its last 100 output lines, including failures. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. While this computer is connected to another one, the server and container tools take `computer` (its name) to act there, and their results name it. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
+Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server; `dir` runs it from another worktree, see below), `restart_server` (waits for readiness, with an optional `timeout`, default `90s`), `stop_server`, `server_logs`, `list_containers`, `container_action`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Readiness failures include recent output lines for a crashed server. `container_action` takes `name`, `action` (`start`, `stop`, `restart` or `recreate`), and optional `build` or `pull` for recreation; recreate waits and returns its last 100 output lines, including failures. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. While this computer is connected to another one, the server and container tools take `computer` (its name) to act there, and their results name it. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
+
+### Worktrees
+
+Agents often work in a git worktree or a second clone, where the configured server would serve the main checkout. `ensure_server` with `dir` (the agent's working directory), or `portside ensure <name> --dir <path>`, then starts a temporary copy of the server in that checkout: the same command, environment, health check and restart policy, the same subdirectory inside the worktree, and a free port of its own. Its name is `<name>--<worktree folder>` (for example `web--feature-x`), which also works as `http://web--feature-x.localhost:7878`. Dependencies are not copied: the copy uses the configured ones, such as a shared database. When `dir` is the server's own checkout, `ensure` behaves as without it; a directory that is not a checkout of the same repository (same git common directory) is refused.
+
+Temporary servers are not written to the config file. They are kept in the daemon's state, so they survive a daemon restart, and appear in `status`, the dashboard (under their original, marked `worktree`) and `list_servers` with `temporary`, `origin` and `worktree`; `list_servers` with `dir` lists the ones of that checkout. Stopping one (`stop_server`, `portside down`, or Remove in the dashboard) removes it with its logs, and the daemon removes it on its own once its worktree directory is gone. Editing or removing the original in the config applies to its copies too.
 
 Install the agent skill too:
 

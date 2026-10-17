@@ -48,6 +48,12 @@ type View struct {
 	Tail           []string        `json:"tail"` // last few plain output lines
 	Wanted         bool            `json:"wanted"`
 
+	// Temporary marks a copy of the configured server Origin that runs in
+	// the checkout at Worktree; it is not in the config file.
+	Temporary bool   `json:"temporary,omitempty"`
+	Origin    string `json:"origin,omitempty"`
+	Worktree  string `json:"worktree,omitempty"`
+
 	// ForwardedFrom names the connected computer whose server answers on
 	// this stopped server's port, forwarded here.
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
@@ -100,6 +106,9 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			Tail:           p.logs.Tail(6, 240),
 		}
 		v.ForwardedFrom = s.forwardedFromLocked(p)
+		if p.temp != nil {
+			v.Temporary, v.Origin, v.Worktree = true, p.temp.Origin, p.temp.Worktree
+		}
 		if p.pid != 0 {
 			v.CPUHistory = append([]float64(nil), p.hist.cpu...)
 			v.MemHistory = append([]int64(nil), p.hist.mem...)

@@ -50,6 +50,10 @@ export interface ServerView {
   restartPending?: boolean
   /** Ports the process tree listens on, when they differ from the configured port. */
   listenPorts?: number[]
+  /** A copy of the configured server `origin` running in the checkout `worktree`; not in the config file. */
+  temporary?: boolean
+  origin?: string
+  worktree?: string
 }
 
 export interface Health {

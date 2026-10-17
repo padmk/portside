@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/docker"
+	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/supervisor"
 )
@@ -111,6 +113,9 @@ func cmdStatus(e *env, args []string) error {
 		}
 		if s.Stale {
 			note = strings.TrimSpace(note + " config changed, restart to apply")
+		}
+		if s.Temporary {
+			note = strings.TrimSpace("temporary in " + paths.ShortenHome(s.Worktree) + " " + note)
 		}
 		fmt.Fprintf(e.out, "  %s %-*s  %-9s %s  %-16s %s\n",
 			e.statusDot(s), nameW, s.Name, e.statusWord(s), port, usage, e.paint(dim, note))
@@ -247,6 +252,7 @@ func cmdEnsure(e *env, args []string) error {
 	timeout := fs.String("timeout", "90s", "")
 	asJSON := fs.Bool("json", false, "")
 	takeover := fs.Bool("takeover", false, "")
+	dir := fs.String("dir", "", "")
 	names, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -258,9 +264,18 @@ func cmdEnsure(e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+	body := map[string]any{"timeout": *timeout, "takeover": *takeover}
+	if *dir != "" {
+		// A relative directory means one on this computer.
+		if e.conn == nil {
+			if abs, err := filepath.Abs(*dir); err == nil {
+				*dir = abs
+			}
+		}
+		body["dir"] = *dir
+	}
 	var v supervisor.View
-	err = c.Do(e.ctx, http.MethodPost, "/api/servers/"+url.PathEscape(names[0])+"/ensure",
-		map[string]any{"timeout": *timeout, "takeover": *takeover}, &v)
+	err = c.Do(e.ctx, http.MethodPost, "/api/servers/"+url.PathEscape(names[0])+"/ensure", body, &v)
 	if err != nil {
 		var apiErr *client.APIError
 		if *asJSON && errors.As(err, &apiErr) && len(apiErr.Body) > 0 {

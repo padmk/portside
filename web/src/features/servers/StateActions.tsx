@@ -43,7 +43,7 @@ export function StateActions({ server: v, inDetail }: Props) {
     </button>
   )
   const stop = (
-    <button type="button" className="icon-btn icon-btn--boxed icon-btn--lg" aria-label={t('action.stopName', { name: v.name })} title={t('action.stop')} disabled={busy} onClick={() => stopServer(v.name)}>
+    <button type="button" className="icon-btn icon-btn--boxed icon-btn--lg" aria-label={t(v.temporary ? 'action.stopRemoveName' : 'action.stopName', { name: v.name })} title={t(v.temporary ? 'action.stopRemove' : 'action.stop')} disabled={busy} onClick={() => stopServer(v.name)}>
       <Square size={15} fill="currentColor" />
     </button>
   )

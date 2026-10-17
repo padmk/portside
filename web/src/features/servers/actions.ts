@@ -104,6 +104,13 @@ export const clearScrollback = (name: string) =>
 export const setEnabled = (name: string, enabled: boolean) =>
   run(name, async () => applyState(await api.setEnabled(name, enabled)))
 
+/** Stops a temporary server, which removes it. */
+export const removeTemporary = (name: string) =>
+  run(name, async () => {
+    await api.stop(name)
+    if (location.hash === `#/${encodeURIComponent(name)}`) selectServer(null)
+  })
+
 export const removeServer = (name: string) =>
   run(name, async () => {
     applyState(await api.deleteServer(name))

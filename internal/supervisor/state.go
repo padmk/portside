@@ -14,6 +14,8 @@ type persisted struct {
 	Running []string             `json:"running"`
 	Groups  map[string]pidStamp  `json:"groups,omitempty"`
 	Servers map[string]exitState `json:"servers,omitempty"`
+	// Temporary lists the temporary servers that run in other checkouts.
+	Temporary []temporary `json:"temporary,omitempty"`
 }
 
 type exitState struct {
@@ -45,6 +47,9 @@ func (s *Supervisor) saveLocked() {
 		}
 		if p.pid != 0 {
 			st.Groups[name] = pidStamp{PID: p.pid, Start: p.pidStart}
+		}
+		if p.temp != nil && !p.removed {
+			st.Temporary = append(st.Temporary, *p.temp)
 		}
 	}
 	data, err := json.MarshalIndent(st, "", "  ")

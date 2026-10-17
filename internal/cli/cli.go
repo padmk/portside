@@ -137,9 +137,9 @@ func init() {
 	commands = []*command{
 		{names: []string{"status", "ls", "ps", "st"}, section: "Servers", usage: "status [--json]", summary: "List servers with state, port and usage", run: cmdStatus, remote: true},
 		{names: []string{"up", "start"}, section: "Servers", usage: "up <name|group>... | --all [--wait] [--takeover]", summary: "Start servers (dependencies first)", run: cmdUp, remote: true},
-		{names: []string{"down", "stop"}, section: "Servers", usage: "down <name|group>... | --all", summary: "Stop servers gracefully", run: cmdDown, remote: true},
+		{names: []string{"down", "stop"}, section: "Servers", usage: "down <name|group>... | --all", summary: "Stop servers gracefully (removes temporary ones)", run: cmdDown, remote: true},
 		{names: []string{"restart"}, section: "Servers", usage: "restart <name|group>...", summary: "Restart servers", run: cmdRestart, remote: true},
-		{names: []string{"ensure"}, section: "Servers", usage: "ensure <name> [--timeout 90s] [--json]", summary: "Start if needed, wait until ready, print the URL", run: cmdEnsure, remote: true},
+		{names: []string{"ensure"}, section: "Servers", usage: "ensure <name> [--dir <checkout>] [--timeout 90s] [--json]", summary: "Start if needed, wait until ready, print the URL; --dir runs it from another worktree", run: cmdEnsure, remote: true},
 		{names: []string{"logs", "log"}, section: "Servers", usage: "logs <name> [-n 200] [-f] [--raw] [--grep <regexp> [-C N]] [-t] [--since 10m]", summary: "Print, search or follow a server's or container's output", run: cmdLogs, remote: true},
 		{names: []string{"attach", "a"}, section: "Servers", usage: "attach <name>", summary: "Interactive terminal of a server (Ctrl-] detaches)", run: cmdAttach, remote: true},
 		{names: []string{"open"}, section: "Servers", usage: "open [name] [--alias]", summary: "Open the dashboard or a server in the browser", run: cmdOpen},

@@ -6,7 +6,7 @@ import { useRemote } from '../../state/live'
 import { openDialog } from '../../state/ui'
 import { Menu, MenuItem, MenuSeparator } from '../../ui/Menu'
 import { ConfirmDialog } from '../dialogs/ConfirmDialog'
-import { clearScrollback, openOnDesktop, removeServer, setEnabled } from './actions'
+import { clearScrollback, openOnDesktop, removeServer, removeTemporary, setEnabled } from './actions'
 
 /** Overflow actions for one server: open it on the desktop, edit, disable, clear its output, remove. */
 export function ServerMenu({ server: v, className = 'icon-btn' }: { server: ServerView; className?: string }) {
@@ -26,18 +26,22 @@ export function ServerMenu({ server: v, className = 'icon-btn' }: { server: Serv
             <MenuSeparator />
           </>
         )}
-        <MenuItem icon={<Pencil size={16} />} onSelect={() => openDialog({ kind: 'server', mode: 'manual', edit: v.name })}>{t('menu.edit')}</MenuItem>
-        <MenuItem icon={<Power size={16} />} onSelect={() => setEnabled(v.name, !v.enabled)}>{v.enabled ? t('menu.disable') : t('menu.enable')}</MenuItem>
-        <MenuSeparator />
+        {!v.temporary && (
+          <>
+            <MenuItem icon={<Pencil size={16} />} onSelect={() => openDialog({ kind: 'server', mode: 'manual', edit: v.name })}>{t('menu.edit')}</MenuItem>
+            <MenuItem icon={<Power size={16} />} onSelect={() => setEnabled(v.name, !v.enabled)}>{v.enabled ? t('menu.disable') : t('menu.enable')}</MenuItem>
+            <MenuSeparator />
+          </>
+        )}
         <MenuItem icon={<Eraser size={16} />} onSelect={() => setConfirm('clear')}>{t('menu.clearScrollback')}</MenuItem>
         <MenuItem icon={<Trash2 size={16} />} danger onSelect={() => setConfirm('remove')}>{t('menu.remove')}</MenuItem>
       </Menu>
       {confirm === 'remove' && (
         <ConfirmDialog
           title={t('confirm.removeTitle', { name: v.name })}
-          message={t('confirm.removeBody')}
+          message={t(v.temporary ? 'confirm.removeTemporaryBody' : 'confirm.removeBody')}
           confirmLabel={t('menu.remove')}
-          onConfirm={() => removeServer(v.name)}
+          onConfirm={() => (v.temporary ? removeTemporary(v.name) : removeServer(v.name))}
           onClose={() => setConfirm(null)}
         />
       )}

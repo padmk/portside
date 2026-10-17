@@ -10,6 +10,7 @@ import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess, restartPendi
 import { useProtectedReason } from '../servers/holder'
 import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
+import { TemporaryBadge } from '../servers/TemporaryBadge'
 import { ContainerCount } from '../containers/ContainerStrip'
 import { containersOf } from '../containers/status'
 
@@ -44,6 +45,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
           </button>
           {v.stale && <span className="chip chip--warn" title={t('badge.staleHint')}>{t('badge.stale')}</span>}
           {!v.enabled && <span className="chip">{t('badge.disabled')}</span>}
+          <TemporaryBadge server={v} />
           <ContainerCount server={v} containers={containers} />
         </h3>
         <p className="row-sub">
@@ -90,7 +92,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
             <button type="button" className="icon-btn icon-btn--boxed" aria-label={t('action.restartName', { name: v.name })} title={t('action.restart')} disabled={busy || v.status === 'stopping'} onClick={() => restartServer(v.name)}>
               <RotateCw size={16} />
             </button>
-            <button type="button" className="icon-btn icon-btn--boxed" aria-label={t('action.stopName', { name: v.name })} title={t('action.stop')} disabled={busy || v.status === 'stopping'} onClick={() => stopServer(v.name)}>
+            <button type="button" className="icon-btn icon-btn--boxed" aria-label={t(v.temporary ? 'action.stopRemoveName' : 'action.stopName', { name: v.name })} title={t(v.temporary ? 'action.stopRemove' : 'action.stop')} disabled={busy || v.status === 'stopping'} onClick={() => stopServer(v.name)}>
               <Square size={14} fill="currentColor" />
             </button>
           </>

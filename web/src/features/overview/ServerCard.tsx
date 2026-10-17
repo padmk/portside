@@ -10,6 +10,7 @@ import { Charts } from '../servers/Charts'
 import { formatAgo, formatBytes, formatCpu, formatUptime, hasProcess } from '../servers/format'
 import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
+import { TemporaryBadge } from '../servers/TemporaryBadge'
 import { ServerMenu } from '../servers/ServerMenu'
 import { StateActions } from '../servers/StateActions'
 import { ContainerStrip } from '../containers/ContainerStrip'
@@ -66,6 +67,7 @@ export function ServerCard({ server: v, density, now, cursor }: Props) {
             <div className="card-flags">
               {v.stale && <span className="chip chip--warn" title={t('badge.staleHint')}>{t('badge.stale')}</span>}
               {!v.enabled && <span className="chip">{t('badge.disabled')}</span>}
+              <TemporaryBadge server={v} />
             </div>
             <ServerMenu server={v} className="icon-btn icon-btn--lg card-menu" />
           </header>

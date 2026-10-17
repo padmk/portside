@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -209,7 +210,7 @@ func (s *Server) action(kind string) http.HandlerFunc {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		if _, ok := s.sup.Config().Server(name); !ok {
+		if _, ok := s.sup.Lookup(name); !ok {
 			fail(w, http.StatusNotFound, fmt.Errorf("unknown server %q", name))
 			return
 		}
@@ -228,7 +229,7 @@ func (s *Server) action(kind string) http.HandlerFunc {
 		case "start":
 			err = s.sup.Start(name, opt)
 		case "stop":
-			err = s.sup.Stop(name)
+			err = s.sup.Dismiss(name)
 		case "restart":
 			err = s.sup.Restart(name, opt)
 		}
@@ -242,7 +243,12 @@ func (s *Server) action(kind string) http.HandlerFunc {
 				return
 			}
 		}
-		writeJSON(w, http.StatusOK, s.view(name))
+		if v := s.view(name); v != nil {
+			writeJSON(w, http.StatusOK, v)
+			return
+		}
+		// A stopped temporary server is gone; report it as stopped.
+		writeJSON(w, http.StatusOK, supervisor.View{Name: name, Status: supervisor.Stopped})
 	}
 }
 
@@ -258,6 +264,9 @@ func (s *Server) view(name string) *supervisor.View {
 type ensureBody struct {
 	Timeout  string `json:"timeout"`
 	Takeover bool   `json:"takeover"`
+	// Dir is the caller's checkout; another checkout of the same repository
+	// gets a temporary copy of the server.
+	Dir string `json:"dir,omitempty"`
 }
 
 // ensure starts a server if needed and waits until it is ready. Agents use
@@ -268,6 +277,18 @@ func (s *Server) ensure(w http.ResponseWriter, r *http.Request) {
 	if err := readJSON(r, &body); err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
+	}
+	if body.Dir != "" {
+		target, err := s.sup.ForCheckout(name, body.Dir)
+		if err != nil {
+			status := http.StatusBadRequest
+			if _, ok := s.sup.Config().Server(name); !ok {
+				status = http.StatusNotFound
+			}
+			fail(w, status, err)
+			return
+		}
+		name = target
 	}
 	timeout := 90 * time.Second
 	if body.Timeout != "" {
@@ -318,7 +339,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var err error
-		if names, err = cfg.Resolve(body.Names); err != nil {
+		if names, err = s.resolve(cfg, body.Names); err != nil {
 			fail(w, http.StatusNotFound, err)
 			return
 		}
@@ -345,7 +366,7 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	case "start":
 		parallel(func(n string) error { return s.sup.Start(n, opt) })
 	case "stop":
-		parallel(s.sup.Stop)
+		parallel(s.sup.Dismiss)
 	case "restart":
 		// Stop everything first, then start in dependency order, so a
 		// dependent never comes up against a dependency about to go down.
@@ -368,6 +389,29 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": res})
+}
+
+// resolve expands server and group names like Config.Resolve, and also
+// accepts temporary servers, which come after the configured ones.
+func (s *Server) resolve(cfg *config.Config, targets []string) ([]string, error) {
+	var configured, temporary []string
+	for _, t := range targets {
+		if s.sup.IsTemporary(t) {
+			if !slices.Contains(temporary, t) {
+				temporary = append(temporary, t)
+			}
+		} else {
+			configured = append(configured, t)
+		}
+	}
+	var names []string
+	if len(configured) > 0 {
+		var err error
+		if names, err = cfg.Resolve(configured); err != nil {
+			return nil, err
+		}
+	}
+	return append(names, temporary...), nil
 }
 
 // ── logs and terminal ────────────────────────────────────────────────────
@@ -498,7 +542,7 @@ var iconTypes = map[string]string{
 }
 
 func (s *Server) icon(w http.ResponseWriter, r *http.Request) {
-	sv, ok := s.sup.Config().Server(r.PathValue("name"))
+	sv, ok := s.sup.Lookup(r.PathValue("name"))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -525,7 +569,7 @@ func (s *Server) icon(w http.ResponseWriter, r *http.Request) {
 // ── config editing ───────────────────────────────────────────────────────
 
 func (s *Server) getSpec(w http.ResponseWriter, r *http.Request) {
-	sv, ok := s.sup.Config().Server(r.PathValue("name"))
+	sv, ok := s.sup.Lookup(r.PathValue("name"))
 	if !ok {
 		fail(w, http.StatusNotFound, errors.New("unknown server"))
 		return
@@ -848,7 +892,7 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 			target = filepath.Join(target, body.Name+".log")
 		}
 	default:
-		sv, ok := cfg.Server(body.Name)
+		sv, ok := s.sup.Lookup(body.Name)
 		if !ok {
 			fail(w, http.StatusNotFound, errors.New("unknown server"))
 			return

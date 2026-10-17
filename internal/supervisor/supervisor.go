@@ -84,11 +84,13 @@ type proc struct {
 	cols           uint16
 	rows           uint16
 	removed        bool
+	temp           *temporary // set for a temporary copy of a configured server
 }
 
 // Supervisor owns all managed processes.
 type Supervisor struct {
 	mu       sync.Mutex
+	tempMu   sync.Mutex // serializes creating temporary servers
 	cfg      *config.Config
 	order    []string
 	procs    map[string]*proc
@@ -137,6 +139,7 @@ func New(cfg *config.Config, stateDir string) *Supervisor {
 		selfPID:  os.Getpid(),
 	}
 	s.applyLocked(cfg)
+	s.restoreTemporaryLocked(s.load().Temporary)
 	return s
 }
 
@@ -228,6 +231,11 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 				p.status = Stopped
 			}
 		}
+		for _, q := range s.procs {
+			if q.temp != nil && q.temp.Origin == old {
+				q.temp.Origin = name
+			}
+		}
 	}
 	removed := s.applyLocked(cfg)
 	s.saveLocked()
@@ -244,11 +252,15 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	s.cfg = cfg
 	keep := map[string]bool{}
-	s.order = s.order[:0]
 	for _, sv := range cfg.Servers {
 		keep[sv.Name] = true
-		s.order = append(s.order, sv.Name)
-		if p, ok := s.procs[sv.Name]; ok {
+		if p, ok := s.procs[sv.Name]; ok && p.temp == nil {
+			p.cfg = sv
+			p.removed = false
+			continue
+		} else if ok {
+			// A configured server now has a temporary server's name.
+			p.temp = nil
 			p.cfg = sv
 			p.removed = false
 			continue
@@ -263,18 +275,18 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	}
 	var removed []string
 	for name, p := range s.procs {
-		if keep[name] {
+		if keep[name] || (p.temp != nil && !p.removed && s.updateTemporaryLocked(p)) {
 			continue
 		}
 		if p.alive() {
 			p.removed = true
-			s.order = append(s.order, name)
 			removed = append(removed, name)
 		} else {
 			p.logs.Close()
 			delete(s.procs, name)
 		}
 	}
+	s.reorderLocked()
 	return removed
 }
 
@@ -326,8 +338,9 @@ func (s *Supervisor) Start(name string, opt StartOptions) error {
 		return nil
 	}
 
-	chain := cfg.WithDeps([]string{name})
-	deps := chain[:len(chain)-1]
+	// Dependencies come from the definition, so a temporary server shares
+	// its origin's dependencies.
+	deps := cfg.WithDeps(p.cfg.DependsOn)
 	token := s.reserve(name)
 	if len(deps) == 0 {
 		return s.startOne(name, opt, token)
@@ -1104,6 +1117,18 @@ func (s *Supervisor) Shutdown() {
 func (s *Supervisor) Run(ctx context.Context) {
 	tick := time.NewTicker(SampleInterval)
 	defer tick.Stop()
+	go func() {
+		prune := time.NewTicker(PruneInterval)
+		defer prune.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-prune.C:
+				s.pruneTemporary()
+			}
+		}
+	}()
 	knownExternal := map[string]int{}
 	for {
 		s.sample(ctx, knownExternal)
