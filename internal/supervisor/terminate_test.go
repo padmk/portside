@@ -7,7 +7,26 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/padmk/portside/internal/config"
 )
+
+func TestBuildEnvDisablesComposeMenu(t *testing.T) {
+	s := &Supervisor{env: shellEnv{env: []string{"PATH=/bin", "COMPOSE_MENU=true"}, fetched: time.Now()}}
+	for _, cmd := range []string{"docker compose up", "docker-compose up", "podman compose up"} {
+		env := s.buildEnv(config.Server{Cmd: cmd, Port: 3010, Env: map[string]string{"COMPOSE_MENU": "true"}}, nil, nil)
+		if got := lookupEnv(env, "COMPOSE_MENU"); got != "false" {
+			t.Errorf("%s: COMPOSE_MENU=%s", cmd, got)
+		}
+		if got := lookupEnv(env, "PORT"); got != "3010" {
+			t.Errorf("PORT=%s", got)
+		}
+	}
+	env := s.buildEnv(config.Server{Cmd: "pnpm dev"}, nil, nil)
+	if got := lookupEnv(env, "COMPOSE_MENU"); got != "true" {
+		t.Errorf("non-compose COMPOSE_MENU=%s", got)
+	}
+}
 
 // startGroup runs script in its own process group and returns the group id
 // and a channel that closes once the leader has been reaped. The script

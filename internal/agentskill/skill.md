@@ -25,11 +25,15 @@ Each server lists the containers of the Compose project in its directory (state,
 
 Restart only the named server, for a diagnosed failure or a change hot reload cannot pick up, and ask first unless the user requested it. A note saying the config changed since start means a restart applies it. `down`, `stop` and `restart` need explicit names; do not use `--all` unless asked, never stop the daemon (`{{.ID}} daemon stop`), and use `logs` rather than the interactive `attach`.
 
+Managed Compose commands receive `COMPOSE_MENU=false` so interactive menus do not redraw in logs.
+
 Manage containers with the `docker` CLI in the container's `projectDir`, with the same compose files and env files the project's own scripts use. Rebuild one service after changing its Dockerfile or dependencies with `docker compose up -d --build --no-deps <service>`; without `--no-deps` Compose may also recreate the services it depends on. Never remove volumes (`docker compose down -v`, `docker volume rm`) without the user's confirmation: they hold the databases.
 
 ## Outside the roster
 
-For a project the roster does not have, run a task-owned preview through the normal execution tool and stop only that process. Add a persistent entry only when the user asks or the repository workflow establishes one: `{{.ID}} add <name> --dir <dir> --cmd "<command with {PORT}>" --port <port> [--group <group>]`. Pick an explicit port that `{{.ID}} ports` shows as free. The daemon reloads the file on its own, and `{{.ID}} config check` validates hand edits.
+`{{.ID}} scan [dir] --json` proposes unconfigured commands, including additional services in an already configured directory. Its automatic port suggestions skip roster ports and live listeners; Python ASGI and declared script proposals use `uv run`.
+
+For a project the roster does not have, run a task-owned preview through the normal execution tool and stop only that process. Add a persistent entry only when the user asks or the repository workflow establishes one: `{{.ID}} add <name> --dir <dir> --cmd "<command with {PORT}>" --port <port> [--group <group>]`. Pick an explicit port that `{{.ID}} ports` shows as free. Omitted ports are assigned and saved to the config when the daemon loads it, so reordering entries keeps existing ports. The daemon reloads the file on its own, and `{{.ID}} config check` validates hand edits.
 
 Report the URL and whether the server was reused, started or restarted.
 

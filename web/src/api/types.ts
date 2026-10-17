@@ -69,6 +69,7 @@ export interface ConfigInfo {
 }
 
 export interface State {
+  warnings?: string[]
   daemon: Health
   config: ConfigInfo
   servers: ServerView[]
@@ -192,6 +193,7 @@ export interface Suggestion {
   kind: string
   port?: number
   noPort?: boolean
+  directoryConfigured?: boolean
   stopTimeout?: string
   dirDisplay: string
   dirConfig: string

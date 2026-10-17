@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -156,8 +157,9 @@ var headerRe = regexp.MustCompile(`^\s*\[\s*servers\s*\.\s*"?([A-Za-z0-9_-]+)"?\
 // multi-line string marked so that text inside a command (a heredoc, say)
 // is never mistaken for a table header, key or comment.
 type doc struct {
-	lines []string
-	cont  []bool
+	lines    []string
+	cont     []bool
+	comments []int
 }
 
 const (
@@ -166,9 +168,10 @@ const (
 )
 
 func newDoc(lines []string) *doc {
-	d := &doc{lines: lines, cont: make([]bool, len(lines))}
+	d := &doc{lines: lines, cont: make([]bool, len(lines)), comments: make([]int, len(lines))}
 	state := 0 // 0 outside strings, 1 inside a basic triple string, 2 inside a literal one
 	for i, l := range lines {
+		d.comments[i] = -1
 		d.cont[i] = state != 0
 		j := 0
 		for j < len(l) {
@@ -188,6 +191,7 @@ func newDoc(lines []string) *doc {
 			default:
 				switch {
 				case l[j] == '#':
+					d.comments[i] = j
 					j = len(l)
 				case strings.HasPrefix(l[j:], tripleBasic):
 					state, j = 1, j+3
@@ -440,14 +444,14 @@ func AddServer(path string, s Spec) error {
 	})
 }
 
-// UpdateServer replaces the table of name with s (which may carry a new name).
+// UpdateServer patches changed fields of name with s (which may carry a new name).
 // Comment lines directly above the table are kept unless s.Comment is set.
 func UpdateServer(path, name string, s Spec) error {
 	if err := ValidName(s.Name); err != nil {
 		return err
 	}
 	return edit(path, func(d *doc) ([]string, error) {
-		start, head, end, ok := d.block(name)
+		start, head, _, ok := d.block(name)
 		if !ok {
 			return nil, fmt.Errorf("server %q not found in %s", name, path)
 		}
@@ -456,13 +460,63 @@ func UpdateServer(path, name string, s Spec) error {
 				return nil, fmt.Errorf("server %q already exists", s.Name)
 			}
 		}
-		keep := d.lines[start:head]
-		if s.Comment != "" {
-			keep = nil
+		cfg, err := Parse(path, []byte(strings.Join(d.lines, "\n")))
+		if err != nil {
+			return nil, err
 		}
-		repl := append(append([]string{}, keep...), strings.Split(strings.TrimRight(Render(s), "\n"), "\n")...)
-		out := append(append(append([]string{}, d.lines[:start]...), repl...), d.lines[end:]...)
+		old, _ := cfg.Server(name)
+		before := specValues(SpecOf(old))
+		after := specValues(s)
+		out := append([]string{}, d.lines...)
+		for _, k := range []string{"dir", "cmd", "port", "group", "depends_on", "restart", "health", "icon", "open", "stop_timeout", "enabled", "env"} {
+			if reflect.DeepEqual(before[k], after[k]) {
+				continue
+			}
+			if k == "env" && hasEnvEntries(out, name) {
+				keys := map[string]bool{}
+				for k := range old.Env {
+					keys[k] = true
+				}
+				for k := range s.Env {
+					keys[k] = true
+				}
+				ordered := make([]string, 0, len(keys))
+				for k := range keys {
+					ordered = append(ordered, k)
+				}
+				sort.Strings(ordered)
+				for _, k := range ordered {
+					v, exists := s.Env[k]
+					if ov, ok := old.Env[k]; ok == exists && ov == v {
+						continue
+					}
+					literal := ""
+					if exists {
+						literal = Quote(v)
+					}
+					out = patchValue(out, []string{"servers", name, "env", k}, literal)
+				}
+				continue
+			}
+			literal := ""
+			if v, ok := after[k]; ok {
+				literal = tomlLiteral(v)
+			}
+			out = patchValue(out, []string{"servers", name, k}, literal)
+		}
+		if s.Comment != "" {
+			_, head, _, _ = newDoc(out).block(name)
+			comments := strings.Split(strings.TrimSuffix(Render(Spec{Name: name, Cmd: "x", Comment: s.Comment}), "\n"), "\n")
+			out = append(append(append([]string{}, out[:start]...), comments[:len(comments)-2]...), out[head:]...)
+		}
 		if s.Name != name {
+			renamed := newDoc(out)
+			prefix := regexp.MustCompile(`^(\s*\[\s*servers\s*\.\s*)"?` + regexp.QuoteMeta(name) + `"?`)
+			for i, line := range out {
+				if m := renamed.header(i); m != nil && m[1] == name {
+					out[i] = prefix.ReplaceAllString(line, "${1}"+s.Name)
+				}
+			}
 			out = renameDependency(newDoc(out), name, s.Name)
 		}
 		return out, nil
@@ -473,20 +527,17 @@ func UpdateServer(path, name string, s Spec) error {
 // rename keeps the file valid. Arrays may span several lines.
 func renameDependency(d *doc, from, to string) []string {
 	quoted := regexp.MustCompile(`(["'])` + regexp.QuoteMeta(from) + `(["'])`)
-	depsRe := regexp.MustCompile(`^\s*depends_on\s*=`)
-	inDeps := false
-	for i, l := range d.lines {
-		if d.cont[i] {
+	for _, a := range assignments(d.lines) {
+		if len(a.path) != 3 || a.path[0] != "servers" || a.path[2] != "depends_on" {
 			continue
 		}
-		if depsRe.MatchString(l) {
-			inDeps = true
-		}
-		if inDeps {
-			d.lines[i] = quoted.ReplaceAllString(l, "${1}"+to+"${2}")
-			if strings.Contains(l, "]") {
-				inDeps = false
+		for i := a.start; i < a.end; i++ {
+			line := d.lines[i]
+			at := len(line)
+			if d.comments[i] >= 0 {
+				at = d.comments[i]
 			}
+			d.lines[i] = quoted.ReplaceAllString(line[:at], "${1}"+to+"${2}") + line[at:]
 		}
 	}
 	return d.lines
@@ -537,6 +588,51 @@ func SetKey(path, name, k, literal string) error {
 // SetEnabled toggles a server without touching anything else in its table.
 func SetEnabled(path, name string, enabled bool) error {
 	return SetKey(path, name, "enabled", strconv.FormatBool(enabled))
+}
+
+// LoadAssignedPorts loads the daemon's config and persists automatic ports
+// under the edit lock, so later removals or reordering cannot change them.
+func LoadAssignedPorts(path string) (*Config, error) {
+	cfg, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	needsWrite := false
+	for _, sv := range cfg.Servers {
+		needsWrite = needsWrite || sv.PortAuto
+	}
+	if !needsWrite {
+		return cfg, nil
+	}
+	unlock, err := lock(path)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	cfg, err = Load(path)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, sv := range cfg.Servers {
+		if !sv.PortAuto {
+			continue
+		}
+		if lines == nil {
+			lines, err = readLines(path)
+			if err != nil {
+				return nil, err
+			}
+		}
+		lines = patchValue(lines, []string{"servers", sv.Name, "port"}, strconv.Itoa(sv.Port))
+	}
+	if lines == nil {
+		return cfg, nil
+	}
+	if err := writeValidated(path, lines); err != nil {
+		return nil, err
+	}
+	return Parse(path, []byte(strings.Join(lines, "\n")))
 }
 
 // SetTopLevel sets a top-level key (outside any table) to a TOML literal.

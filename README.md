@@ -28,7 +28,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **CPU and memory** per server, summed over the whole process tree, with sparklines.
 - **A dashboard that scales with your setup.** One server fills the screen with its output and charts, a few get large cards with a live log preview, and long lists switch to compact rows (`c` and `l` toggle them). Click a card for a full-size terminal, with every server one click away in a side rail. Everything else (ports, config, add server) stays in the menu and the `⌘K` palette; `?` lists the keyboard shortcuts.
 - **Themes.** Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme.
-- **Project discovery.** `portside scan` finds Next.js, Vite, Astro, Nuxt, Remix, Django, Rails and Compose projects and proposes commands with the right port flags.
+- **Project discovery.** `portside scan` finds Next.js, Vite, Astro, Nuxt, Remix, Django, Rails, Python ASGI apps and Compose projects and proposes commands with the right port flags. Python apps and declared `[project.scripts]` entry points use `uv run`; entry points have no assumed listening port. Discovery skips commands already configured, keeps other services in the same folder, and checks live listeners when suggesting automatic ports.
 - **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes servers, containers and searchable logs to Claude Code, Codex and other MCP clients, and `portside skill install` teaches agents how to use them.
 - **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with OrbStack, Docker Desktop, Colima, Rancher Desktop or a Linux daemon. Compose containers appear next to the server whose directory is their project directory, including ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. Servers that share a directory share its containers. A server warns when one of its containers is unhealthy, restarting or crashed while it runs; a container stopped on purpose (a stop signal from `docker stop`, `compose stop` or `docker kill`, or an exit the engine did not restart under an `always` or `unless-stopped` policy without an error) does not count as crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate** and **Rebuild and recreate**. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
 - **Other computers.** With Tailscale on both machines, the dashboard connects to Portside on another of your computers and manages its servers, containers, logs and terminals as if you sat at it. Its sites open in your local browser: running servers' ports are forwarded to the same ports here, and every server is also at `http://<name>.<computer>.localhost:7878`. See [Other computers](#other-computers).
@@ -85,7 +85,7 @@ Any command starts the daemon on demand, so there is nothing to launch first.
 
 ## Configuration
 
-The config lives at `~/.config/portside/portside.toml` (`$PORTSIDE_CONFIG` overrides it). The daemon reloads it when it changes; edits from the dashboard keep your comments and formatting.
+The config lives at `~/.config/portside/portside.toml` (`$PORTSIDE_CONFIG` overrides it). The daemon reloads it when it changes; edits from the dashboard keep your comments and formatting. Adding or editing a server with a missing working directory saves it and displays a warning; create the directory before starting it.
 
 ```toml
 root = "~/dev"                      # base for relative dirs
@@ -95,6 +95,7 @@ root = "~/dev"                      # base for relative dirs
 # notify = true                     # desktop notification on crash
 # stop_timeout = "10s"              # grace period after Ctrl-C
 # editor = "code"                   # used by "Open in editor"
+# terminal = "Terminal"             # app (macOS) or command for "Open in Terminal"
 # docker_start = "colima start"     # how "Start Docker" starts the engine; detected by default
 # share = false                     # let your other devices on Tailscale connect (see Other computers)
 
@@ -132,7 +133,7 @@ stop_timeout = "30s"
 | --- | --- |
 | `dir` | Working directory, relative to `root` or absolute. |
 | `cmd` | Shell command, run with `bash -c`. `{PORT}` is replaced; `$PORT` is set too. |
-| `port` | Port the server listens on. Omit it to get the next free port from 3001, `0` for none. |
+| `port` | Port the server listens on. Omit it to assign a port from 3001, saved to the file on daemon load; `0` for none. |
 | `group` | Name for starting and stopping related servers together. |
 | `depends_on` | Servers that must be running (and ready) before this one starts. |
 | `restart` | `no` (default), `on-failure` or `always`, with backoff up to 30 s and at most 5 quick retries. |
@@ -143,9 +144,11 @@ stop_timeout = "30s"
 | `icon` | Path to an icon for the dashboard; by default a project favicon is detected. |
 | `open` | Path appended to the URL when opening the server, e.g. `/admin`. |
 
+`terminal` accepts a macOS app name or an executable with arguments. Commands receive the directory as their last argument; use `{DIR}` to place it explicitly, for example `terminal = "kitty --directory {DIR}"`. Without this setting, macOS opens Terminal and Linux uses the first available terminal emulator.
+
 Server names are lowercase letters, digits and dashes, because they double as `<name>.localhost` hostnames.
 
-The daemon is often started by launchd or systemd with a bare environment, so it reads `PATH` and the rest of your environment from your account's login shell (bash, zsh or fish; the one set for your user, not `$SHELL`) and refreshes it every 10 minutes. Ports 5000 and 7000 (macOS AirPlay) and browser-blocked ports are skipped when assigning ports.
+The daemon is often started by launchd or systemd with a bare environment, so it reads `PATH` and the rest of your environment from your account's login shell (bash, zsh or fish; the one set for your user, not `$SHELL`) and refreshes it every 10 minutes. Commands detected as Compose stacks receive `COMPOSE_MENU=false` to keep interactive Compose menus out of their logs. Ports 5000 and 7000 (macOS AirPlay) and browser-blocked ports are skipped when assigning ports.
 
 ## CLI
 

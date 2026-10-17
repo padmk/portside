@@ -91,6 +91,7 @@ type Config struct {
 	Restore     bool
 	Notify      bool
 	Editor      string
+	Terminal    string
 	StopTimeout time.Duration
 	// DockerStart is the command that starts the container engine; empty
 	// means the engine behind the active Docker context is detected.
@@ -173,6 +174,7 @@ type rawConfig struct {
 	Restore     *bool                `toml:"restore"`
 	Notify      *bool                `toml:"notify"`
 	Editor      string               `toml:"editor"`
+	Terminal    string               `toml:"terminal"`
 	StopTimeout *Duration            `toml:"stop_timeout"`
 	DockerStart string               `toml:"docker_start"`
 	Share       bool                 `toml:"share"`
@@ -209,7 +211,8 @@ func Parse(path string, data []byte) (*Config, error) {
 		Env:         raw.Env,
 		Restore:     raw.Restore == nil || *raw.Restore,
 		Notify:      raw.Notify == nil || *raw.Notify,
-		Editor:      raw.Editor,
+		Editor:      strings.TrimSpace(raw.Editor),
+		Terminal:    strings.TrimSpace(raw.Terminal),
 		StopTimeout: 10 * time.Second,
 		DockerStart: strings.TrimSpace(raw.DockerStart),
 		Share:       raw.Share,

@@ -48,7 +48,7 @@ func Run(cfgPath string) error {
 		}
 		log.Printf("created %s", cfgPath)
 	}
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.LoadAssignedPorts(cfgPath)
 	if err != nil {
 		return err
 	}

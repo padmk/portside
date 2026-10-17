@@ -159,7 +159,7 @@ export function DiscoverPanel({ state, onManual }: Props) {
               const ne = p.checked ? nameError(p) : ''
               const pe = p.checked ? portError(p) : ''
               return (
-                <li key={p.s.dir} className="pick" data-checked={p.checked || undefined}>
+                <li key={`${p.s.dir}:${p.s.cmd}`} className="pick" data-checked={p.checked || undefined}>
                   <input type="checkbox" className="pick-check" checked={p.checked} aria-label={t('discover.select', { name: p.s.name })} onChange={(e) => update(p.s, { checked: e.target.checked })} />
                   <div className="pick-fields">
                     <input className="input" value={p.name} aria-label={t('form.name')} aria-invalid={!!ne} onChange={(e) => update(p.s, { name: e.target.value.trim(), error: undefined })} spellCheck={false} />
@@ -177,6 +177,7 @@ export function DiscoverPanel({ state, onManual }: Props) {
                   </div>
                   <p className="pick-path">
                     <span className="mono">{p.s.dirDisplay}</span>
+                    {p.s.directoryConfigured && <span className="hint"> · {t('discover.directoryConfigured')}</span>}
                   </p>
                   <p className="pick-cmd mono">{p.s.cmd}</p>
                   {(ne || pe || p.error) && <p className="form-error">{ne || pe || p.error}</p>}

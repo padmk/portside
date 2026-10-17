@@ -161,3 +161,17 @@ func TestParseShare(t *testing.T) {
 		}
 	}
 }
+
+func TestParseTerminal(t *testing.T) {
+	cfg, err := Parse("/tmp/config.toml", []byte("terminal = 'custom-terminal --cwd={DIR}'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Terminal != "custom-terminal --cwd={DIR}" || len(cfg.Warnings) != 0 {
+		t.Fatalf("config = %+v", cfg)
+	}
+	cfg, err = Parse("/tmp/config.toml", nil)
+	if err != nil || cfg.Terminal != "" {
+		t.Fatalf("default = %+v, %v", cfg, err)
+	}
+}

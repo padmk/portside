@@ -117,7 +117,7 @@ func TestUpdateServerKeepsCommentAboveAndNeighbours(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fixHead + fixWebC + "[servers.web]\ndir = \"web\"\ncmd = \"pnpm dev\"\nport = 3100\n" + fixRest
+	want := fixHead + fixWebC + "[servers.web]\n# inside comment\ndir = \"web\" # trailing\ncmd = \"pnpm dev\"\nport = 3100\n" + fixRest
 	wantText(t, path, want)
 }
 
@@ -126,7 +126,120 @@ func TestUpdateServerNewComment(t *testing.T) {
 	if err := UpdateServer(path, "web", Spec{Name: "web", Cmd: "x", Comment: "fresh"}); err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, path, fixHead+"# fresh\n[servers.web]\ncmd = \"x\"\n"+fixRest)
+	wantText(t, path, fixHead+"# fresh\n[servers.web]\n# inside comment\n# trailing\ncmd = \"x\"\n"+fixRest)
+}
+
+func TestUpdateServerPatchesOnlyChangedValues(t *testing.T) {
+	text := `[servers."web"] # service
+dir = 'web' # working directory
+cmd = """echo '# not a comment'
+echo ready""" # command
+depends_on = [
+  "db", # keep this dependency note
+]
+custom = 'keep me'
+
+[servers.web.env] # environment
+KEEP = 'original' # untouched
+CHANGE = "old" # changed
+REMOVE = "old" # retain this note
+
+[servers.db]
+cmd = "db"
+`
+	path := newConfig(t, text)
+	sv, _ := mustLoad(t, path).Server("web")
+	sp := SpecOf(sv)
+	sp.Name, sp.Cmd = "site", "echo changed"
+	sp.Env = map[string]string{"KEEP": "original", "CHANGE": "new", "ADD": "value"}
+	if err := UpdateServer(path, "web", sp); err != nil {
+		t.Fatal(err)
+	}
+	got := readConfig(t, path)
+	for _, keep := range []string{"[servers.site] # service", "# command", "dir = 'web' # working directory", "custom = 'keep me'", "[servers.site.env] # environment", "KEEP = 'original' # untouched", "CHANGE = \"new\" # changed", "# retain this note", "ADD = \"value\"", "  \"db\", # keep this dependency note"} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("missing %q:\n%s", keep, got)
+		}
+	}
+	loaded := mustLoad(t, path)
+	site, ok := loaded.Server("site")
+	if !ok || site.Cmd != "echo changed" || len(site.Env) != 3 {
+		t.Fatalf("server = %+v", site)
+	}
+}
+
+func TestUpdateServerNoChangeKeepsFormatting(t *testing.T) {
+	text := `[servers.web]
+cmd = '''echo ready
+echo '# string content'
+'''
+enabled = true # explicit default
+restart = 'no'
+env.FOO = 'bar' # dotted environment
+`
+	path := newConfig(t, text)
+	sv, _ := mustLoad(t, path).Server("web")
+	if err := UpdateServer(path, "web", SpecOf(sv)); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, text)
+}
+
+func TestUpdateServerDottedEnvironment(t *testing.T) {
+	path := newConfig(t, "[servers.web]\ncmd = 'web'\nenv.FOO = 'old' # keep\nenv.'WITH SPACE' = 'old'\n")
+	sv, _ := mustLoad(t, path).Server("web")
+	sp := SpecOf(sv)
+	sp.Env = map[string]string{"FOO": "new", "ADDED": "value"}
+	if err := UpdateServer(path, "web", sp); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.web]\ncmd = 'web'\nenv.FOO = \"new\" # keep\nenv.ADDED = \"value\"\n")
+}
+
+func TestLoadAssignedPortsKeepsPortsAfterRemovalAndReorder(t *testing.T) {
+	text := "# config\n[servers.a]\ncmd = 'a' # keep\n\n[servers.b]\ncmd = 'b'\n\n[servers.worker]\ncmd = 'worker'\nport = 0\n"
+	path := newConfig(t, text)
+	cfg, err := LoadAssignedPorts(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, strings.Replace(strings.Replace(text, "cmd = 'a' # keep\n", "cmd = 'a' # keep\nport = 3001\n", 1), "cmd = 'b'\n", "cmd = 'b'\nport = 3002\n", 1))
+	if cfg.Servers[0].PortAuto || cfg.Servers[1].Port != 3002 {
+		t.Fatalf("servers = %+v", cfg.Servers)
+	}
+	if err := RemoveServer(path, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddServer(path, Spec{Name: "c", Cmd: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadAssignedPorts(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := cfg.Server("b")
+	c, _ := cfg.Server("c")
+	worker, _ := cfg.Server("worker")
+	if b.Port != 3002 || c.Port != 3001 || worker.Port != 0 {
+		t.Fatalf("ports: b=%d c=%d worker=%d", b.Port, c.Port, worker.Port)
+	}
+	before := readConfig(t, path)
+	if _, err := LoadAssignedPorts(path); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, before)
+	parts := strings.Split(before, "[servers.c]")
+	if err := WriteAtomic(path, []byte("[servers.c]"+parts[1]+"\n"+parts[0])); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadAssignedPorts(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = cfg.Server("b")
+	if b.Port != 3002 {
+		t.Fatalf("reordered port = %d", b.Port)
+	}
 }
 
 func TestUpdateServerLastTable(t *testing.T) {
@@ -147,8 +260,8 @@ cmd = "db"
 
 [servers.api]
 cmd = "web"
-depends_on = [
-  "web", # primary
+depends_on = [ # keep the old name "web" and this bracket ]
+  "web", # primary "web"
   'db',
 ]
 

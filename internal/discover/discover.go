@@ -10,17 +10,100 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/ports"
 )
 
 // Suggestion is a proposed server definition.
 type Suggestion struct {
-	Name      string `json:"name"`
-	Dir       string `json:"dir"`
-	Cmd       string `json:"cmd"`
-	Kind      string `json:"kind"` // e.g. "next", "vite", "compose"
-	Port      int    `json:"port,omitempty"`
-	NoPort    bool   `json:"noPort,omitempty"`
-	StopAfter string `json:"stopTimeout,omitempty"`
+	Name                string `json:"name"`
+	Dir                 string `json:"dir"`
+	Cmd                 string `json:"cmd"`
+	Kind                string `json:"kind"` // e.g. "next", "vite", "compose"
+	Port                int    `json:"port,omitempty"`
+	NoPort              bool   `json:"noPort,omitempty"`
+	StopAfter           string `json:"stopTimeout,omitempty"`
+	DirectoryConfigured bool   `json:"directoryConfigured,omitempty"`
+}
+
+// Prepare removes configured commands, marks shared directories and assigns
+// unique names and automatic ports, checking the roster and live listeners.
+func Prepare(cfg *config.Config, found []Suggestion) []Suggestion {
+	return prepare(cfg, found, ports.Listening)
+}
+
+func prepare(cfg *config.Config, found []Suggestion, listening func(int) bool) []Suggestion {
+	dirs, names, taken := map[string]bool{}, map[string]bool{}, map[int]bool{}
+	commands := map[string]bool{}
+	identity := func(dir, cmd string) string { return filepath.Clean(dir) + "\x00" + commandIdentity(cmd) }
+	for _, sv := range cfg.Servers {
+		dirs[filepath.Clean(sv.Dir)], names[sv.Name], taken[sv.Port] = true, true, true
+		commands[identity(sv.Dir, sv.Cmd)] = true
+	}
+	// Reserve fixed ports before handing out automatic ports, regardless of order.
+	for _, sg := range found {
+		if sg.Port > 0 {
+			taken[sg.Port] = true
+		}
+	}
+	out := []Suggestion{}
+	for _, sg := range found {
+		id := identity(sg.Dir, sg.Cmd)
+		if commands[id] {
+			continue
+		}
+		commands[id] = true
+		sg.DirectoryConfigured = dirs[filepath.Clean(sg.Dir)]
+		base := sg.Name
+		for i := 2; names[sg.Name]; i++ {
+			suffix := "-" + strconv.Itoa(i)
+			sg.Name = strings.TrimRight(base[:min(len(base), 63-len(suffix))], "-") + suffix
+		}
+		names[sg.Name] = true
+		if sg.Port == 0 && !sg.NoPort {
+			sg.Port = cfg.FreePort(func(p int) bool { return taken[p] || listening(p) })
+		}
+		taken[sg.Port] = true
+		out = append(out, sg)
+	}
+	return out
+}
+
+// Ignore the flags added by detection when identifying an existing service.
+func commandIdentity(cmd string) string {
+	fields := strings.Fields(cmd)
+	compose := strings.Contains(cmd, "docker compose") || strings.Contains(cmd, "docker-compose") || strings.Contains(cmd, "podman compose")
+	out := []string{}
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if compose {
+			if f == "--menu" && i+1 < len(fields) {
+				i++
+				continue
+			}
+			if strings.HasPrefix(f, "--menu=") {
+				continue
+			}
+			out = append(out, f)
+			continue
+		}
+		switch f {
+		case "--port", "-p", "--host", "--hostname", "--menu":
+			if i+1 < len(fields) {
+				i++
+			}
+			continue
+		case "--", "--strictPort", "--reload":
+			continue
+		}
+		if strings.HasPrefix(f, "--port=") || strings.HasPrefix(f, "--host=") || strings.HasPrefix(f, "--hostname=") || strings.HasPrefix(f, "--menu=") {
+			continue
+		}
+		out = append(out, f)
+	}
+	return strings.Join(out, " ")
 }
 
 var skipDirs = map[string]bool{
@@ -157,6 +240,9 @@ func detect(dir string) []Suggestion {
 		out = append(out, Suggestion{Name: name, Dir: dir, Kind: "rails",
 			Cmd: "bin/rails server -b 127.0.0.1 -p {PORT}"})
 	}
+	if !exists(dir, "manage.py") {
+		out = append(out, detectPython(dir, name)...)
+	}
 	if compose := composeFile(dir); compose != "" {
 		s := Suggestion{Name: name, Dir: dir, Kind: "compose", StopAfter: "30s",
 			Cmd: "docker compose up --menu=false"}
@@ -175,6 +261,54 @@ func detect(dir string) []Suggestion {
 	}
 	return out
 }
+
+func detectPython(dir, name string) []Suggestion {
+	var project struct {
+		Project struct {
+			Dependencies []string          `toml:"dependencies"`
+			Scripts      map[string]string `toml:"scripts"`
+		}
+	}
+	if _, err := toml.DecodeFile(filepath.Join(dir, "pyproject.toml"), &project); err != nil {
+		return nil
+	}
+	var out []Suggestion
+	web := false
+	depName := regexp.MustCompile(`^[A-Za-z0-9_-]+`)
+	for _, dep := range project.Project.Dependencies {
+		n := strings.ToLower(depName.FindString(strings.TrimSpace(dep)))
+		if n == "uvicorn" || n == "fastapi" {
+			web = true
+		}
+	}
+	if web {
+		// Only conventional modules with an explicit ASGI app are proposed.
+		for _, module := range []string{"main", "app", "api.main", "app.main", "server.main", "src.main"} {
+			data, err := os.ReadFile(filepath.Join(dir, strings.ReplaceAll(module, ".", "/")+".py"))
+			if err == nil && asgiAppRe.Match(data) {
+				out = append(out, Suggestion{Name: name, Dir: dir, Kind: "python", Cmd: "uv run uvicorn " + module + ":app --reload --host 127.0.0.1 --port {PORT}"})
+				break
+			}
+		}
+	}
+	keys := make([]string, 0, len(project.Project.Scripts))
+	for k := range project.Project.Scripts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, script := range keys {
+		if !pythonScriptRe.MatchString(script) || !pythonEntryRe.MatchString(project.Project.Scripts[script]) {
+			continue
+		}
+		// Entry points do not imply support for a port flag or even a listener.
+		out = append(out, Suggestion{Name: Slug(name + "-" + script), Dir: dir, Kind: "python", Cmd: "uv run " + script, NoPort: true})
+	}
+	return out
+}
+
+var asgiAppRe = regexp.MustCompile(`(?m)^app\s*(?::[^=\n]+)?=\s*(?:FastAPI|Starlette)\s*\(`)
+var pythonScriptRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var pythonEntryRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$`)
 
 func composeFile(dir string) string {
 	for _, f := range []string{"compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml", "compose.dev.yaml", "docker-compose.dev.yml"} {

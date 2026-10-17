@@ -240,8 +240,8 @@ func (s *Server) WatchConfig(ctx context.Context) {
 
 // reload re-reads the config; a broken file keeps the previous config live.
 func (s *Server) reload() error {
+	cfg, err := config.LoadAssignedPorts(s.opt.ConfigPath)
 	st, statErr := os.Stat(s.opt.ConfigPath)
-	cfg, err := config.Load(s.opt.ConfigPath)
 	data, _ := os.ReadFile(s.opt.ConfigPath)
 	s.cfgMu.Lock()
 	if statErr == nil {

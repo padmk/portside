@@ -95,11 +95,12 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 // State is everything the dashboard renders.
 type State struct {
-	Daemon  Health            `json:"daemon"`
-	Config  ConfigInfo        `json:"config"`
-	Servers []supervisor.View `json:"servers"`
-	Groups  []string          `json:"groups"`
-	Docker  docker.State      `json:"docker"`
+	Warnings []string          `json:"warnings,omitempty"`
+	Daemon   Health            `json:"daemon"`
+	Config   ConfigInfo        `json:"config"`
+	Servers  []supervisor.View `json:"servers"`
+	Groups   []string          `json:"groups"`
+	Docker   docker.State      `json:"docker"`
 	// Remote is the connection to another device, null when there is none.
 	Remote *remote.Info `json:"remote"`
 }
@@ -512,7 +513,7 @@ func (s *Server) getSpec(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, config.SpecOf(sv))
 }
 
-func (s *Server) edit(w http.ResponseWriter, fn func() error) {
+func (s *Server) edit(w http.ResponseWriter, fn func() error, warnings ...string) {
 	s.editMu.Lock()
 	err := fn()
 	if err == nil {
@@ -523,7 +524,9 @@ func (s *Server) edit(w http.ResponseWriter, fn func() error) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.snapshot())
+	state := s.snapshot()
+	state.Warnings = warnings
+	writeJSON(w, http.StatusOK, state)
 }
 
 func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
@@ -533,7 +536,7 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.normalizeSpec(&spec)
-	s.edit(w, func() error { return config.AddServer(s.opt.ConfigPath, spec) })
+	s.edit(w, func() error { return config.AddServer(s.opt.ConfigPath, spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir)...)
 }
 
 func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
@@ -543,7 +546,22 @@ func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.normalizeSpec(&spec)
-	s.edit(w, func() error { return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec) })
+	s.edit(w, func() error { return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir)...)
+}
+
+func directoryWarnings(root, dir string) []string {
+	dir = paths.ExpandHome(dir)
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
+	}
+	st, err := os.Stat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return []string{fmt.Sprintf("directory %s does not exist", paths.ShortenHome(dir))}
+	}
+	if err == nil && !st.IsDir() {
+		return []string{fmt.Sprintf("%s is not a directory", paths.ShortenHome(dir))}
+	}
+	return nil
 }
 
 // normalizeSpec makes directories under root relative and trims input.
@@ -750,30 +768,8 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("root"); q != "" {
 		root = paths.ExpandHome(q)
 	}
-	configured := map[string]bool{}
-	for _, sv := range cfg.Servers {
-		configured[sv.Dir] = true
-	}
-	found := discover.Scan(root, 3, nil)
-	taken := map[int]bool{}
-	names := map[string]bool{}
-	for _, sv := range cfg.Servers {
-		taken[sv.Port] = true
-		names[sv.Name] = true
-	}
 	out := []DiscoverResult{}
-	for _, sg := range found {
-		if configured[sg.Dir] {
-			continue
-		}
-		if sg.Port == 0 && !sg.NoPort {
-			sg.Port = cfg.FreePort(func(p int) bool { return taken[p] })
-			taken[sg.Port] = true
-		}
-		for base, i := sg.Name, 2; names[sg.Name]; i++ {
-			sg.Name = fmt.Sprintf("%s-%d", base, i)
-		}
-		names[sg.Name] = true
+	for _, sg := range discover.Prepare(cfg, discover.Scan(root, 3, nil)) {
 		res := DiscoverResult{Suggestion: sg, DirDisplay: paths.ShortenHome(sg.Dir), DirConfig: paths.ShortenHome(sg.Dir)}
 		if rel, err := filepath.Rel(cfg.Root, sg.Dir); err == nil && !strings.HasPrefix(rel, "..") {
 			res.DirConfig = rel
@@ -826,7 +822,7 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 	case "editor", "config":
 		err = s.openEditor(cfg.Editor, target)
 	case "terminal":
-		err = openTerminal(target)
+		err = s.openTerminal(cfg.Terminal, target)
 	default:
 		err = fmt.Errorf("unknown target %q", body.Target)
 	}
@@ -881,18 +877,51 @@ func (s *Server) openEditor(editor, target string) error {
 	return launch(exec.Command("xdg-open", target))
 }
 
-func openTerminal(dir string) error {
+func (s *Server) openTerminal(terminal, dir string) error {
+	c, err := terminalCommand(terminal, dir, s.sup.LookPath)
+	if err != nil {
+		return err
+	}
+	c.Env = s.sup.Environ()
+	return launch(c)
+}
+
+func terminalCommand(terminal, dir string, lookup func(string) string) (*exec.Cmd, error) {
+	terminal = strings.TrimSpace(terminal)
+	if terminal != "" {
+		parts := strings.Fields(terminal)
+		p := lookup(parts[0])
+		if runtime.GOOS == "darwin" && p == "" {
+			return exec.Command("open", "-a", terminal, dir), nil
+		}
+		if p == "" {
+			return nil, fmt.Errorf("terminal command %q not found", parts[0])
+		}
+		args, placeholder := parts[1:], false
+		for i, arg := range args {
+			if strings.Contains(arg, "{DIR}") {
+				placeholder = true
+				args[i] = strings.ReplaceAll(arg, "{DIR}", dir)
+			}
+		}
+		if !placeholder {
+			args = append(args, dir)
+		}
+		c := exec.Command(p, args...)
+		c.Dir = dir
+		return c, nil
+	}
 	if runtime.GOOS == "darwin" {
-		return launch(exec.Command("open", "-a", "Terminal", dir))
+		return exec.Command("open", "-a", "Terminal", dir), nil
 	}
 	for _, t := range []string{"x-terminal-emulator", "gnome-terminal", "konsole", "kitty", "alacritty"} {
-		if p, err := exec.LookPath(t); err == nil {
+		if p := lookup(t); p != "" {
 			c := exec.Command(p)
 			c.Dir = dir
-			return launch(c)
+			return c, nil
 		}
 	}
-	return errors.New("no terminal emulator found")
+	return nil, errors.New("no terminal emulator found")
 }
 
 func (s *Server) shutdown(w http.ResponseWriter, r *http.Request) {

@@ -150,30 +150,7 @@ func cmdScan(e *env, args []string) error {
 			root = abs
 		}
 	}
-	configured := map[string]bool{}
-	names := map[string]bool{}
-	taken := map[int]bool{}
-	for _, s := range cfg.Servers {
-		configured[s.Dir] = true
-		names[s.Name] = true
-		taken[s.Port] = true
-	}
-	var found []discover.Suggestion
-	for _, s := range discover.Scan(root, *depth, nil) {
-		if configured[s.Dir] {
-			continue
-		}
-		base := s.Name
-		for i := 2; names[s.Name]; i++ {
-			s.Name = fmt.Sprintf("%s-%d", base, i)
-		}
-		names[s.Name] = true
-		if s.Port == 0 && !s.NoPort {
-			s.Port = cfg.FreePort(func(p int) bool { return taken[p] || ports.Listening(p) })
-		}
-		taken[s.Port] = true
-		found = append(found, s)
-	}
+	found := discover.Prepare(cfg, discover.Scan(root, *depth, nil))
 	if *asJSON {
 		return printJSON(e, found)
 	}
@@ -186,7 +163,11 @@ func cmdScan(e *env, args []string) error {
 		if s.Port > 0 {
 			port = fmt.Sprintf(":%-5d", s.Port)
 		}
-		fmt.Fprintf(e.out, "  %-22s %s %-8s %-34s %s\n", s.Name, port, s.Kind, truncate(paths.ShortenHome(s.Dir), 34), e.paint(dim, s.Cmd))
+		note := ""
+		if s.DirectoryConfigured {
+			note = " (folder already has servers)"
+		}
+		fmt.Fprintf(e.out, "  %-22s %s %-8s %-34s %s%s\n", s.Name, port, s.Kind, truncate(paths.ShortenHome(s.Dir), 34), e.paint(dim, s.Cmd), note)
 	}
 	if !*add {
 		fmt.Fprintf(e.out, "\nAdd them all with `%s scan --add`, or pick in the dashboard.\n", app.ID)

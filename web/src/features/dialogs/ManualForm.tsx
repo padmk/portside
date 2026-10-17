@@ -50,6 +50,7 @@ export function ManualForm({ state, edit, formId }: Props) {
   const [saving, setSaving] = useState(false)
   const [serverError, setServerError] = useState('')
   const [touched, setTouched] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
 
   useEffect(() => {
     if (!edit) return
@@ -111,6 +112,11 @@ export function ManualForm({ state, edit, formId }: Props) {
       const next = edit ? await api.updateServer(edit, spec) : await api.createServer(spec)
       applyState(next)
       if (!edit || edit !== spec.name) selectServer(spec.name)
+      if (next.warnings?.length) {
+        setWarnings(next.warnings)
+        setSaving(false)
+        return
+      }
       closeDialog()
     } catch (e) {
       setServerError(errorText(e) ?? '')
@@ -137,6 +143,20 @@ export function ManualForm({ state, edit, formId }: Props) {
       </button>
     </DialogFoot>
   )
+
+  if (warnings.length > 0) {
+    return (
+      <>
+        <DialogMain>
+          <div role="status">
+            <p>{t('form.savedWithWarnings')}</p>
+            {warnings.map((warning) => <p className="hint" key={warning}>{warning}</p>)}
+          </div>
+        </DialogMain>
+        <DialogFoot><button type="button" className="btn btn--primary" onClick={closeDialog}>{t('common.close')}</button></DialogFoot>
+      </>
+    )
+  }
 
   if (loading) {
     return (

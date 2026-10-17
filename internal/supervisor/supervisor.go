@@ -551,6 +551,9 @@ func (s *Supervisor) buildEnv(sv config.Server, prepend []string, global map[str
 	for k, v := range sv.Env {
 		over[k] = expand(v)
 	}
+	if IsComposeCommand(sv.Cmd) {
+		over["COMPOSE_MENU"] = "false"
+	}
 	return mergeEnv(base, over)
 }
 
