@@ -41,7 +41,7 @@ func (s *Server) containerRoutes(m *http.ServeMux) {
 // dockerState attaches containers to their configured servers and marks issues.
 func (s *Server) dockerState(views []supervisor.View) docker.State {
 	st := s.opt.Docker.Snapshot()
-	attachContainers(st.Containers, s.sup.Config().Servers)
+	attachContainers(st.Containers, s.sup.Definitions())
 	for i := range st.Containers {
 		c := &st.Containers[i]
 		c.IssueFor = issueFor(c, views)

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -110,6 +111,9 @@ type Supervisor struct {
 	// desktopClients counts connected apps that show crash notifications
 	// themselves; while any is connected the daemon stays quiet.
 	desktopClients int
+	// activePorts holds the ports of servers that are starting or running,
+	// updated on every change, for readers that must not take mu.
+	activePorts atomic.Pointer[map[int]bool]
 	// previous is the state file as the previous daemon left it, read once
 	// in New so that nothing this process saves hides it from Recover.
 	previous persisted
@@ -139,7 +143,7 @@ func New(cfg *config.Config, stateDir string) *Supervisor {
 	s := &Supervisor{
 		procs:    map[string]*proc{},
 		logDir:   filepath.Join(stateDir, "logs"),
-		state:    filepath.Join(stateDir, "state.json"),
+		state:    statePath(stateDir),
 		subs:     map[chan struct{}]struct{}{},
 		notifier: Notify,
 		selfPID:  os.Getpid(),
@@ -164,6 +168,14 @@ func (s *Supervisor) SetForwarded(fn func(port int) (string, bool)) {
 	s.mu.Lock()
 	s.forwarded = fn
 	s.mu.Unlock()
+}
+
+// WantsPort reports whether a server here is starting or running on port.
+// It takes no lock, so code holding its own lock while the supervisor
+// calls into it (such as the port forwarding) can ask.
+func (s *Supervisor) WantsPort(port int) bool {
+	m := s.activePorts.Load()
+	return m != nil && (*m)[port]
 }
 
 // forwardedFromLocked returns the computer a stopped server's port is
@@ -200,6 +212,19 @@ func (s *Supervisor) Unsubscribe(ch chan struct{}) {
 }
 
 func (s *Supervisor) changedLocked() {
+	active := map[int]bool{}
+	for _, p := range s.procs {
+		if p.status != Starting && p.status != Running {
+			continue
+		}
+		if p.pid != 0 {
+			active[p.running.Port] = true
+		} else {
+			active[p.cfg.Port] = true
+		}
+	}
+	delete(active, 0)
+	s.activePorts.Store(&active)
 	for ch := range s.subs {
 		select {
 		case ch <- struct{}{}:
@@ -308,6 +333,11 @@ func (p *proc) stale(cfg *config.Config, base []string) bool {
 	a, b := p.running, p.cfg
 	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || p.runningShell != cfg.Shell {
 		return true
+	}
+	// Until the login environment has been read (as after an upgrade, which
+	// keeps servers started by the previous binary), it cannot be compared.
+	if base == nil {
+		return false
 	}
 	return !sameEnv(p.runningEnv, launchEnv(base, b, cfg.PathPrepend, cfg.Env))
 }

@@ -81,6 +81,7 @@ type Manager struct {
 	mu       sync.Mutex
 	c        *conn
 	known    map[string]int // daemon port per peer, learned by discovery
+	wanted   func(port int) bool
 	subs     map[chan struct{}]struct{}
 	infoSubs map[chan struct{}]struct{}
 }
@@ -532,7 +533,8 @@ func (c *conn) reconcileLocked() {
 			}
 			continue
 		}
-		if local == c.m.localPort || now.Before(c.held[local]) || now.Sub(mr.tried) < 9*time.Second {
+		if local == c.m.localPort || now.Before(c.held[local]) || now.Sub(mr.tried) < 9*time.Second ||
+			(c.m.wanted != nil && c.m.wanted(local)) {
 			continue
 		}
 		mr.tried = now
@@ -651,6 +653,17 @@ func (m *Manager) Release(port int) {
 			}
 		}
 	})
+}
+
+// SetLocalWant registers fn, which reports a port a server on this computer
+// is starting or running on. Such a port is not forwarded even once a
+// Release has expired, so a server that binds late is not reached through
+// the other computer. fn is called with the manager's lock held and must
+// not call into the manager.
+func (m *Manager) SetLocalWant(fn func(port int) bool) {
+	m.mu.Lock()
+	m.wanted = fn
+	m.mu.Unlock()
 }
 
 // Forwarded reports whether local port currently forwards to the connected

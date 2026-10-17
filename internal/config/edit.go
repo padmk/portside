@@ -638,7 +638,9 @@ func SetEnabled(path, name string, enabled bool) error {
 
 // LoadAssignedPorts loads the daemon's config and persists automatic ports
 // under the edit lock, so later removals or reordering cannot change them.
-func LoadAssignedPorts(path string) (*Config, error) {
+// Automatic ports skip the ports avoid reports (nil avoids none), such as
+// those of temporary servers, which the config does not list.
+func LoadAssignedPorts(path string, avoid func(port int) bool) (*Config, error) {
 	cfg, err := Load(path)
 	if err != nil {
 		return nil, err
@@ -655,8 +657,11 @@ func LoadAssignedPorts(path string) (*Config, error) {
 		return nil, err
 	}
 	defer unlock()
-	cfg, err = Load(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
+		return nil, err
+	}
+	if cfg, err = parse(path, data, avoid); err != nil {
 		return nil, err
 	}
 	var lines []string

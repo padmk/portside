@@ -203,7 +203,10 @@ func Load(path string) (*Config, error) {
 }
 
 // Parse validates configuration text. path is used for messages and relative paths.
-func Parse(path string, data []byte) (*Config, error) {
+func Parse(path string, data []byte) (*Config, error) { return parse(path, data, nil) }
+
+// parse is Parse with automatic ports that also skip the ports avoid reports.
+func parse(path string, data []byte, avoid func(port int) bool) (*Config, error) {
 	var raw rawConfig
 	meta, err := toml.Decode(string(data), &raw)
 	if err != nil {
@@ -348,7 +351,7 @@ func Parse(path string, data []byte) (*Config, error) {
 		if !cfg.Servers[i].PortAuto {
 			continue
 		}
-		for Reserved[next] || explicit[next] != "" || next == cfg.Port {
+		for Reserved[next] || explicit[next] != "" || next == cfg.Port || (avoid != nil && avoid(next)) {
 			next++
 		}
 		cfg.Servers[i].Port = next

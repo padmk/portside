@@ -77,6 +77,27 @@ func TestContainerOwners(t *testing.T) {
 	}
 }
 
+// A temporary server in a worktree nested in its origin's checkout owns the
+// containers started from that worktree, also under a shared project name.
+func TestContainerOwnersNestedWorktree(t *testing.T) {
+	servers := []config.Server{
+		{Name: "db", Dir: "/repo/app", Cmd: "docker compose up", Projects: []string{"shared"}},
+		{Name: "db--wt", Dir: "/repo/.worktrees/wt/app", Cmd: "docker compose up", Projects: []string{"shared"}},
+	}
+	containers := []docker.Container{
+		{Name: "worktree", WorkingDir: "/repo/.worktrees/wt/app"},
+		{Name: "origin", WorkingDir: "/repo/app"},
+		{Name: "worktree-project", WorkingDir: "/repo/.worktrees/wt/app", Project: "shared"},
+		{Name: "origin-project", WorkingDir: "/repo/app", Project: "shared"},
+	}
+	attachContainers(containers, servers)
+	for i, want := range []string{"db--wt", "db", "db--wt", "db"} {
+		if containers[i].Server != want {
+			t.Errorf("%s owner = %q, want %q", containers[i].Name, containers[i].Server, want)
+		}
+	}
+}
+
 func TestLocalProjectOwner(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")

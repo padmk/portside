@@ -31,6 +31,8 @@ type pidStamp struct {
 	Start string `json:"start"`
 }
 
+func statePath(stateDir string) string { return filepath.Join(stateDir, "state.json") }
+
 func (s *Supervisor) saveLocked() {
 	if s.closing {
 		return // the wanted set was saved before shutdown began

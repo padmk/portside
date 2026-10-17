@@ -21,8 +21,10 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 	composeDir := map[string]bool{}
 	byProject := map[string][]string{}
 	byLocalProject := map[string][]string{}
+	dirOf := map[string]string{}
 	for _, sv := range servers {
 		dir := canonicalDir(sv.Dir)
+		dirOf[sv.Name] = dir
 		names := byDir[dir]
 		if supervisor.IsComposeCommand(sv.Cmd) && !composeDir[dir] {
 			composeDir[dir] = true
@@ -41,7 +43,7 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 	for i := range containers {
 		c := &containers[i]
 		c.Server, c.SharedWith = "", nil
-		names := byProject[c.Project]
+		names := closestFirst(byProject[c.Project], dirOf, c.WorkingDir)
 		if len(names) == 0 && c.WorkingDir != "" {
 			dir := canonicalDir(c.WorkingDir)
 			for {
@@ -57,12 +59,33 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 			}
 		}
 		if len(names) == 0 && c.LocalProject != "" {
-			names = byLocalProject[c.LocalProject]
+			names = closestFirst(byLocalProject[c.LocalProject], dirOf, c.WorkingDir)
 		}
 		if len(names) > 0 {
 			c.Server, c.SharedWith = names[0], slices.Clone(names[1:])
 		}
 	}
+}
+
+// closestFirst orders servers sharing a project so that those whose
+// directory holds the container's working directory come first, the deepest
+// first. A temporary server in a worktree nested in its origin's checkout
+// thus owns the containers started from that worktree.
+func closestFirst(names []string, dirOf map[string]string, workingDir string) []string {
+	if len(names) < 2 || workingDir == "" {
+		return names
+	}
+	wd := canonicalDir(workingDir)
+	depth := func(name string) int {
+		dir := dirOf[name]
+		if wd == dir || strings.HasPrefix(wd, dir+string(filepath.Separator)) {
+			return len(dir)
+		}
+		return -1
+	}
+	out := slices.Clone(names)
+	slices.SortStableFunc(out, func(a, b string) int { return depth(b) - depth(a) })
+	return out
 }
 
 // localProjects reads local CLI project IDs without crossing the repository

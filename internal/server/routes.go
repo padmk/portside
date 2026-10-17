@@ -865,7 +865,8 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) freePort(w http.ResponseWriter, r *http.Request) {
-	p := s.sup.Config().FreePort(ports.Listening)
+	temporary := s.sup.TemporaryPorts()
+	p := s.sup.Config().FreePort(func(p int) bool { return temporary(p) || ports.Listening(p) })
 	writeJSON(w, http.StatusOK, map[string]int{"port": p})
 }
 

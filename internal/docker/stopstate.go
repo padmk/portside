@@ -10,27 +10,42 @@ import (
 )
 
 // UseStateDir restores deliberate stops before the monitor starts following events.
-func (m *Monitor) UseStateDir(dir string) error {
+// A file that cannot be read is logged and replaced by the next stop; the
+// monitor then starts without remembered stops.
+func (m *Monitor) UseStateDir(dir string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statePath = filepath.Join(dir, "container-stops.json")
 	data, err := os.ReadFile(m.statePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return
+	}
+	var saved map[string]time.Time
+	if err == nil {
+		err = json.Unmarshal(data, &saved)
 	}
 	if err != nil {
-		return err
+		log.Printf("container stop state: %v; starting without remembered stops", err)
+		return
 	}
-	if err := json.Unmarshal(data, &m.killedAt); err != nil {
-		return err
+	for id, at := range saved {
+		m.killed[id], m.killedAt[id] = true, at
 	}
-	if m.killedAt == nil {
-		m.killedAt = map[string]time.Time{}
-	}
+}
+
+// pruneStopsLocked forgets stops of containers the engine no longer lists.
+func (m *Monitor) pruneStopsLocked(listed map[string]bool) {
+	pruned := false
 	for id := range m.killedAt {
-		m.killed[id] = true
+		if !listed[id] {
+			delete(m.killed, id)
+			delete(m.killedAt, id)
+			pruned = true
+		}
 	}
-	return nil
+	if pruned {
+		m.saveStopsLocked()
+	}
 }
 
 // RecordStop remembers an explicit request even if the events stream misses it.

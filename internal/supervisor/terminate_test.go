@@ -262,6 +262,32 @@ func TestStopCancelsAutomaticRestart(t *testing.T) {
 	}
 }
 
+func TestWantsPortWhileStartingOrRunning(t *testing.T) {
+	s := lifecycleSupervisor(t, "sleep 60", config.RestartNo)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	s.procs["web"].cfg.Port = port
+	if s.WantsPort(port) {
+		t.Fatal("stopped server wants its port")
+	}
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if !s.WantsPort(port) {
+		t.Fatal("starting server does not want its port")
+	}
+	if err := s.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	if s.WantsPort(port) {
+		t.Fatal("stopped server still wants its port")
+	}
+}
+
 func TestRecoverCrashStateAndLogs(t *testing.T) {
 	s := lifecycleSupervisor(t, "printf 'persistent failure\n'; exit 9", config.RestartNo)
 	if err := s.Start("web", StartOptions{}); err != nil {
@@ -319,6 +345,17 @@ func TestEffectiveLaunchSettingsStale(t *testing.T) {
 	if s.Snapshot(19000)[0].Stale {
 		t.Fatal("fresh launch stale")
 	}
+	// An adopted server is not stale before the login environment is read.
+	s.env.mu.Lock()
+	base := s.env.env
+	s.env.env = nil
+	s.env.mu.Unlock()
+	if s.Snapshot(19000)[0].Stale {
+		t.Fatal("stale against an unknown login environment")
+	}
+	s.env.mu.Lock()
+	s.env.env = base
+	s.env.mu.Unlock()
 	cfg := *s.cfg
 	cfg.Env = map[string]string{"GLOBAL_TEST_VALUE": "changed"}
 	s.Apply(&cfg)

@@ -201,7 +201,7 @@ func TestUpdateServerDottedEnvironment(t *testing.T) {
 func TestLoadAssignedPortsKeepsPortsAfterRemovalAndReorder(t *testing.T) {
 	text := "# config\n[servers.a]\ncmd = 'a' # keep\n\n[servers.b]\ncmd = 'b'\n\n[servers.worker]\ncmd = 'worker'\nport = 0\n"
 	path := newConfig(t, text)
-	cfg, err := LoadAssignedPorts(path)
+	cfg, err := LoadAssignedPorts(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestLoadAssignedPortsKeepsPortsAfterRemovalAndReorder(t *testing.T) {
 	if err := AddServer(path, Spec{Name: "c", Cmd: "c"}); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err = LoadAssignedPorts(path)
+	cfg, err = LoadAssignedPorts(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestLoadAssignedPortsKeepsPortsAfterRemovalAndReorder(t *testing.T) {
 		t.Fatalf("ports: b=%d c=%d worker=%d", b.Port, c.Port, worker.Port)
 	}
 	before := readConfig(t, path)
-	if _, err := LoadAssignedPorts(path); err != nil {
+	if _, err := LoadAssignedPorts(path, nil); err != nil {
 		t.Fatal(err)
 	}
 	wantText(t, path, before)
@@ -234,13 +234,44 @@ func TestLoadAssignedPortsKeepsPortsAfterRemovalAndReorder(t *testing.T) {
 	if err := WriteAtomic(path, []byte("[servers.c]"+parts[1]+"\n"+parts[0])); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err = LoadAssignedPorts(path)
+	cfg, err = LoadAssignedPorts(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b, _ = cfg.Server("b")
 	if b.Port != 3002 {
 		t.Fatalf("reordered port = %d", b.Port)
+	}
+}
+
+// Automatic ports skip ports held outside the config, such as those of
+// temporary servers.
+func TestLoadAssignedPortsAvoidsPorts(t *testing.T) {
+	path := newConfig(t, "[servers.a]\ncmd = 'a'\n")
+	cfg, err := LoadAssignedPorts(path, func(p int) bool { return p == 3001 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.a]\ncmd = 'a'\nport = 3002\n")
+	if a, _ := cfg.Server("a"); a.Port != 3002 {
+		t.Fatalf("port %d", a.Port)
+	}
+}
+
+// A server written with dotted keys at the top level gets its port there,
+// not in the table that follows.
+func TestLoadAssignedPortsDottedServer(t *testing.T) {
+	text := "# config\nservers.web.cmd = 'web'\n\n# api\n[servers.api]\ncmd = 'api'\nport = 4000\n"
+	path := newConfig(t, text)
+	cfg, err := LoadAssignedPorts(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, strings.Replace(text, "servers.web.cmd = 'web'\n", "servers.web.cmd = 'web'\nservers.web.port = 3001\n", 1))
+	web, _ := cfg.Server("web")
+	api, _ := cfg.Server("api")
+	if web.Port != 3001 || web.PortAuto || api.Port != 4000 {
+		t.Fatalf("ports: web=%d auto=%v api=%d", web.Port, web.PortAuto, api.Port)
 	}
 }
 

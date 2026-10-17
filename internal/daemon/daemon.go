@@ -89,10 +89,12 @@ func Run(cfgPath string) error {
 		log.Printf("created %s", cfgPath)
 	}
 	// Save automatic ports first; an invalid file is reported by LoadRecoverable.
-	_, _ = config.LoadAssignedPorts(cfgPath)
+	_, portsErr := config.LoadAssignedPorts(cfgPath, supervisor.SavedTemporaryPorts(stateDir))
 	cfg, configErr := config.LoadRecoverable(cfgPath, stateDir)
 	if configErr != nil {
 		log.Printf("config: %v; using recovered settings", configErr)
+	} else if portsErr != nil {
+		log.Printf("config: saving automatic ports: %v", portsErr)
 	}
 	for _, w := range cfg.Warnings {
 		log.Printf("config: %s", w)
@@ -104,9 +106,7 @@ func Run(cfgPath string) error {
 	}
 	sup := supervisor.New(cfg, stateDir)
 	dock := docker.NewMonitor(sup, supervisor.SampleInterval, func() string { return sup.Config().DockerStart })
-	if err := dock.UseStateDir(stateDir); err != nil {
-		return fmt.Errorf("container stop state: %w", err)
-	}
+	dock.UseStateDir(stateDir)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -137,6 +137,7 @@ func Run(cfgPath string) error {
 	rem := remote.New(cfg.Port, stateDir, ts)
 	sup.SetPortRelease(rem.Release)
 	sup.SetForwarded(rem.Forwarded)
+	rem.SetLocalWant(sup.WantsPort)
 	sh := share.New(cfg.Port, stateDir, ts)
 
 	upgrades := make(chan upgradeRequest)

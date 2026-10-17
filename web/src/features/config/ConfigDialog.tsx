@@ -33,6 +33,10 @@ export function ConfigDialog() {
   const base = useRef('')
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
+  const liveRef = useRef(liveRevision)
+  liveRef.current = liveRevision
+  // While a save is under way, the revisions it brings are not edits made elsewhere.
+  const savingRef = useRef(false)
 
   const load = useCallback(async () => {
     try {
@@ -55,7 +59,7 @@ export function ConfigDialog() {
   // An edit made elsewhere while the editor is open: take it when nothing here
   // would be lost, otherwise ask.
   useEffect(() => {
-    if (!liveRevision || !base.current || liveRevision === base.current) return
+    if (savingRef.current || !liveRevision || !base.current || liveRevision === base.current) return
     if (dirtyRef.current) setConflict(true)
     else void load()
   }, [liveRevision, load])
@@ -64,21 +68,25 @@ export function ConfigDialog() {
   const save = async (overwrite = false) => {
     setSaving(true)
     setError('')
-    const prev = base.current
+    savingRef.current = true
     try {
-      if (overwrite) base.current = (await api.config()).revision
-      const from = base.current
-      // Set before the save lands, so the state it brings is not taken for an edit made elsewhere.
-      base.current = await revisionOf(text)
-      await saveConfig(() => api.saveConfig(text, from))
-      setSaved(text)
+      const from = overwrite ? (await api.config()).revision : base.current
+      const after = await saveConfig(() => api.saveConfig(text, from))
+      // The reply carries the file as the daemon left it, which may hold more
+      // than was saved (such as automatic ports).
+      base.current = after.config.revision
       setConflict(false)
       toast(t('config.saved'))
+      if (after.config.revision === (await revisionOf(text))) setSaved(text)
+      else await load()
+      // An edit made elsewhere after the save.
+      const live = liveRef.current
+      if (live && live !== from && live !== base.current) await load()
     } catch (e) {
-      base.current = prev
       if (e instanceof ApiError && e.status === 409) setConflict(true)
       else setError(errorText(e) ?? '')
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }

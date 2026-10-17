@@ -366,6 +366,48 @@ func (s *Supervisor) IsTemporary(name string) bool {
 	return p != nil && p.temp != nil
 }
 
+// TemporaryPorts reports the ports temporary servers are assigned or run on,
+// which automatic ports in the config must skip.
+func (s *Supervisor) TemporaryPorts() func(port int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	used := map[int]bool{}
+	for _, p := range s.procs {
+		if p.temp != nil && !p.removed {
+			used[p.temp.Port] = true
+			if p.pid != 0 {
+				used[p.running.Port] = true
+			}
+		}
+	}
+	return func(port int) bool { return used[port] }
+}
+
+// SavedTemporaryPorts is TemporaryPorts for the temporary servers saved in
+// stateDir, for use before a supervisor exists.
+func SavedTemporaryPorts(stateDir string) func(port int) bool {
+	s := &Supervisor{state: statePath(stateDir)}
+	used := map[int]bool{}
+	for _, t := range s.load().Temporary {
+		used[t.Port] = true
+	}
+	return func(port int) bool { return used[port] }
+}
+
+// Definitions returns the definitions of configured and temporary servers,
+// each temporary server after its origin.
+func (s *Supervisor) Definitions() []config.Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]config.Server, 0, len(s.order))
+	for _, name := range s.order {
+		if p := s.procs[name]; p != nil && !p.removed {
+			out = append(out, p.cfg)
+		}
+	}
+	return out
+}
+
 // Lookup returns the definition of any server the supervisor knows,
 // configured or temporary.
 func (s *Supervisor) Lookup(name string) (config.Server, bool) {

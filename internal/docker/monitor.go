@@ -515,6 +515,11 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 		return
 	}
 	seen := map[string]bool{}
+	listed := map[string]bool{}
+	for _, it := range list {
+		listed[it.ID] = true
+	}
+	m.pruneStopsLocked(listed)
 	for i, it := range list {
 		if infos[i] == nil {
 			// Keep what is known until a later inspect succeeds.

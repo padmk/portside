@@ -248,12 +248,15 @@ func (s *Server) WatchConfig(ctx context.Context) {
 // reload re-reads the config; a broken file keeps the previous config live.
 func (s *Server) reload(rename ...string) error {
 	// Save automatic ports first; an invalid file is reported by Parse below.
-	_, _ = config.LoadAssignedPorts(s.opt.ConfigPath)
+	_, portsErr := config.LoadAssignedPorts(s.opt.ConfigPath, s.sup.TemporaryPorts())
 	st, statErr := os.Stat(s.opt.ConfigPath)
 	data, err := os.ReadFile(s.opt.ConfigPath)
 	var cfg *config.Config
 	if err == nil {
 		cfg, err = config.Parse(s.opt.ConfigPath, data)
+	}
+	if err == nil && portsErr != nil {
+		log.Printf("config: saving automatic ports: %v", portsErr)
 	}
 	s.cfgMu.Lock()
 	if statErr == nil {

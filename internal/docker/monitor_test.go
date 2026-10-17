@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/padmk/portside/internal/supervisor"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -155,14 +157,11 @@ func TestBuildRestartFailureStaysFailed(t *testing.T) {
 func TestPersistStopIntent(t *testing.T) {
 	dir := t.TempDir()
 	m := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
-	if err := m.UseStateDir(dir); err != nil {
-		t.Fatal(err)
-	}
+	m.UseStateDir(dir)
 	m.RecordStop("abc")
+	m.RecordStop("gone")
 	restored := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
-	if err := restored.UseStateDir(dir); err != nil {
-		t.Fatal(err)
-	}
+	restored.UseStateDir(dir)
 	cl := fakeEngine(t, 137, "")
 	restored.client, restored.status = cl, Ready
 	restored.refresh(context.Background(), cl)
@@ -170,15 +169,32 @@ func TestPersistStopIntent(t *testing.T) {
 	if got.Failed {
 		t.Fatal("requested stop became a failure after restart")
 	}
+	if restored.killed["gone"] {
+		t.Fatal("stop of a container the engine no longer lists was kept")
+	}
 	restored.mu.Lock()
 	restored.clearStoppedLocked("abc")
 	restored.mu.Unlock()
 	again := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
-	if err := again.UseStateDir(dir); err != nil {
-		t.Fatal(err)
-	}
+	again.UseStateDir(dir)
 	if again.killed["abc"] {
 		t.Fatal("cleared stop was restored")
+	}
+}
+
+// A corrupt stop file does not keep the monitor from starting.
+func TestCorruptStopState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "container-stops.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
+	m.UseStateDir(dir)
+	m.RecordStop("abc")
+	again := NewMonitor(fakeHost{}, time.Second, func() string { return "" })
+	again.UseStateDir(dir)
+	if !again.killed["abc"] {
+		t.Fatal("a stop recorded after a corrupt file was not saved")
 	}
 }
 

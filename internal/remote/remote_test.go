@@ -166,6 +166,25 @@ func TestApplyMirrorsRunningPorts(t *testing.T) {
 			t.Errorf("released port re-bound: %+v", mr)
 		}
 	}
+	// A local server still starting keeps it once the release has expired.
+	m.SetLocalWant(func(p int) bool { return p == running })
+	expire := func() {
+		c.update(func() {
+			delete(c.held, running)
+			c.mirrors[running].tried = time.Time{}
+		})
+	}
+	expire()
+	c.update(c.reconcileLocked)
+	if mr := mirrorOf(t, m, running); mr.State != "busy" {
+		t.Errorf("port of a starting local server re-bound: %+v", mr)
+	}
+	m.SetLocalWant(nil)
+	expire()
+	c.update(c.reconcileLocked)
+	if mr := mirrorOf(t, m, running); mr.State != "mirrored" {
+		t.Errorf("port not forwarded again once the local server stopped: %+v", mr)
+	}
 
 	m.Disconnect()
 	if l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(db)); err != nil {

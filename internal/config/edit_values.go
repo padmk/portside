@@ -167,6 +167,23 @@ func patchValue(lines []string, path []string, literal string) []string {
 			}
 		}
 	}
+	if best == 0 {
+		// No table holds the path (it is written with dotted keys at the top
+		// level), so the key goes at the top level: before the first table
+		// and the comments that introduce it.
+		for i := range lines {
+			if d.isTable(i) {
+				at = i
+				break
+			}
+		}
+		for at > 0 && d.isComment(at-1) {
+			at--
+		}
+		for at > 0 && d.trimmed(at-1) == "" {
+			at--
+		}
+	}
 	parts := make([]string, len(path)-best)
 	for i, k := range path[best:] {
 		parts[i] = key(k)
