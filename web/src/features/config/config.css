@@ -26,3 +26,16 @@
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.config-conflict {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  white-space: normal;
+}
+.config-conflict-actions {
+  display: flex;
+  gap: 8px;
+}

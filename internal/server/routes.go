@@ -542,6 +542,10 @@ func (s *Server) edit(w http.ResponseWriter, fn func() error, warnings []string,
 		err = s.reload(rename...)
 	}
 	s.editMu.Unlock()
+	if errors.Is(err, config.ErrConflict) {
+		fail(w, http.StatusConflict, err)
+		return
+	}
 	if err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
@@ -561,14 +565,28 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
 	s.edit(w, func() error { return config.AddServer(s.opt.ConfigPath, spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir))
 }
 
+// updateServer replaces a server's table. A body that names the config
+// revision its form was loaded from is refused with 409 when the file changed
+// since, so the edit never overwrites a change the form did not show.
 func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
-	var spec config.Spec
-	if err := readJSON(r, &spec); err != nil {
+	var body struct {
+		config.Spec
+		Revision string `json:"revision"`
+	}
+	if err := readJSON(r, &body); err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
+	spec := body.Spec
 	s.normalizeSpec(&spec)
-	s.edit(w, func() error { return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir), r.PathValue("name"), spec.Name)
+	s.edit(w, func() error {
+		if body.Revision != "" {
+			if err := config.CheckRevision(s.opt.ConfigPath, body.Revision); err != nil {
+				return err
+			}
+		}
+		return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec)
+	}, directoryWarnings(s.sup.Config().Root, spec.Dir), r.PathValue("name"), spec.Name)
 }
 
 func directoryWarnings(root, dir string) []string {

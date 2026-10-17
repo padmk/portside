@@ -468,6 +468,9 @@
   padding-top: 7px;
   overflow-wrap: anywhere;
 }
+.toast-action {
+  flex: none;
+}
 
 .banner {
   display: flex;

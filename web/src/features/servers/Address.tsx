@@ -57,7 +57,14 @@ function AliasCopy({ url }: { url: string }) {
 export function Address({ server: v }: { server: ServerView }) {
   const t = useT()
   const reachable = v.status === 'running' || v.status === 'starting'
-  if (!v.url) return <p className="addr addr--none mono">{t('detail.noPort')}</p>
+  if (!v.url) {
+    return (
+      <div className="addr">
+        <p className="addr--none mono">{t('detail.noPort')}</p>
+        <ListenPorts server={v} />
+      </div>
+    )
+  }
   return (
     <div className="addr">
       {reachable ? (
@@ -69,6 +76,18 @@ export function Address({ server: v }: { server: ServerView }) {
         <span className="addr-main addr-main--off mono">{bareUrl(v.url)}</span>
       )}
       {v.alias && <AliasCopy url={v.alias} />}
+      <ListenPorts server={v} />
     </div>
+  )
+}
+
+/** The ports the process listens on when they are not the configured one. */
+function ListenPorts({ server: v }: { server: ServerView }) {
+  const t = useT()
+  if (!v.listenPorts?.length) return null
+  return (
+    <span className="chip chip--warn mono" title={t(v.port > 0 ? 'detail.listensOnHint' : 'detail.listensOnNoPort', { port: v.port })}>
+      {t('detail.listensOn', { ports: v.listenPorts.join(', ') })}
+    </span>
   )
 }

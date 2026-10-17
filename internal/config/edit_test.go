@@ -554,6 +554,20 @@ func TestReplaceIfUnchangedInvalidText(t *testing.T) {
 	wantRejected(t, path, fixture, err)
 }
 
+func TestCheckRevision(t *testing.T) {
+	path := newConfig(t, fixture)
+	rev := Revision([]byte(fixture))
+	if err := CheckRevision(path, rev); err != nil {
+		t.Fatalf("unchanged file: %v", err)
+	}
+	if err := SetEnabled(path, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckRevision(path, rev); !errors.Is(err, ErrConflict) {
+		t.Errorf("changed file: err = %v, want ErrConflict", err)
+	}
+}
+
 func TestRevision(t *testing.T) {
 	a, b := Revision([]byte("a")), Revision([]byte("b"))
 	if a == b || a != Revision([]byte("a")) || a == "" {

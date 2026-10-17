@@ -1,10 +1,9 @@
 import { useEffect } from 'react'
-import { ChevronDown, ChevronRight, Play, Square, X } from 'lucide-react'
-import type { ServerView } from '../../api/types'
+import { ChevronDown, ChevronRight, Play, RotateCw, Square, X } from 'lucide-react'
+import type { BulkAction, ServerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { useNow } from '../../ui/hooks'
-import { bulk, useBusy } from '../servers/actions'
-import { hasProcess } from '../servers/format'
+import { bulk, groupKey, groupTargets, useBusy } from '../servers/actions'
 import { ServerCard } from './ServerCard'
 import { ServerRow } from './ServerRow'
 import {
@@ -85,9 +84,9 @@ function GroupSection({ section, titled, collapsed, layout, density, now, cursor
   const key = section.group ?? ''
   const title = section.group ?? t('list.ungrouped')
   const running = section.all.filter((s) => s.status === 'running').length
-  const busy = useBusy(`bulk:${key || '\0'}`)
-  const startable = section.all.filter((s) => s.enabled && !hasProcess(s)).map((s) => s.name)
-  const stoppable = section.all.filter(hasProcess).map((s) => s.name)
+  const busy = useBusy(`bulk:${groupKey(key)}`)
+  const targets = groupTargets(section.all)
+  const act = (action: BulkAction) => bulk(groupKey(key), action, { names: targets[action] })
   const bodyId = `group-${key || 'other'}`
 
   return (
@@ -100,11 +99,15 @@ function GroupSection({ section, titled, collapsed, layout, density, now, cursor
             <span className="group-count">{t('list.groupCount', { n: section.all.length, r: running })}</span>
           </button>
           <div className="group-actions">
-            <button type="button" className="btn btn--sm" aria-label={t('list.startGroup', { name: title })} disabled={busy || startable.length === 0} onClick={() => bulk(key || '\0', 'start', { names: startable })}>
+            <button type="button" className="btn btn--sm" aria-label={t('list.startGroup', { name: title })} disabled={busy || targets.start.length === 0} onClick={() => act('start')}>
               <Play size={13} fill="currentColor" aria-hidden="true" />
               {t('menu.startAll')}
             </button>
-            <button type="button" className="btn btn--sm" aria-label={t('list.stopGroup', { name: title })} disabled={busy || stoppable.length === 0} onClick={() => bulk(key || '\0', 'stop', { names: stoppable })}>
+            <button type="button" className="btn btn--sm" aria-label={t('list.restartGroup', { name: title })} disabled={busy || targets.restart.length === 0} onClick={() => act('restart')}>
+              <RotateCw size={13} aria-hidden="true" />
+              {t('menu.restartAll')}
+            </button>
+            <button type="button" className="btn btn--sm" aria-label={t('list.stopGroup', { name: title })} disabled={busy || targets.stop.length === 0} onClick={() => act('stop')}>
               <Square size={12} fill="currentColor" aria-hidden="true" />
               {t('menu.stopAll')}
             </button>

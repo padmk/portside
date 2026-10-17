@@ -88,6 +88,14 @@ fieldset.field legend {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.form-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  white-space: normal;
+}
 
 /* Discover */
 .discover {

@@ -151,6 +151,10 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  transition: opacity 200ms var(--ease);
+}
+.main[data-offline] {
+  opacity: 0.5;
 }
 
 @media (max-width: 1280px) {

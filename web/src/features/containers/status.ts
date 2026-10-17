@@ -45,11 +45,3 @@ export const usesDocker = (v: ServerView) => /\b(docker|docker-compose|podman)\b
 
 /** The short name a container goes by: its compose service, else its name. */
 export const shortName = (c: ContainerView) => c.service || c.name
-
-/** Variable names whose values are hidden until revealed. */
-const SECRET = /(pass(word)?|passwd|secret|token|api[_-]?key|private|credential|auth|cookie|session|signature|salt|dsn|access[_-]?key|(^|_)key$)/i
-
-/** URLs that carry a password, such as postgres://user:pass@host/db. */
-const URL_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/@:\s]+:[^/@\s]+@/i
-
-export const isSecret = (key: string, value: string) => SECRET.test(key) || URL_PASSWORD.test(value)

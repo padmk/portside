@@ -49,7 +49,16 @@ const stamps = new WeakMap<object, number>()
 /** False for a response to a request made for a computer no longer shown. */
 export const isCurrent = (data: object) => (stamps.get(data) ?? generation) === generation
 
-async function request<T>(method: string, path: string, body?: unknown, scoped = false): Promise<T> {
+const parse = (text: string): unknown => {
+  try {
+    return text ? JSON.parse(text) : null
+  } catch {
+    return null
+  }
+}
+
+/** Sends a request and returns the body text of a successful reply, with the generation it was made in. */
+async function send(method: string, path: string, body: unknown, scoped: boolean): Promise<{ text: string; gen: number }> {
   const gen = generation
   const stale = () => scoped && gen !== generation
   let res: Response
@@ -65,21 +74,22 @@ async function request<T>(method: string, path: string, body?: unknown, scoped =
   }
   const text = await res.text()
   if (stale()) throw new StaleResponseError()
-  let data: unknown = null
-  if (text) {
-    try {
-      data = JSON.parse(text)
-    } catch {
-      data = null
-    }
-  }
   if (!res.ok) {
-    const e = (data ?? {}) as { error?: string; code?: string }
+    const e = (parse(text) ?? {}) as { error?: string; code?: string }
     throw new ApiError(e.error || res.statusText || `request failed (${res.status})`, res.status, e.code)
   }
+  return { text, gen }
+}
+
+async function request<T>(method: string, path: string, body?: unknown, scoped = false): Promise<T> {
+  const { text, gen } = await send(method, path, body, scoped)
+  const data = parse(text)
   if (scoped && data !== null && typeof data === 'object') stamps.set(data, gen)
   return data as T
 }
+
+/** A GET to the computer shown that answers plain text. */
+const text = async (path: string) => (await send('GET', path, undefined, true)).text
 
 /**
  * Prefix of every daemon route that acts on the computer shown: '/api' for this
@@ -111,7 +121,6 @@ const server = (name: string) => `/servers/${enc(name)}`
 const container = (name: string) => `/containers/${enc(name)}`
 
 export const api = {
-  state: () => on<State>('GET', '/state'),
   eventsPath: () => `${base}/events`,
 
   start: (name: string, takeover = false) => on<ServerView>('POST', `${server(name)}/start`, { takeover }),
@@ -120,12 +129,16 @@ export const api = {
   bulk: (action: BulkAction, target: { names: string[] } | { all: true }) =>
     on<{ results: BulkResult[] }>('POST', '/bulk', { action, ...target }),
   clearLogs: (name: string) => on<{ ok: boolean }>('DELETE', `${server(name)}/logs`),
+  /** The retained output lines matching a case-insensitive pattern, each with `context` lines around it, as plain text. */
+  logMatches: (name: string, match: string, context: number) =>
+    text(`${base}${server(name)}/logs?${new URLSearchParams({ match, context: String(context), lines: '1000' })}`),
   iconUrl: (name: string) => `${base}${server(name)}/icon`,
   terminalPath: (name: string) => `${base}${server(name)}/terminal`,
 
   spec: (name: string) => on<Spec>('GET', `${server(name)}/spec`),
   createServer: (spec: Spec) => on<State>('POST', '/servers', spec),
-  updateServer: (name: string, spec: Spec) => on<State>('PUT', server(name), spec),
+  /** With the config revision the form was loaded from, 409 when the file changed since. */
+  updateServer: (name: string, spec: Spec, revision?: string) => on<State>('PUT', server(name), { ...spec, revision }),
   deleteServer: (name: string) => on<State>('DELETE', server(name)),
   setEnabled: (name: string, enabled: boolean) => on<State>('POST', `${server(name)}/enabled`, { enabled }),
 

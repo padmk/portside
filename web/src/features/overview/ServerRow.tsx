@@ -1,15 +1,14 @@
 import { ExternalLink, Play, RotateCw, Square, Unplug } from 'lucide-react'
 import type { ServerView } from '../../api/types'
 import { useT } from '../../i18n'
-import { translateNote } from '../../i18n/notes'
 import { useLive } from '../../state/live'
-import { usePrefs } from '../../state/prefs'
 import { selectServer } from '../../state/route'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { Sparkline } from '../../ui/charts'
 import { restartServer, startServer, stopServer, useBusy } from '../servers/actions'
-import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess } from '../servers/format'
+import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess, restartPending } from '../servers/format'
 import { useProtectedReason } from '../servers/holder'
+import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
 import { ContainerCount } from '../containers/ContainerStrip'
 import { containersOf } from '../containers/status'
@@ -23,13 +22,13 @@ interface Props {
 /** The dense row for the list layout: everything on one line, actions at the end. */
 export function ServerRow({ server: v, now, cursor }: Props) {
   const t = useT()
-  const { locale } = usePrefs()
   const busy = useBusy(v.name)
   const status = displayStatus(v)
   const alive = hasProcess(v)
+  const pending = restartPending(v)
   const reachable = v.status === 'running' || v.status === 'starting'
   const reason = useProtectedReason(v.external?.pid, v.port)
-  const note = v.note && v.note.toLowerCase() !== status ? translateNote(locale, v.note) : ''
+  const note = useServerNote(v)
   const lastLine = v.tail?.[v.tail.length - 1] ?? ''
   const open = () => selectServer(v.name)
   const containers = containersOf(useLive().state?.docker, v.name)
@@ -50,7 +49,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
         <p className="row-sub">
           <span className={`status-text--${status}`}>{t(`status.${status}`)}</span>
           {alive && v.startedAt && <span className="num dim">{formatUptime(v.startedAt, now)}</span>}
-          {note && <span className="dim row-note">{note}</span>}
+          {note && <span className={isDegraded(v, note) ? 'status-text--starting row-note' : 'dim row-note'}>{note}</span>}
           {!note && v.forwardedFrom && <span className="dim row-note">{t('banner.forwarded', { port: v.port, computer: v.forwardedFrom })}</span>}
         </p>
       </div>
@@ -81,7 +80,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
         )}
       </div>
       <div className="row-actions">
-        {alive ? (
+        {alive || pending ? (
           <>
             {reachable && v.url && (
               <a className="icon-btn icon-btn--boxed" href={v.url} target="_blank" rel="noreferrer" aria-label={t('common.openUrl', { url: v.url })} title={t('common.open')}>

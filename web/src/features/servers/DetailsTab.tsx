@@ -8,6 +8,7 @@ import { selectServer } from '../../state/route'
 import { openOnDesktop } from './actions'
 import { CopyButton } from './Address'
 import { Charts } from './Charts'
+import { EnvTable } from './EnvTable'
 
 export function DetailsTab({ server: v, servers }: { server: ServerView; servers: ServerView[] }) {
   const t = useT()
@@ -24,7 +25,7 @@ export function DetailsTab({ server: v, servers }: { server: ServerView; servers
     }
   }, [sig])
 
-  const env = Object.entries(spec?.env ?? {})
+  const env = Object.entries(spec?.env ?? {}).map(([key, value]) => ({ key, value }))
   const known = new Set(servers.map((s) => s.name))
 
   return (
@@ -49,7 +50,10 @@ export function DetailsTab({ server: v, servers }: { server: ServerView; servers
         </dd>
 
         <dt>{t('detail.port')}</dt>
-        <dd>{v.port > 0 ? <><code>{v.port}</code>{v.portAuto && <span className="chip">{t('detail.portAuto')}</span>}</> : <span className="muted">{t('detail.noPort')}</span>}</dd>
+        <dd>
+          {v.port > 0 ? <><code>{v.port}</code>{v.portAuto && <span className="chip">{t('detail.portAuto')}</span>}</> : <span className="muted">{t('detail.noPort')}</span>}
+          {v.listenPorts?.length ? <span className="chip chip--warn">{t('detail.listensOn', { ports: v.listenPorts.join(', ') })}</span> : null}
+        </dd>
 
         <dt>{t('detail.pid')}</dt>
         <dd>{v.pid ? <code>{v.pid}</code> : <span className="muted">–</span>}</dd>
@@ -90,16 +94,7 @@ export function DetailsTab({ server: v, servers }: { server: ServerView; servers
         <dt>{t('detail.env')}</dt>
         <dd>
           {env.length ? (
-            <table className="env">
-              <tbody>
-                {env.map(([k, val]) => (
-                  <tr key={k}>
-                    <th scope="row">{k}</th>
-                    <td>{val}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <EnvTable env={env} />
           ) : (
             <span className="muted">{t('detail.none')}</span>
           )}

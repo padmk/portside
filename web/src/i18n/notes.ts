@@ -4,6 +4,8 @@ type Rule = [RegExp, (m: RegExpMatchArray) => string]
 
 /** Polish renderings of the daemon's status notes, which arrive in English. */
 const pl: Rule[] = [
+  [/^waiting for readiness$/, () => 'czeka na gotowość'],
+  [/^waiting for port (\d+)$/, (m) => `czeka na port ${m[1]}`],
   [/^waiting for (.+)$/, (m) => `czeka na ${m[1]}`],
   [/^exited with code (-?\d+)$/, (m) => `zakończył się z kodem ${m[1]}`],
   [/^exited on its own$/, () => 'zakończył się sam'],
@@ -18,6 +20,9 @@ const pl: Rule[] = [
   [/^docker context (\S+) not found$/, (m) => `nie znaleziono kontekstu Dockera ${m[1]}`],
   [/^no container engine found; set docker_start in the config$/, () => 'nie znaleziono silnika kontenerów; ustaw docker_start w konfiguracji'],
   [/^dependency (\S+) did not become ready: (.+)$/, (m) => `zależność ${m[1]} nie była gotowa: ${m[2]}`],
+  [/^listening on (.+), not (\d+): does the command use \{PORT\}\?$/, (m) => `nasłuchuje na ${m[1]}, a nie na ${m[2]}: czy polecenie używa {PORT}?`],
+  [/^not listening on (\S+)$/, (m) => `nie nasłuchuje na ${m[1]}`],
+  [/^health (\S+) answers (\d+)$/, (m) => `sprawdzenie stanu ${m[1]} zwraca ${m[2]}`],
 ]
 
 const plSuffixes: Rule[] = [

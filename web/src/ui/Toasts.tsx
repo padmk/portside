@@ -21,6 +21,18 @@ export function Toasts() {
       {items.map((x) => (
         <div key={x.id} className={`toast toast--${x.kind}`}>
           <p>{x.message}</p>
+          {x.action && (
+            <button
+              type="button"
+              className="btn btn--sm toast-action"
+              onClick={() => {
+                dismissToast(x.id)
+                x.action!.run()
+              }}
+            >
+              {x.action.label}
+            </button>
+          )}
           <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.dismiss')} onClick={() => dismissToast(x.id)}>
             <X size={14} />
           </button>

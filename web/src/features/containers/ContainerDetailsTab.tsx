@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
 import { api, errorText } from '../../api/client'
 import type { ContainerDetails, ContainerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { selectServer } from '../../state/route'
 import { Charts } from '../servers/Charts'
 import { CopyButton } from '../servers/Address'
-import { isSecret } from './status'
+import { EnvTable } from '../servers/EnvTable'
 
 /** What a container runs, how it is wired up, and its resource history. */
 export function ContainerDetailsTab({ container: c }: { container: ContainerView }) {
@@ -156,42 +155,5 @@ export function ContainerDetailsTab({ container: c }: { container: ContainerView
       </dl>
       {c.state === 'running' && <Charts server={c} />}
     </div>
-  )
-}
-
-/** Environment variables with secret-looking values hidden until revealed. */
-function EnvTable({ env }: { env: ContainerDetails['env'] }) {
-  const t = useT()
-  const [shown, setShown] = useState<Set<string>>(new Set())
-  const toggle = (k: string) =>
-    setShown((s) => {
-      const next = new Set(s)
-      if (!next.delete(k)) next.add(k)
-      return next
-    })
-  return (
-    <table className="env">
-      <tbody>
-        {env.map(({ key, value }) => {
-          const secret = isSecret(key, value)
-          const visible = !secret || shown.has(key)
-          return (
-            <tr key={key}>
-              <th scope="row">{key}</th>
-              <td>
-                <span className="ct-env-value">
-                  <span className={visible ? undefined : 'ct-masked'}>{visible ? value : '••••••••'}</span>
-                  {secret && (
-                    <button type="button" className="icon-btn icon-btn--sm" aria-label={t(visible ? 'container.hide' : 'container.reveal', { key })} title={t(visible ? 'container.hide' : 'container.reveal', { key })} onClick={() => toggle(key)}>
-                      {visible ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  )}
-                </span>
-              </td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
   )
 }

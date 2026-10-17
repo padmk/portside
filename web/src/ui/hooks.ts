@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from '../state/toasts'
 import { t } from '../i18n'
 
@@ -26,23 +26,4 @@ export async function copyText(text: string) {
     ta.remove()
   }
   toast(t('common.copied'))
-}
-
-/** Tracks one in-flight async action and guards against double submission. */
-export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<unknown>) {
-  const [busy, setBusy] = useState(false)
-  const alive = useRef(true)
-  useEffect(() => () => void (alive.current = false), [])
-  const run = useCallback(
-    async (...args: A) => {
-      setBusy(true)
-      try {
-        return await fn(...args)
-      } finally {
-        if (alive.current) setBusy(false)
-      }
-    },
-    [fn],
-  )
-  return [run, busy] as const
 }

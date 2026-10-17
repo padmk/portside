@@ -241,16 +241,6 @@
 .ct-mount .chip {
   margin-left: 6px;
 }
-.ct-env-value {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.ct-masked {
-  color: var(--text-3);
-  letter-spacing: 0.1em;
-}
 
 /* On server cards and rows */
 .ct-strip {

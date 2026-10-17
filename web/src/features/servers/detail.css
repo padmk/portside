@@ -122,6 +122,9 @@
   font-size: var(--fs-sm);
   font-weight: 400;
 }
+.note-text--warn {
+  color: var(--starting-text);
+}
 .detail-head .addr {
   gap: 2px;
 }
@@ -164,6 +167,9 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
+}
+.tabpanel[hidden] {
+  display: none;
 }
 .detail .banner {
   border-top: 1px solid var(--border);
@@ -265,4 +271,14 @@
   width: 40%;
   padding-right: 12px;
   color: var(--text-2);
+}
+.env-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.env-masked {
+  color: var(--text-3);
+  letter-spacing: 0.1em;
 }

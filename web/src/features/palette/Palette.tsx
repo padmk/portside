@@ -6,7 +6,6 @@ import {
   Languages,
   LayoutGrid,
   List,
-  ListTree,
   Moon,
   Palette as PaletteIcon,
   Play,
@@ -20,18 +19,18 @@ import {
   MonitorSmartphone,
   Unplug,
 } from 'lucide-react'
-import type { State } from '../../api/types'
-import { useT, type Translate } from '../../i18n'
+import type { BulkAction, State } from '../../api/types'
+import { useT, type Key, type Translate } from '../../i18n'
 import { setLocale, setThemeFamily, toggleThemeMode, usePrefs } from '../../state/prefs'
 import { FAMILIES } from '../../theme/registry'
-import { setLayout } from '../overview/overviewState'
-import { openContainers, selectServer } from '../../state/route'
+import { buildSections, setLayout } from '../overview/overviewState'
+import { openContainers } from '../../state/route'
 import { closeDialog, openAddServer, openDialog } from '../../state/ui'
 import { Dialog } from '../../ui/Dialog'
-import { bulk, restartServer, startServer, stopServer } from '../servers/actions'
+import { bulk, groupKey, groupTargets, restartServer, startServer, stopAll, stopServer } from '../servers/actions'
 import { viewLogs } from '../servers/StateActions'
 import { disconnectRemote } from '../remote/actions'
-import { hasProcess } from '../servers/format'
+import { canStop, hasProcess } from '../servers/format'
 import { fuzzy } from './fuzzy'
 import './palette.css'
 
@@ -41,13 +40,15 @@ interface Command {
   hint?: string
   icon: ReactNode
   run: () => void
+  /** Acts on several servers; ranked below the commands for one server that match too. */
+  bulk?: boolean
 }
 
 function buildCommands(state: State, t: Translate, locale: string): Command[] {
   const cmds: Command[] = [
     { id: 'add', label: t('palette.addServer'), icon: <Plus size={15} />, run: () => openAddServer() },
-    { id: 'startAll', label: t('menu.startAll'), icon: <Play size={15} />, run: () => void bulk('all', 'start', { all: true }) },
-    { id: 'stopAll', label: t('menu.stopAll'), icon: <Square size={14} />, run: () => void bulk('all', 'stop', { all: true }) },
+    { id: 'startAll', label: t('menu.startAll'), icon: <Play size={15} />, bulk: true, run: () => void bulk('all', 'start', { all: true }) },
+    { id: 'stopAll', label: t('menu.stopAll'), icon: <Square size={14} />, bulk: true, run: () => stopAll(state.servers) },
     { id: 'ports', label: t('menu.ports'), icon: <Network size={15} />, run: () => openDialog({ kind: 'ports' }) },
     { id: 'containers', label: t('containers.title'), icon: <Container size={15} />, run: openContainers },
     { id: 'computers', label: t('remote.open'), icon: <MonitorSmartphone size={15} />, run: () => openDialog({ kind: 'computers' }) },
@@ -69,25 +70,29 @@ function buildCommands(state: State, t: Translate, locale: string): Command[] {
     { id: 'lang', label: t('palette.switchLanguage'), icon: <Languages size={15} />, run: () => setLocale(locale === 'pl' ? 'en' : 'pl') },
   ]
   for (const v of state.servers) {
-    const alive = hasProcess(v)
     const hint = v.group ?? ''
-    if (alive) {
+    if (canStop(v)) {
       cmds.push({ id: `stop:${v.name}`, label: t('palette.stop', { name: v.name }), hint, icon: <Square size={14} />, run: () => void stopServer(v.name) })
       cmds.push({ id: `restart:${v.name}`, label: t('palette.restart', { name: v.name }), hint, icon: <RotateCw size={14} />, run: () => void restartServer(v.name) })
-    } else {
+    } else if (!hasProcess(v)) {
       cmds.push({ id: `start:${v.name}`, label: t('palette.start', { name: v.name }), hint, icon: <Play size={15} />, run: () => void startServer(v.name) })
     }
+    cmds.push({ id: `open:${v.name}`, label: t('palette.open', { name: v.name }), hint, icon: <SquareTerminal size={15} />, run: () => viewLogs(v.name) })
     if (v.url && (v.status === 'running' || v.status === 'starting')) {
-      cmds.push({ id: `open:${v.name}`, label: t('palette.open', { name: v.name }), hint: v.alias ? v.alias.replace(/^https?:\/\//, '') : '', icon: <ExternalLink size={14} />, run: () => window.open(v.url, '_blank', 'noreferrer') })
+      cmds.push({ id: `browse:${v.name}`, label: t('palette.browse', { name: v.name }), hint: v.alias ? v.alias.replace(/^https?:\/\//, '') : '', icon: <ExternalLink size={14} />, run: () => window.open(v.url, '_blank', 'noreferrer') })
     }
-    cmds.push({
-      id: `logs:${v.name}`,
-      label: t('palette.logs', { name: v.name }),
-      hint,
-      icon: <SquareTerminal size={15} />,
-      run: () => viewLogs(v.name),
-    })
-    cmds.push({ id: `go:${v.name}`, label: t('palette.go', { name: v.name }), hint, icon: <ListTree size={15} />, run: () => selectServer(v.name) })
+  }
+  for (const s of buildSections(state.servers, state.groups, '', null)) {
+    if (s.group === null) continue
+    const name = s.group
+    const targets = groupTargets(s.all)
+    const group = (action: BulkAction, label: Key, icon: ReactNode) => {
+      if (targets[action].length === 0) return
+      cmds.push({ id: `${action}Group:${name}`, label: t(label, { name }), icon, bulk: true, run: () => void bulk(groupKey(name), action, { names: targets[action] }) })
+    }
+    group('start', 'palette.startGroup', <Play size={15} />)
+    group('restart', 'palette.restartGroup', <RotateCw size={14} />)
+    group('stop', 'palette.stopGroup', <Square size={14} />)
   }
   return cmds
 }
@@ -115,7 +120,7 @@ export function Palette({ state }: { state: State }) {
     return all
       .map((c) => ({ c, m: fuzzy(query, c.label) }))
       .filter((x): x is { c: Command; m: NonNullable<typeof x.m> } => x.m !== null)
-      .sort((a, b) => b.m.score - a.m.score)
+      .sort((a, b) => Number(!!a.c.bulk) - Number(!!b.c.bulk) || b.m.score - a.m.score)
       .map((x) => ({ c: x.c, indices: x.m.indices }))
   }, [all, query])
 

@@ -3,12 +3,11 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { ArrowDownToLine, ChevronDown, ChevronUp, Eraser, Search } from 'lucide-react'
+import { ArrowDownToLine, ChevronDown, ChevronUp, Eraser, ListFilter, Search } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
-import { wsUrl } from '../../api/client'
+import { errorText, wsUrl } from '../../api/client'
 import { useT } from '../../i18n'
 import { usePrefs } from '../../state/prefs'
-import { toastError } from '../../state/toasts'
 import { useUi } from '../../state/ui'
 import { searchDecorations, terminalBackground, terminalTheme } from '../../theme/terminal'
 import './terminal.css'
@@ -20,8 +19,6 @@ interface Props {
   interactive: boolean
   /** `toggle` asks the user to switch typing on; `always` sends keystrokes right away, as a shell does. */
   input?: 'toggle' | 'always' | 'none'
-  /** Clears the output on the daemon too; without it only the screen is cleared. */
-  onClear?: () => Promise<void>
   /** Reconnects when the stream closes. Without it the stream ends, as a shell session does. */
   reconnect?: boolean
   /** Resume a container log stream without clearing existing output. */
@@ -30,11 +27,20 @@ interface Props {
   ended?: ReactNode
   emptyText: string
   waitingText: string
+  /**
+   * Fetches the lines of the whole retained output that match a pattern, with
+   * a little context, as plain text. Offers "Filter lines" next to the search.
+   */
+  filterLines?: (pattern: string) => Promise<string>
+  /** Incremented to focus the search field. */
+  searchSignal?: number
 }
 
 const FONT = '"Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace'
 
-export function TerminalPane({ source, interactive, input = 'toggle', onClear, reconnect = true, resume = false, ended, emptyText, waitingText }: Props) {
+const escapePattern = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+export function TerminalPane({ source, interactive, input = 'toggle', reconnect = true, resume = false, ended, emptyText, waitingText, filterLines, searchSignal = 0 }: Props) {
   const t = useT()
   const { mode, themeId } = usePrefs()
   const { focusTerminal } = useUi()
@@ -50,6 +56,7 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
   const [closed, setClosed] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ index: number; count: number } | null>(null)
+  const [filtering, setFiltering] = useState(false)
   const modeRef = useRef(mode)
   modeRef.current = mode
   const themeRef = useRef(themeId)
@@ -199,6 +206,15 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
     if (focusTerminal > 0) term.current?.focus()
   }, [focusTerminal])
 
+  // Only a change asks for the search field; the value at mount belongs to an earlier page.
+  const searchSeen = useRef(searchSignal)
+  useEffect(() => {
+    if (searchSignal === searchSeen.current) return
+    searchSeen.current = searchSignal
+    searchInput.current?.focus()
+    searchInput.current?.select()
+  }, [searchSignal])
+
   useEffect(() => {
     if (!interactive) setTyping(false)
   }, [interactive])
@@ -206,7 +222,7 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
   const find = (dir: 'next' | 'prev', q = query) => {
     const s = search.current
     if (!s) return
-    if (!q) {
+    if (!q || filtering) {
       s.clearDecorations()
       setResults(null)
       return
@@ -216,31 +232,32 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
     else s.findPrevious(q, opts)
   }
 
-  const clear = async () => {
-    try {
-      await onClear?.()
-      term.current?.clear()
-      if (onClear) {
-        term.current?.reset()
-        setHasOutput(false)
-      }
-    } catch (e) {
-      toastError(e)
+  const toggleFilter = () => {
+    const next = !filtering
+    setFiltering(next)
+    if (next) {
+      search.current?.clearDecorations()
+      setResults(null)
+    } else if (query) {
+      search.current?.findNext(query, { decorations: searchDecorations(modeRef.current) })
     }
+    searchInput.current?.focus()
   }
+
+  const filter = useLineFilter(filtering ? filterLines : undefined, query)
 
   return (
     <div className="term">
       <div className="term-bar">
-        <div className="search-input term-search">
+        <div className="search-input term-search" data-filtering={filtering || undefined}>
           <Search size={14} aria-hidden="true" />
           <input
             ref={searchInput}
             className="input"
             type="search"
             value={query}
-            placeholder={t('terminal.search')}
-            aria-label={t('terminal.search')}
+            placeholder={filtering ? t('terminal.filterPlaceholder') : t('terminal.search')}
+            aria-label={filtering ? t('terminal.filterPlaceholder') : t('terminal.search')}
             onChange={(e) => {
               setQuery(e.target.value)
               find('next', e.target.value)
@@ -248,21 +265,32 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
-                find(e.shiftKey ? 'prev' : 'next')
+                if (filtering) filter.refresh()
+                else find(e.shiftKey ? 'prev' : 'next')
               } else if (e.key === 'Escape') {
+                if (filtering && !query) toggleFilter()
                 setQuery('')
                 search.current?.clearDecorations()
                 setResults(null)
-                term.current?.focus()
+                if (!filtering) term.current?.focus()
               }
             }}
           />
-          {query && <span className="term-count">{results ? `${results.index}/${results.count}` : t('terminal.noResults')}</span>}
+          {query && (
+            <span className="term-count">
+              {filtering ? (filter.lines ? t('terminal.lines', { n: filter.hits }) : '') : results ? `${results.index}/${results.count}` : t('terminal.noResults')}
+            </span>
+          )}
         </div>
-        <button type="button" className="icon-btn term-nav" aria-label={t('terminal.prev')} title={t('terminal.prev')} disabled={!query} onClick={() => find('prev')}>
+        {filterLines && (
+          <button type="button" className="icon-btn" aria-label={t('terminal.filter')} title={t('terminal.filterHint')} aria-pressed={filtering} onClick={toggleFilter}>
+            <ListFilter size={16} />
+          </button>
+        )}
+        <button type="button" className="icon-btn term-nav" aria-label={t('terminal.prev')} title={t('terminal.prev')} disabled={!query || filtering} onClick={() => find('prev')}>
           <ChevronUp size={16} />
         </button>
-        <button type="button" className="icon-btn term-nav" aria-label={t('terminal.next')} title={t('terminal.next')} disabled={!query} onClick={() => find('next')}>
+        <button type="button" className="icon-btn term-nav" aria-label={t('terminal.next')} title={t('terminal.next')} disabled={!query || filtering} onClick={() => find('next')}>
           <ChevronDown size={16} />
         </button>
         <span className="term-gap" />
@@ -272,11 +300,12 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
           aria-label={t('terminal.follow')}
           title={t('terminal.follow')}
           aria-pressed={following}
+          disabled={filtering}
           onClick={() => term.current?.scrollToBottom()}
         >
           <ArrowDownToLine size={16} />
         </button>
-        <button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clear')} onClick={clear}>
+        <button type="button" className="icon-btn" aria-label={t('terminal.clear')} title={t('terminal.clearHint')} disabled={filtering} onClick={() => term.current?.clear()}>
           <Eraser size={16} />
         </button>
         {input === 'toggle' && (
@@ -300,9 +329,111 @@ export function TerminalPane({ source, interactive, input = 'toggle', onClear, r
       {streamError && <div className="banner banner--bad" role="alert">{streamError}</div>}
       <div className="term-screen" style={{ background: terminalBackground(themeId) }}>
         <div className="term-host" ref={host} data-typing={canType || undefined} />
-        {!hasOutput && !closed && <p className="term-empty">{interactive ? waitingText : emptyText}</p>}
+        {!hasOutput && !closed && !filtering && <p className="term-empty">{interactive ? waitingText : emptyText}</p>}
         {closed && ended && <div className="term-ended">{ended}</div>}
+        {filtering && <FilteredLines filter={filter} query={query} />}
       </div>
+    </div>
+  )
+}
+
+interface LineFilter {
+  /** The lines of the last reply, or null before one arrives. */
+  lines: string[] | null
+  /** How many of them contain the query; the rest are context. */
+  hits: number
+  error: string
+  /** The query the lines answer. */
+  answered: string
+  refresh: () => void
+}
+
+/** Asks for the lines that match the query, shortly after it stops changing. */
+function useLineFilter(fetch: Props['filterLines'], query: string): LineFilter {
+  const [reply, setReply] = useState<{ q: string; lines: string[] } | null>(null)
+  const [error, setError] = useState('')
+  const [tick, setTick] = useState(0)
+  const seq = useRef(0)
+  const now = useRef(false)
+  const fetchRef = useRef(fetch)
+  fetchRef.current = fetch
+  const enabled = !!fetch
+
+  useEffect(() => {
+    const n = ++seq.current
+    if (!enabled || !query) {
+      setReply(null)
+      setError('')
+      return
+    }
+    const delay = now.current ? 0 : 250
+    now.current = false
+    const id = window.setTimeout(() => {
+      fetchRef.current?.(escapePattern(query))
+        .then((text) => {
+          if (n !== seq.current) return
+          const lines = text.replace(/\n$/, '')
+          setReply({ q: query, lines: lines ? lines.split('\n') : [] })
+          setError('')
+        })
+        .catch((e: unknown) => {
+          if (n === seq.current) setError(errorText(e) ?? '')
+        })
+    }, delay)
+    return () => window.clearTimeout(id)
+  }, [enabled, query, tick])
+
+  const q = reply?.q.toLowerCase() ?? ''
+  return {
+    lines: reply?.lines ?? null,
+    hits: reply ? reply.lines.filter((l) => l.toLowerCase().includes(q)).length : 0,
+    error,
+    answered: reply?.q ?? '',
+    refresh: () => {
+      now.current = true
+      setTick((n) => n + 1)
+    },
+  }
+}
+
+/** The filtered lines over the terminal, matches marked, context lines dimmed. */
+function FilteredLines({ filter, query }: { filter: LineFilter; query: string }) {
+  const t = useT()
+  const { mode, themeId } = usePrefs()
+  const list = useRef<HTMLDivElement>(null)
+  const theme = terminalTheme(themeId)
+  const mark = searchDecorations(mode)
+
+  useEffect(() => {
+    const el = list.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [filter.lines])
+
+  let body: ReactNode
+  if (filter.error) body = <p className="term-filter-note" role="alert">{filter.error}</p>
+  else if (!query) body = <p className="term-filter-note">{t('terminal.filterPrompt')}</p>
+  else if (filter.lines === null) body = null
+  else if (filter.lines.length === 0) body = <p className="term-filter-note">{t('terminal.filterNone')}</p>
+  else {
+    const q = filter.answered.toLowerCase()
+    body = filter.lines.map((line, i) => {
+      if (line === '--') return <div key={i} className="term-filter-gap" aria-hidden="true" />
+      const at = line.toLowerCase().indexOf(q)
+      if (at < 0) return <div key={i} className="term-filter-line term-filter-line--context">{line || ' '}</div>
+      const parts: ReactNode[] = []
+      let from = 0
+      for (let j = at; j >= 0; j = line.toLowerCase().indexOf(q, from)) {
+        parts.push(line.slice(from, j), <mark key={j} style={{ background: mark.matchBackground, color: theme.foreground }}>{line.slice(j, j + q.length)}</mark>)
+        from = j + q.length
+      }
+      parts.push(line.slice(from))
+      return <div key={i} className="term-filter-line">{parts}</div>
+    })
+  }
+
+  return (
+    <div className="term-filter" ref={list} style={{ background: terminalBackground(themeId), color: theme.foreground }} role="region" aria-label={t('terminal.filter')} tabIndex={0}>
+      {body}
     </div>
   )
 }

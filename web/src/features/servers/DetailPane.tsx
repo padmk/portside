@@ -1,18 +1,17 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { api } from '../../api/client'
 import type { DockerState, ServerView } from '../../api/types'
 import { useT } from '../../i18n'
-import { translateNote } from '../../i18n/notes'
-import { usePrefs } from '../../state/prefs'
 import { closeServer } from '../../state/route'
-import { pickContainer, setTab, useUi, type DetailTab } from '../../state/ui'
+import { pickContainer, setTab, showTerminalSearch, useUi, type DetailTab } from '../../state/ui'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { useNow } from '../../ui/hooks'
 import { restartServer, useBusy } from './actions'
 import { Address } from './Address'
 import { DetailsTab } from './DetailsTab'
 import { formatUptime, hasProcess } from './format'
+import { isDegraded, useServerNote } from './note'
 import { PortBanner } from './PortBanner'
 import { ProjectTile } from './ProjectTile'
 import { ServerMenu } from './ServerMenu'
@@ -37,13 +36,24 @@ export function DetailPane({ server: v, servers, docker }: Props) {
   const now = useNow(1000)
   const status = displayStatus(v)
   const alive = hasProcess(v)
-  const { locale } = usePrefs()
-  const note = v.note && v.note.toLowerCase() !== status ? translateNote(locale, v.note) : ''
+  const note = useServerNote(v)
   const containers = containersOf(docker, v.name)
   const issues = containerIssues(v, containers)
   const dockerDown = docker.status === 'unavailable' && usesDocker(v)
   const tabs: DetailTab[] = containers.length > 0 || usesDocker(v) ? ['terminal', 'containers', 'details'] : ['terminal', 'details']
   const tab = tabs.includes(ui.tab) ? ui.tab : 'terminal'
+
+  // Find on this page searches the server's output, wherever the focus is.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return
+      if (e.defaultPrevented || document.querySelector('dialog[open]')) return
+      e.preventDefault()
+      showTerminalSearch()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <section className="detail" aria-label={t('detail.title', { name: v.name })}>
@@ -60,7 +70,7 @@ export function DetailPane({ server: v, servers, docker }: Props) {
           <p className={`detail-status status-text--${status}`}>
             <Lamp status={status} decorative large />
             <span className="state-label">{t(`status.${status}`)}</span>
-            {note && <span className="note-text">{note}</span>}
+            {note && <span className={isDegraded(v, note) ? 'note-text note-text--warn' : 'note-text'} title={note}>{note}</span>}
           </p>
         </div>
         <Address server={v} />
@@ -147,24 +157,25 @@ export function DetailPane({ server: v, servers, docker }: Props) {
           </button>
         ))}
       </div>
-      <div className="tabpanel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === 'terminal' ? (
-          <Suspense fallback={null}>
-            <TerminalPane
-              key={v.name}
-              source={api.terminalPath(v.name)}
-              interactive={v.status === 'running' || v.status === 'starting'}
-              onClear={async () => void (await api.clearLogs(v.name))}
-              emptyText={t('terminal.empty')}
-              waitingText={t('terminal.waiting')}
-            />
-          </Suspense>
-        ) : tab === 'containers' ? (
-          <ContainersView docker={docker} containers={containers} scope={v.name} />
-        ) : (
-          <DetailsTab server={v} servers={servers} />
-        )}
+      {/* The terminal stays mounted behind the other tabs: no reconnect, and scroll and search are kept. */}
+      <div className="tabpanel" role="tabpanel" id="panel-terminal" aria-labelledby="tab-terminal" hidden={tab !== 'terminal'}>
+        <Suspense fallback={null}>
+          <TerminalPane
+            key={`${v.name}:${ui.terminalEpoch}`}
+            source={api.terminalPath(v.name)}
+            interactive={v.status === 'running' || v.status === 'starting'}
+            filterLines={(pattern) => api.logMatches(v.name, pattern, 2)}
+            searchSignal={ui.focusSearch}
+            emptyText={t('terminal.empty')}
+            waitingText={t('terminal.waiting')}
+          />
+        </Suspense>
       </div>
+      {tab !== 'terminal' && (
+        <div className="tabpanel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+          {tab === 'containers' ? <ContainersView docker={docker} containers={containers} scope={v.name} /> : <DetailsTab server={v} servers={servers} />}
+        </div>
+      )}
     </section>
   )
 }

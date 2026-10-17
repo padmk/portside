@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
-import { Unplug } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Unplug, WifiOff } from 'lucide-react'
 import { disconnectRemote } from '../features/remote/actions'
 import { ConfigBanners } from '../features/config/ConfigBanners'
 import { ConfigDialog } from '../features/config/ConfigDialog'
 import { ContainersPage } from '../features/containers/ContainersPage'
+import { ConfirmDialog } from '../features/dialogs/ConfirmDialog'
 import { ServerDialog } from '../features/dialogs/ServerDialog'
 import { Overview } from '../features/overview/Overview'
 import { countsOf } from '../features/overview/status'
@@ -15,8 +16,10 @@ import { ShortcutsDialog } from '../features/settings/ShortcutsDialog'
 import { DetailPane } from '../features/servers/DetailPane'
 import { DetailRail } from '../features/servers/DetailRail'
 import { EmptyState } from '../features/servers/EmptyState'
+import { bulk } from '../features/servers/actions'
+import { canStop } from '../features/servers/format'
 import { useT } from '../i18n'
-import { useLive } from '../state/live'
+import { useLive, type Connection } from '../state/live'
 import { closeServer, takeTerminalLink, useContainersPage, useSelectedName } from '../state/route'
 import { closeDialog, getUi, showTerminal, useUi } from '../state/ui'
 import { Toasts } from '../ui/Toasts'
@@ -26,6 +29,21 @@ import { Footer } from './Footer'
 import { useShortcuts } from './shortcuts'
 import { TopBar } from './TopBar'
 import './layout.css'
+
+/** True once the event stream has been down for a moment; a quick reconnect goes unnoticed. */
+function useOffline(connection: Connection): boolean {
+  const down = connection === 'connecting' || connection === 'reconnecting'
+  const [offline, setOffline] = useState(false)
+  useEffect(() => {
+    if (!down) {
+      setOffline(false)
+      return
+    }
+    const id = window.setTimeout(() => setOffline(true), 2000)
+    return () => window.clearTimeout(id)
+  }, [down])
+  return offline
+}
 
 export function App() {
   const t = useT()
@@ -37,6 +55,7 @@ export function App() {
   const servers = state?.servers ?? []
   const groups = state?.groups ?? []
   const selected = selectedName ? servers.find((s) => s.name === selectedName) : undefined
+  const offline = useOffline(connection) && !!state
 
   useShortcuts(servers, groups, selected ? selected.name : null)
 
@@ -77,7 +96,14 @@ export function App() {
     <div className={remote ? 'app app--remote' : 'app'}>
       <TopBar servers={servers} docker={state?.docker} connection={connection} remote={remote} inDetail={!!selected || containersPage} />
       {state && <ConfigBanners config={state.config} />}
-      <main className="main" key={machine}>
+      {offline && (
+        <div className="banner banner--warn" role="status">
+          <WifiOff size={16} aria-hidden="true" />
+          <div className="body">{t('offline.banner')}</div>
+        </div>
+      )}
+      {/* While the daemon is unreachable the last state stays on screen, dimmed and out of reach. */}
+      <main className="main" key={machine} inert={offline} data-offline={offline || undefined}>
         {connection === 'unauthorized' ? (
           <div className="boot" role="status">
             <Mark className="boot-mark" />
@@ -122,6 +148,15 @@ export function App() {
       {dialog?.kind === 'shortcuts' && <ShortcutsDialog />}
       {dialog?.kind === 'computers' && <ComputersDialog />}
       {dialog?.kind === 'palette' && state && <Palette state={state} />}
+      {dialog?.kind === 'stopAll' && (
+        <ConfirmDialog
+          title={t('confirm.stopAllTitle')}
+          message={t('confirm.stopAllBody', { n: servers.filter(canStop).length })}
+          confirmLabel={t('menu.stopAll')}
+          onConfirm={() => bulk('all', 'stop', { all: true })}
+          onClose={closeDialog}
+        />
+      )}
       <Toasts />
     </div>
   )

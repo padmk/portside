@@ -437,6 +437,19 @@ func ReplaceIfUnchanged(path string, text []byte, rev string) error {
 	return writeFile(path, text)
 }
 
+// CheckRevision returns ErrConflict when the file no longer has revision rev,
+// for an edit made from a form that showed that revision.
+func CheckRevision(path, rev string) error {
+	cur, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if rev != Revision(cur) {
+		return ErrConflict
+	}
+	return nil
+}
+
 // AddServer appends a new server table.
 func AddServer(path string, s Spec) error {
 	if err := ValidName(s.Name); err != nil {

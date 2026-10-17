@@ -10,7 +10,8 @@ import { ConfirmDialog } from '../features/dialogs/ConfirmDialog'
 import { countsOf } from '../features/overview/status'
 import { STATUS_GROUPS, type StatusGroupId } from '../features/overview/status'
 import { layoutFor, setFilter, setLayout, toggleStatusFilter, useOverviewState } from '../features/overview/overviewState'
-import { bulk, stopDaemon } from '../features/servers/actions'
+import { bulk, stopAll, stopDaemon } from '../features/servers/actions'
+import { hasProcess } from '../features/servers/format'
 import { containerIssues, containersOf, usesDocker } from '../features/containers/status'
 import type { Connection } from '../state/live'
 import { ComputersButton, RemotePill } from '../features/remote/RemotePill'
@@ -38,7 +39,11 @@ export function TopBar({ servers, docker, connection, remote, inDetail }: Props)
   const layout = layoutFor(layoutChoice, servers.length)
   // Without an engine and without servers that need one, containers are not part of the picture.
   const showContainers = docker?.status === 'ready' || servers.some(usesDocker)
-  const containerTrouble = docker?.status === 'unavailable' ? servers.some(usesDocker) : servers.some((v) => containerIssues(v, containersOf(docker, v.name)).length > 0)
+  // An engine that is off matters only to a server that needs it and is meant to run.
+  const containerTrouble =
+    docker?.status === 'unavailable'
+      ? servers.some((v) => usesDocker(v) && (v.wanted || hasProcess(v)))
+      : servers.some((v) => containerIssues(v, containersOf(docker, v.name)).length > 0)
 
   const pickStatus = (id: StatusGroupId) => {
     toggleStatusFilter(id)
@@ -132,7 +137,7 @@ export function TopBar({ servers, docker, connection, remote, inDetail }: Props)
       <Menu label={t('top.menu')} trigger={<MenuIcon size={19} />} className="icon-btn icon-btn--boxed">
         <MenuItem icon={<Plus size={16} />} onSelect={() => openAddServer()}>{t('menu.addServer')}</MenuItem>
         <MenuItem icon={<Play size={16} />} onSelect={() => void bulk('all', 'start', { all: true })}>{t('menu.startAll')}</MenuItem>
-        <MenuItem icon={<Square size={15} />} onSelect={() => void bulk('all', 'stop', { all: true })}>{t('menu.stopAll')}</MenuItem>
+        <MenuItem icon={<Square size={15} />} onSelect={() => stopAll(servers)}>{t('menu.stopAll')}</MenuItem>
         <MenuSeparator />
         <MenuItem icon={<Network size={16} />} onSelect={() => openDialog({ kind: 'ports' })}>{t('menu.ports')}</MenuItem>
         <MenuItem icon={<Container size={16} />} onSelect={openContainers}>{t('containers.title')}</MenuItem>

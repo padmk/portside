@@ -46,10 +46,20 @@ export function shortenHome(p: string): string {
 /** `http://name.localhost:7980/x` becomes `name.localhost:7980/x`. */
 export const bareUrl = (u: string) => u.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
-export const isAlive = (v: Pick<ServerView, 'status'>) => v.status === 'running' || v.status === 'starting'
-
 export const hasProcess = (v: Pick<ServerView, 'status'>) =>
   v.status === 'running' || v.status === 'starting' || v.status === 'stopping'
+
+/**
+ * A crashed or exited server waiting for its automatic restart. Daemons
+ * without the field say so in the note, which a stop leaves in place, so
+ * there the server must also still be wanted.
+ */
+export const restartPending = (v: Pick<ServerView, 'status' | 'restartPending' | 'note' | 'wanted'>) =>
+  (v.status === 'crashed' || v.status === 'exited') && (v.restartPending ?? (v.wanted && /restarting in /.test(v.note ?? '')))
+
+/** Stop has something to do: a process runs, or an automatic restart is due. */
+export const canStop = (v: Pick<ServerView, 'status' | 'restartPending' | 'note' | 'wanted'>) =>
+  v.status === 'running' || v.status === 'starting' || restartPending(v)
 
 export function initials(name: string): string {
   const parts = name.split(/[-_.]+/).filter(Boolean)

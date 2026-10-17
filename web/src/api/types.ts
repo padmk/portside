@@ -46,6 +46,10 @@ export interface ServerView {
   /** The last few plain output lines, oldest first. */
   tail?: string[]
   wanted: boolean
+  /** A crashed or exited server waits for its automatic restart. */
+  restartPending?: boolean
+  /** Ports the process tree listens on, when they differ from the configured port. */
+  listenPorts?: number[]
 }
 
 export interface Health {

@@ -1,15 +1,14 @@
-import { AlertTriangle, Info, Plug } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Info, Plug } from 'lucide-react'
 import type { ServerView } from '../../api/types'
 import { useT } from '../../i18n'
-import { translateNote } from '../../i18n/notes'
 import { useLive } from '../../state/live'
-import { usePrefs } from '../../state/prefs'
 import { selectServer } from '../../state/route'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { Sparkline } from '../../ui/charts'
 import { Address } from '../servers/Address'
 import { Charts } from '../servers/Charts'
 import { formatAgo, formatBytes, formatCpu, formatUptime, hasProcess } from '../servers/format'
+import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
 import { ServerMenu } from '../servers/ServerMenu'
 import { StateActions } from '../servers/StateActions'
@@ -29,14 +28,13 @@ interface Props {
 
 export function ServerCard({ server: v, density, now, cursor }: Props) {
   const t = useT()
-  const { locale } = usePrefs()
   const status = displayStatus(v)
   const alive = hasProcess(v)
   const cpu = v.cpuHistory ?? []
   const mem = v.memHistory ?? []
 
-  let note = v.note && v.note.toLowerCase() !== status ? translateNote(locale, v.note) : ''
-  if (!note && status === 'crashed' && v.exitCode !== undefined) note = translateNote(locale, `exited with code ${v.exitCode}`)
+  const note = useServerNote(v)
+  const degraded = isDegraded(v, note)
   const held = v.external
     ? t('banner.portUsed', { port: v.port, process: v.external.command, pid: v.external.pid })
     : v.forwardedFrom
@@ -135,8 +133,14 @@ export function ServerCard({ server: v, density, now, cursor }: Props) {
 
         <div className="card-foot">
           {note && (
-            <p className={`note note--${status}`}>
-              {status === 'crashed' || status === 'blocked' ? <AlertTriangle size={16} aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}
+            <p className={`note note--${degraded ? 'starting' : status}`}>
+              {status === 'crashed' || status === 'blocked' || degraded ? (
+                <AlertTriangle size={16} aria-hidden="true" />
+              ) : v.forwardedFrom && !alive ? (
+                <ArrowLeftRight size={16} aria-hidden="true" />
+              ) : (
+                <Info size={16} aria-hidden="true" />
+              )}
               <span>{note}</span>
             </p>
           )}

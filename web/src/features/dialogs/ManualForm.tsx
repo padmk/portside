@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Loader2, Plus, Shuffle, X } from 'lucide-react'
-import { api, errorText } from '../../api/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Loader2, Plus, RotateCw, Shuffle, X } from 'lucide-react'
+import { api, ApiError, errorText } from '../../api/client'
 import type { Spec, State } from '../../api/types'
 import { useT } from '../../i18n'
-import { applyState } from '../../state/live'
 import { selectServer } from '../../state/route'
 import { closeDialog } from '../../state/ui'
 import { toastError } from '../../state/toasts'
 import { DialogFoot, DialogMain } from '../../ui/Dialog'
+import { saveConfig } from '../servers/actions'
 import { NAME_RE } from '../servers/format'
 
 interface Form {
@@ -51,26 +51,39 @@ export function ManualForm({ state, edit, formId }: Props) {
   const [serverError, setServerError] = useState('')
   const [touched, setTouched] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
+  // The config revision the loaded values come from; a save is refused once the file changed since.
+  const [revision, setRevision] = useState<string | undefined>(undefined)
+  const [conflict, setConflict] = useState(false)
+  const latest = useRef(state)
+  latest.current = state
 
-  useEffect(() => {
-    if (!edit) return
-    let live = true
+  const load = useCallback((name: string, isLive: () => boolean) => {
+    const rev = latest.current.config.revision
     api
-      .spec(edit)
+      .spec(name)
       .then((s) => {
-        if (!live) return
+        if (!isLive()) return
         setBase(s)
         setForm(fromSpec(s))
+        setRevision(rev)
+        setConflict(false)
+        setServerError('')
         setLoading(false)
       })
       .catch((e) => {
         toastError(e)
         closeDialog()
       })
+  }, [])
+
+  useEffect(() => {
+    if (!edit) return
+    let live = true
+    load(edit, () => live)
     return () => {
       live = false
     }
-  }, [edit])
+  }, [edit, load])
 
   const others = useMemo(() => state.servers.filter((s) => s.name !== edit), [state.servers, edit])
   const set = <K extends keyof Form>(k: K, v: Form[K]) => {
@@ -109,8 +122,7 @@ export function ManualForm({ state, edit, formId }: Props) {
       env: Object.keys(env).length ? env : undefined,
     }
     try {
-      const next = edit ? await api.updateServer(edit, spec) : await api.createServer(spec)
-      applyState(next)
+      const next = await saveConfig(() => (edit ? api.updateServer(edit, spec, revision) : api.createServer(spec)))
       if (!edit || edit !== spec.name) selectServer(spec.name)
       if (next.warnings?.length) {
         setWarnings(next.warnings)
@@ -119,7 +131,9 @@ export function ManualForm({ state, edit, formId }: Props) {
       }
       closeDialog()
     } catch (e) {
-      setServerError(errorText(e) ?? '')
+      // A conflict keeps the values entered so far; Reload replaces them with the file's.
+      if (e instanceof ApiError && e.status === 409) setConflict(true)
+      else setServerError(errorText(e) ?? '')
       setSaving(false)
     }
   }
@@ -276,6 +290,15 @@ export function ManualForm({ state, edit, formId }: Props) {
       </fieldset>
 
       {serverError && <p className="form-error form-error--block" role="alert">{serverError}</p>}
+      {conflict && edit && (
+        <div className="form-error form-error--block form-conflict" role="alert">
+          <span>{t('conflict.body')}</span>
+          <button type="button" className="btn btn--sm" onClick={() => load(edit, () => true)}>
+            <RotateCw size={14} aria-hidden="true" />
+            {t('conflict.reload')}
+          </button>
+        </div>
+      )}
     </form>
     </DialogMain>
     {footer}

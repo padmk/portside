@@ -6,6 +6,7 @@ import { selectServer } from '../../state/route'
 import { showTerminal } from '../../state/ui'
 import { displayStatus } from '../../ui/Lamp'
 import { restartServer, startServer, stopServer, useBusy } from './actions'
+import { restartPending } from './format'
 import { useProtectedReason } from './holder'
 
 interface Props {
@@ -22,6 +23,7 @@ export function viewLogs(name: string) {
 /**
  * One clear primary action per state, with the rest as icon buttons:
  * stopped starts, running opens, crashed restarts, a held port is taken over.
+ * A server waiting for its automatic restart can also be stopped.
  */
 export function StateActions({ server: v, inDetail }: Props) {
   const t = useT()
@@ -57,6 +59,17 @@ export function StateActions({ server: v, inDetail }: Props) {
       <span className="progress-bar" aria-hidden="true" />
     </div>
   )
+
+  if (restartPending(v)) {
+    return (
+      <div className="actions">
+        {primary(() => void startServer(v.name), <RotateCw size={17} aria-hidden="true" />, t('action.restart'))}
+        {logs}
+        <span className="actions-spacer" />
+        {stop}
+      </div>
+    )
+  }
 
   switch (status) {
     case 'running':

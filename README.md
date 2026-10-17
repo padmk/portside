@@ -23,10 +23,10 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **Real terminals.** Servers run in a PTY, so colors, progress bars and interactive prompts work. Watch output live in the dashboard or attach from your terminal (`portside attach web`), type into it, detach with `Ctrl-]`.
 - **Honest status.** `starting` until the port accepts connections (optionally an HTTP health path), `running`, `crashed` with the exit code, a delayed warning if a running server loses its listener, `blocked` when another process holds the port. Ports held by programs Portside did not start are shown with their owner, and you can take the port over in one click.
 - **Graceful stops.** `Ctrl-C` to the whole process group first (so `docker compose` shuts its containers down), then `SIGTERM`, then `SIGKILL`; orphaned children are cleaned up.
-- **Restart policies and notifications.** `on-failure` or `always` with exponential backoff; a desktop notification when a server crashes.
+- **Restart policies and notifications.** `on-failure` or `always` with exponential backoff; a desktop notification when a server crashes. A server waiting for its next automatic restart can be stopped like a running one.
 - **Survives restarts.** The servers you had running come back when the daemon restarts or you log in (`portside service install`).
 - **CPU and memory** per server, summed over the whole process tree, with sparklines.
-- **A dashboard that scales with your setup.** One server fills the screen with its output and charts, a few get large cards with a live log preview, and long lists switch to compact rows (`c` and `l` toggle them). Click a card for a full-size terminal, with every server one click away in a side rail. Everything else (ports, config, add server) stays in the menu and the `⌘K` palette; `?` lists the keyboard shortcuts.
+- **A dashboard that scales with your setup.** One server fills the screen with its output and charts, a few get large cards with a live log preview, and long lists switch to compact rows (`c` and `l` toggle them). Click a card for a full-size terminal, with every server one click away in a side rail. `⌘F` searches the terminal, and **Filter lines** shows the matching lines from all the output the daemon keeps; **Clear output** clears only that view, while **Clear daemon scrollback** in the server menu forgets the kept output (the log file stays, and **Open log file** shows it). Group headers start, restart (in dependency order) and stop a whole group. Everything else (ports, config, add server) stays in the menu and the `⌘K` palette; `?` lists the keyboard shortcuts.
 - **Themes.** Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme.
 - **Project discovery.** `portside scan` finds Next.js, Vite, Astro, Nuxt, Remix, Django, Rails, Python ASGI apps and Compose projects and proposes commands with the right port flags. Python apps and declared `[project.scripts]` entry points use `uv run`; entry points have no assumed listening port. Discovery skips commands already configured, keeps other services in the same folder, and checks live listeners when suggesting automatic ports.
 - **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes servers, containers and searchable logs to Claude Code, Codex and other MCP clients, and `portside skill install` teaches agents how to use them.
@@ -85,7 +85,7 @@ Any command starts the daemon on demand, so there is nothing to launch first.
 
 ## Configuration
 
-The config lives at `~/.config/portside/portside.toml` (`$PORTSIDE_CONFIG` overrides it). The daemon reloads it when it changes; edits from the dashboard keep your comments and formatting. Adding or editing a server with a missing working directory saves it and displays a warning; create the directory before starting it. An invalid file keeps the last good settings live, including across daemon restarts; without a saved copy the dashboard starts with an empty roster so you can repair the file. The banner shows the error, and `portside daemon restart` refuses an invalid config before stopping a healthy daemon.
+The config lives at `~/.config/portside/portside.toml` (`$PORTSIDE_CONFIG` overrides it). The daemon reloads it when it changes; edits from the dashboard keep your comments and formatting. Adding or editing a server with a missing working directory saves it and displays a warning; create the directory before starting it. An invalid file keeps the last good settings live, including across daemon restarts; without a saved copy the dashboard starts with an empty roster so you can repair the file. The banner shows the error, and `portside daemon restart` refuses an invalid config before stopping a healthy daemon. A dashboard edit made from an older version of the file (because it changed on disk while the form or the config editor was open) is refused instead of overwriting that change; the dashboard then offers to reload, or in the config editor to overwrite. After a save, the dashboard offers to restart the running servers that still use the old settings.
 
 ```toml
 root = "~/dev"                      # base for relative dirs
@@ -140,7 +140,7 @@ stop_timeout = "30s"
 | `depends_on` | Servers that must be running (and ready) before this one starts. |
 | `restart` | `no` (default), `on-failure` or `always`, with backoff up to 30 s and at most 5 quick retries. |
 | `health` | HTTP path that must answer (status < 500) before the server counts as running. |
-| `env` | Extra environment variables. `{PORT}` works in values. |
+| `env` | Extra environment variables. `{PORT}` works in values. The dashboard hides secret-looking values until revealed. |
 | `stop_timeout` | How long to wait after `Ctrl-C` before `SIGTERM`. |
 | `enabled` | `false` leaves the server out of `--all` and restore; it can still be started by name. |
 | `icon` | Path to an icon for the dashboard; by default a project favicon is detected. |

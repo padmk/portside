@@ -55,10 +55,16 @@ function localUrls(v: ServerView, r: RemoteConnection): ServerView {
   return { ...v, url, alias: v.alias ? proxied(v.alias) : v.alias }
 }
 
+/**
+ * A port forwarded from another computer is not held by a local process: the
+ * server shows where the port comes from and starts plainly, which ends the forward.
+ */
+const ownPort = (v: ServerView): ServerView => (v.forwardedFrom && v.external ? { ...v, external: undefined } : v)
+
 /** The daemon encodes empty lists as null. */
 function normalize(s: State, remote: RemoteConnection | null): State {
   const docker = s.docker ?? { status: 'connecting', engine: 'Docker', containers: [] }
-  const servers = s.servers ?? []
+  const servers = (s.servers ?? []).map(ownPort)
   return {
     ...s,
     servers: remote ? servers.map((v) => localUrls(v, remote)) : servers,
@@ -233,8 +239,8 @@ export function applyState(state: State) {
   publish({ state: normalize(state, snapshot.remote) })
 }
 
-/** The connected remote, for code outside React render. */
-export const currentRemote = () => snapshot.remote
+/** The state shown, for code outside React render. */
+export const currentState = () => snapshot.state
 
 function subscribe(cb: () => void) {
   listeners.add(cb)
