@@ -47,6 +47,9 @@ cask "portside" do
       ]
 
   caveats <<~EOS
+    To connect Claude Code and Codex (MCP server and agent skill), run:
+      portside setup
+
     Uninstalling or upgrading leaves the daemon and its dev servers running.
     Before `brew uninstall --cask portside`, stop them with:
       portside daemon stop

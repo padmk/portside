@@ -389,6 +389,7 @@ func cmdVersion(e *env, args []string) error {
 
 func cmdDoctor(e *env, args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fix := fs.Bool("fix", false, "")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
@@ -482,7 +483,7 @@ func cmdDoctor(e *env, args []string) error {
 	if sh := os.Getenv("SHELL"); sh != "" && strings.HasSuffix(sh, "fish") {
 		fmt.Fprintf(e.out, "%s commands run with bash; your fish PATH is imported from a login shell\n", e.paint(dim, "•"))
 	}
-	doctorAgents(e, ok, warn)
+	doctorAgents(e, *fix, ok, warn, bad)
 	if problems == 0 {
 		fmt.Fprintln(e.out, "\nEverything looks good.")
 		return nil

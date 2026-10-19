@@ -48,6 +48,11 @@ func (s *shellEnv) get() []string {
 	return s.env
 }
 
+// LoginShellEnv reads the account's login-shell environment once, for
+// commands outside the daemon (such as the app's helper, which starts with a
+// minimal PATH). It returns nil when the shell cannot be read.
+func LoginShellEnv() []string { return loginShellEnv() }
+
 func loginShellEnv() []string {
 	sh := accountShell()
 	if sh == "" {

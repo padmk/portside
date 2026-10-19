@@ -38,15 +38,31 @@ func Render(port int, cfgPath string) string {
 	return b.String()
 }
 
-// Targets are the skill files of the agents installed for this account:
-// Claude Code (~/.claude/skills) and Codex (~/.codex/skills). Directories
-// linked to one another count once.
+// Target is the skill file one agent reads. Agent is the agent's directory
+// in the home directory (".claude" or ".codex").
+type Target struct {
+	Agent string
+	Path  string
+}
+
+// Targets are the paths of AgentTargets.
 func Targets() []string {
+	var out []string
+	for _, t := range AgentTargets() {
+		out = append(out, t.Path)
+	}
+	return out
+}
+
+// AgentTargets are the skill files of the agents installed for this
+// account: Claude Code (~/.claude/skills) and Codex (~/.codex/skills).
+// Directories linked to one another count once, for the first agent.
+func AgentTargets() []Target {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
-	var out []string
+	var out []Target
 	seen := map[string]bool{}
 	for _, agent := range []string{".claude", ".codex"} {
 		if _, err := os.Stat(filepath.Join(home, agent)); err != nil {
@@ -61,7 +77,7 @@ func Targets() []string {
 			continue
 		}
 		seen[real] = true
-		out = append(out, filepath.Join(dir, app.ID, "SKILL.md"))
+		out = append(out, Target{Agent: agent, Path: filepath.Join(dir, app.ID, "SKILL.md")})
 	}
 	return out
 }
