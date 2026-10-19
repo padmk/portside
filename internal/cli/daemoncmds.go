@@ -25,6 +25,7 @@ import (
 	"github.com/padmk/portside/internal/ports"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/service"
+	"github.com/padmk/portside/internal/supervisor"
 )
 
 func cmdDaemon(e *env, args []string) error {
@@ -494,13 +495,46 @@ func cmdDoctor(e *env, args []string) error {
 	if lsofErr != nil && ssErr != nil {
 		warn("neither lsof nor ss found; owners of busy ports cannot be shown")
 	}
-	if sh := os.Getenv("SHELL"); sh != "" && strings.HasSuffix(sh, "fish") {
-		fmt.Fprintf(e.out, "%s commands run with bash; your fish PATH is imported from a login shell\n", e.paint(dim, "•"))
-	}
+	doctorShell(e, ok, warn)
 	doctorAgents(e, *fix, ok, warn, bad)
 	if problems == 0 {
 		fmt.Fprintln(e.out, "\nEverything looks good.")
 		return nil
 	}
 	return silentError{1}
+}
+
+// doctorShell reports how servers get their environment: which shell was
+// read, whether directly or through bash or zsh, and the PATH it gave.
+func doctorShell(e *env, ok, warn func(string, ...any)) {
+	r, _ := supervisor.ReadLoginShell()
+	sh := paths.ShortenHome(r.Shell)
+	switch {
+	case r.Err != "":
+		warn("could not read the environment of your login shell %s (%s); servers get the daemon's environment, so set `path` in the config if commands are not found", paths.ShortenHome(r.Used), r.Err)
+		return
+	case r.Fallback():
+		fmt.Fprintf(e.out, "%s login shell %s cannot be read directly; servers get the environment of %s -l -i, so set `path` in the config for entries only %s adds\n", e.paint(dim, "•"), sh, paths.ShortenHome(r.Used), filepath.Base(r.Shell))
+	default:
+		ok("servers get the environment of your login shell %s", sh)
+	}
+	fmt.Fprintf(e.out, "  PATH %s\n", shortPath(r.Path, 6))
+}
+
+// shortPath shows the first n entries of a PATH value with the home folder
+// shortened and the number of the rest.
+func shortPath(v string, n int) string {
+	parts := filepath.SplitList(v)
+	shown := make([]string, 0, n)
+	for i, p := range parts {
+		if i == n {
+			break
+		}
+		shown = append(shown, paths.ShortenHome(p))
+	}
+	out := strings.Join(shown, string(os.PathListSeparator))
+	if len(parts) > n {
+		out += fmt.Sprintf(" (+%d more)", len(parts)-n)
+	}
+	return out
 }

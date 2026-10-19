@@ -28,6 +28,7 @@ type Handoff struct {
 	Config      config.Server `json:"config"` // what the process was started with
 	Env         []string      `json:"env"`
 	Shell       string        `json:"shell"`
+	Tool        string        `json:"tool,omitempty"` // version manager the process runs under
 	Status      Status        `json:"status"`
 	Note        string        `json:"note,omitempty"`
 	Want        bool          `json:"want"`
@@ -67,7 +68,7 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 		}
 		out = append(out, Handoff{
 			Name: name, PID: p.pid, PIDStart: p.pidStart, pty: p.pty,
-			Config: p.running, Env: slices.Clone(p.runningEnv), Shell: p.runningShell,
+			Config: p.running, Env: slices.Clone(p.runningEnv), Shell: p.runningShell, Tool: p.runningTool,
 			Status: p.status, Note: p.note, Want: p.want, Retries: p.retries,
 			StartedAt: p.startedAt, ReadyAt: p.readyAt,
 			ListenHost: p.listenHost, ListenPorts: slices.Clone(p.listenPorts),
@@ -171,6 +172,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		p.running = h.Config
 		p.runningEnv = h.Env
 		p.runningShell = h.Shell
+		p.runningTool = h.Tool
 		p.status = status
 		p.note = h.Note
 		p.want = h.Want
@@ -222,7 +224,7 @@ func inheritTerminal(h Handoff) (*os.File, error) {
 	}
 	syscall.CloseOnExec(h.PTY)
 	f := os.NewFile(uintptr(h.PTY), "pty-"+h.Name)
-	if start := processStart(h.PID); start != h.PIDStart {
+	if !sameStart(h.PID, h.PIDStart) {
 		f.Close()
 		return nil, fmt.Errorf("process %d is gone", h.PID)
 	}

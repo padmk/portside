@@ -52,6 +52,7 @@ type proc struct {
 	cfg            config.Server // latest configuration
 	runningEnv     []string
 	runningShell   string
+	runningTool    string // version manager the live process runs under, "" for none
 	restartPending bool
 	listenPorts    []int
 	listenHost     string
@@ -337,12 +338,12 @@ func (p *proc) alive() bool {
 	return p.status == Starting || p.status == Running || p.status == Stopping
 }
 
-func (p *proc) stale(cfg *config.Config, base []string) bool {
+func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool) bool {
 	if p.pid == 0 || p.status == Stopping {
 		return false
 	}
 	a, b := p.running, p.cfg
-	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || p.runningShell != cfg.Shell {
+	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || a.Wrap != b.Wrap || p.runningShell != cfg.Shell {
 		return true
 	}
 	// Until the login environment has been read (as after an upgrade, which
@@ -350,7 +351,7 @@ func (p *proc) stale(cfg *config.Config, base []string) bool {
 	if base == nil {
 		return false
 	}
-	return !sameEnv(p.runningEnv, launchEnv(base, b, cfg.PathPrepend, cfg.Env))
+	return !sameEnv(p.runningEnv, launchEnv(base, b, cfg.PathPrepend, cfg.Env), volatile)
 }
 
 // StartOptions tune Start.
@@ -542,7 +543,9 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	env := s.buildEnv(sv, prepend, globalEnv)
 	shellPath := lookPath(shell, lookupEnv(env, "PATH"))
 	script := strings.ReplaceAll(sv.Cmd, "{PORT}", strconv.Itoa(sv.Port))
-	cmd := exec.Command(shellPath, "-c", script)
+	tool := projectTools(sv, env, shellPath)
+	argv := append(slices.Clone(tool.prefix), shellPath, "-c", tool.script+script)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = sv.Dir
 	cmd.Env = env
 
@@ -567,6 +570,12 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	size := &pty.Winsize{Cols: p.cols, Rows: p.rows}
 	stamp := time.Now().Format("15:04:05")
 	fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  %s ──\x1b[0m\r\n\x1b[2m$ %s\x1b[0m\r\n", stamp, "start", script)
+	if tool.name != "" {
+		fmt.Fprintf(p.logs, "\x1b[2m(in the %s environment)\x1b[0m\r\n", tool.name)
+	}
+	if tool.note != "" {
+		fmt.Fprintf(p.logs, "\x1b[33m%s\x1b[0m\r\n", tool.note)
+	}
 	f, err := pty.StartWithSize(cmd, size)
 	if err != nil {
 		p.status = Crashed
@@ -585,6 +594,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.running = sv
 	p.runningEnv = slices.Clone(env)
 	p.runningShell = shell
+	p.runningTool = tool.name
 	p.restartPending = false
 	p.listenPorts = nil
 	p.listenHost = ""
@@ -1292,10 +1302,48 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 	s.mu.Unlock()
 }
 
-func processStart(pid int) string {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+// processStart identifies a process by its start time, as ps prints it in
+// the C locale so that the text does not depend on the daemon's locale. It
+// returns "" when the process does not exist.
+func processStart(pid int) string { return psStart(pid, cLocaleEnv()) }
+
+func psStart(pid int, env []string) string {
+	cmd := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	cmd.Env = env
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.Join(strings.Fields(string(out)), " ")
+}
+
+func cLocaleEnv() []string {
+	return append(os.Environ(), "LC_ALL=C", "LC_TIME=C", "LANG=C")
+}
+
+const startLayout = "Mon Jan 2 15:04:05 2006"
+
+// startTime is the start time of pid, to the second.
+func startTime(pid int) (time.Time, bool) {
+	t, err := time.ParseInLocation(startLayout, processStart(pid), time.Local)
+	return t, err == nil
+}
+
+// sameStart reports whether the live process pid has the start time saved
+// for it earlier. Older daemons saved it in their own locale; such a value
+// is compared with ps in the current locale, so a process whose saved time
+// cannot be confirmed never counts as the same.
+func sameStart(pid int, saved string) bool {
+	now := processStart(pid)
+	if now == "" || saved == "" {
+		return false
+	}
+	saved = strings.Join(strings.Fields(saved), " ")
+	if now == saved {
+		return true
+	}
+	if _, err := time.Parse(startLayout, saved); err == nil {
+		return false
+	}
+	return psStart(pid, os.Environ()) == saved
 }

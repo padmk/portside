@@ -47,6 +47,9 @@ type View struct {
 	HasIcon        bool            `json:"hasIcon"`
 	Tail           []string        `json:"tail"` // last few plain output lines
 	Wanted         bool            `json:"wanted"`
+	// Tool is the environment tool the live process runs under, such as
+	// direnv or mise ("custom" for a configured wrap).
+	Tool string `json:"tool,omitempty"`
 
 	// Temporary marks a copy of the configured server Origin that runs in
 	// the checkout at Worktree; it is not in the config file.
@@ -62,7 +65,7 @@ type View struct {
 // Snapshot returns all servers in configuration order. daemonPort is used to
 // build *.localhost alias URLs served by the daemon's proxy.
 func (s *Supervisor) Snapshot(daemonPort int) []View {
-	base := s.env.cached()
+	base, volatile := s.env.cached()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]View, 0, len(s.order))
@@ -93,7 +96,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			RestartPending: p.restartPending,
 			ListenPorts:    append([]int(nil), p.listenPorts...),
 			External:       p.external,
-			Stale:          p.stale(s.cfg, base),
+			Stale:          p.stale(s.cfg, base, volatile),
 			Removed:        p.removed,
 			Enabled:        c.Enabled,
 			DependsOn:      c.DependsOn,
@@ -102,6 +105,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			CPU:            p.cpu,
 			Mem:            p.mem,
 			Wanted:         p.want,
+			Tool:           p.runningTool,
 			HasIcon:        IconPath(c.Dir, c.Icon) != "",
 			Tail:           p.logs.Tail(6, 240),
 		}

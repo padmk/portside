@@ -69,6 +69,9 @@ const (
 	RestartNo        = "no"
 	RestartOnFailure = "on-failure"
 	RestartAlways    = "always"
+
+	// WrapNone turns off tool environment detection for a server.
+	WrapNone = "none"
 )
 
 // Server is one managed dev server with defaults applied and paths resolved.
@@ -87,10 +90,14 @@ type Server struct {
 	Health    string // optional HTTP path probed for readiness, e.g. "/"
 	Icon      string // optional absolute icon path
 	Open      string // optional path appended to the URL when opening
-	Stop      time.Duration
-	StopRaw   string // stop_timeout as written, "" when inherited
-	IconRaw   string // icon as written
-	Enabled   bool
+	// Wrap selects how the command enters the project's tool environment:
+	// "" detects direnv, devbox, mise or a Node version file, WrapNone runs
+	// it as is, anything else is a command prefix.
+	Wrap    string
+	Stop    time.Duration
+	StopRaw string // stop_timeout as written, "" when inherited
+	IconRaw string // icon as written
+	Enabled bool
 }
 
 // Config is the parsed configuration file.
@@ -178,6 +185,7 @@ type rawServer struct {
 	Health      string            `toml:"health"`
 	Icon        string            `toml:"icon"`
 	Open        string            `toml:"open"`
+	Wrap        string            `toml:"wrap"`
 	StopTimeout *Duration         `toml:"stop_timeout"`
 	Enabled     *bool             `toml:"enabled"`
 }
@@ -300,6 +308,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 			Restart:   r.Restart,
 			Health:    r.Health,
 			Open:      r.Open,
+			Wrap:      strings.TrimSpace(r.Wrap),
 			Stop:      cfg.StopTimeout,
 			Enabled:   r.Enabled == nil || *r.Enabled,
 		}

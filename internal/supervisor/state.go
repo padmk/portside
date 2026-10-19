@@ -110,7 +110,7 @@ func (s *Supervisor) Recover(restore bool) {
 		// unrelated program that got the recycled pid. If the leader is gone
 		// but its group still has members, they are ours: a pid cannot be
 		// reused while a process group with that id exists.
-		if start := processStart(g.PID); start != "" && start != g.Start {
+		if processStart(g.PID) != "" && !sameStart(g.PID, g.Start) {
 			continue
 		}
 		if syscall.Kill(-g.PID, 0) != nil {
