@@ -46,27 +46,41 @@ func TestPrepareDistinguishesComposeProjects(t *testing.T) {
 }
 
 func TestDetectPython(t *testing.T) {
+	uv := map[string]string{"uv.lock": ""}
+	with := func(base map[string]string, kv ...string) map[string]string {
+		m := map[string]string{}
+		for k, v := range base {
+			m[k] = v
+		}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
 	for _, tc := range []struct {
-		name, project, module, source string
-		want                          []string
+		name  string
+		files map[string]string
+		want  []string
 	}{
-		{"fastapi", "[project]\ndependencies = ['fastapi[standard]>=0.100']\n", "main.py", "from fastapi import FastAPI\napp = FastAPI()\n", []string{"uv run uvicorn main:app --reload --host 127.0.0.1 --port {PORT}"}},
-		{"uvicorn", "[project]\ndependencies = ['uvicorn']\n", "api/main.py", "from starlette.applications import Starlette\napp = Starlette()\n", []string{"uv run uvicorn api.main:app --reload --host 127.0.0.1 --port {PORT}"}},
-		{"scripts", "[project.scripts]\nworker = 'tasks:main'\n'bad;script' = 'tasks:main'\n", "", "", []string{"uv run worker"}},
-		{"no app", "[project]\ndependencies = ['fastapi']\n", "main.py", "def create_app():\n    return FastAPI()\n", nil},
-		{"unrelated", "[project]\ndependencies = ['requests']\n", "main.py", "app = FastAPI()\n", nil},
+		{"fastapi", with(uv, "pyproject.toml", "[project]\ndependencies = ['fastapi[standard]>=0.100']\n", "main.py", "from fastapi import FastAPI\napp = FastAPI()\n"), []string{"uv run uvicorn main:app --reload --host 127.0.0.1 --port {PORT}"}},
+		{"uvicorn", with(uv, "pyproject.toml", "[project]\ndependencies = ['uvicorn']\n", "api/main.py", "from starlette.applications import Starlette\napp = Starlette()\n"), []string{"uv run uvicorn api.main:app --reload --host 127.0.0.1 --port {PORT}"}},
+		{"scripts", with(uv, "pyproject.toml", "[project.scripts]\nworker = 'tasks:main'\n'bad;script' = 'tasks:main'\n"), []string{"uv run worker"}},
+		{"scripts without environment", with(nil, "pyproject.toml", "[project.scripts]\nworker = 'tasks:main'\n"), nil},
+		{"no app", with(uv, "pyproject.toml", "[project]\ndependencies = ['fastapi']\n", "main.py", "def create_app():\n    return FastAPI()\n"), nil},
+		{"unrelated", with(uv, "pyproject.toml", "[project]\ndependencies = ['requests']\n", "main.py", "app = FastAPI()\n"), nil},
+		{"poetry", with(nil, "poetry.lock", "", "pyproject.toml", "[tool.poetry.dependencies]\npython = '^3.12'\nfastapi = '*'\n", "main.py", "app = FastAPI()\n"), []string{"poetry run uvicorn main:app --reload --host 127.0.0.1 --port {PORT}"}},
+		{"requirements", with(nil, "requirements.txt", "# web\nuvicorn[standard]==0.30\n", "app.py", "app = FastAPI()\n"), []string{"python3 -m uvicorn app:app --reload --host 127.0.0.1 --port {PORT}"}},
+		{"flask venv", with(nil, "requirements.txt", "Flask>=3\n", ".venv/bin/python", "", "wsgi.py", "from flask import Flask\napp = Flask(__name__)\n"), []string{".venv/bin/python -m flask --app wsgi run -h 127.0.0.1 -p {PORT}"}},
+		{"flask factory", with(nil, "Pipfile", "[packages]\nflask = '*'\n", "app/__init__.py", "def create_app():\n    pass\n"), []string{"pipenv run flask --app app run -h 127.0.0.1 -p {PORT}"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(tc.project), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if tc.module != "" {
-				path := filepath.Join(dir, tc.module)
+			for name, content := range tc.files {
+				path := filepath.Join(dir, name)
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(path, []byte(tc.source), 0o644); err != nil {
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}

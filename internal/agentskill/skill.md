@@ -37,7 +37,7 @@ Manage one container through `container_action` (`name`, `action`: `start`, `sto
 
 ## Outside the roster
 
-`{{.ID}} scan [dir] --json` proposes unconfigured commands, including additional services in an already configured directory. Its automatic port suggestions skip roster ports and live listeners; Python ASGI and declared script proposals use `uv run`.
+`{{.ID}} scan [dir] --json` proposes unconfigured commands, including additional services in an already configured directory. Its automatic port suggestions skip roster ports and live listeners; suggestions marked `noPort` have no known way to set a port. Python proposals use the project's runner (uv, Poetry, Pipenv, PDM, a virtual environment, else `python3`).
 
 For a project the roster does not have, run a task-owned preview through the normal execution tool and stop only that process. Add a persistent entry only when the user asks or the repository workflow establishes one: `{{.ID}} add <name> --dir <dir> --cmd "<command with {PORT}>" --port <port> [--group <group>]`. Pick an explicit port that `{{.ID}} ports` shows as free. Omitted ports are assigned and saved to the config when the daemon loads it, so reordering entries keeps existing ports. The daemon reloads the file on its own, and `{{.ID}} config check` validates hand edits.
 

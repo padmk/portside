@@ -1,17 +1,22 @@
 // Package discover finds projects that look like they have a dev server and
 // proposes a command for each, so adding a server rarely means typing one.
+//
+// Detection is conservative, because a wrong suggestion is worse than none: a
+// suggestion gets an automatic port only when its command is known to listen
+// on {PORT} or $PORT, and a project kind is proposed only on clear evidence.
+// Node and Deno scripts live in node.go, Python in python.go, other
+// ecosystems and Compose in backends.go.
 package discover
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/ports"
 )
@@ -90,7 +95,7 @@ func commandIdentity(cmd string) string {
 			continue
 		}
 		switch f {
-		case "--port", "-p", "--host", "--hostname", "--menu":
+		case "--port", "-p", "--host", "--hostname", "-h", "-H", "-b", "--ip", "--urls", "--menu":
 			if i+1 < len(fields) {
 				i++
 			}
@@ -111,39 +116,41 @@ var skipDirs = map[string]bool{
 	"target": true, "coverage": true, "tmp": true, "venv": true, "__pycache__": true,
 }
 
+// A project root with a dev server rarely nests another worth listing, except
+// in these monorepo folders, which are still searched.
+var nestedDirs = map[string]bool{"apps": true, "packages": true, "web": true, "frontend": true, "services": true}
+
 // Scan walks root up to depth levels deep and returns suggestions sorted by
 // directory. Directories in skip (absolute paths) are left out.
 func Scan(root string, depth int, skip map[string]bool) []Suggestion {
-	var out []Suggestion
-	var walk func(dir string, level int)
-	walk = func(dir string, level int) {
+	var walk func(dir string, level int) []Suggestion
+	walk = func(dir string, level int) []Suggestion {
 		if skip[dir] {
-			return
+			return nil
 		}
 		found := detect(dir)
-		out = append(out, found...)
-		// A project root with a dev server rarely nests another worth listing,
-		// except in monorepos (apps/*, packages/*), which we still descend.
-		if level >= depth {
-			return
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return
-		}
-		for _, e := range entries {
-			n := e.Name()
-			if !e.IsDir() || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") || skipDirs[n] {
-				continue
+		var below []Suggestion
+		if entries, err := os.ReadDir(dir); err == nil && level < depth {
+			for _, e := range entries {
+				n := e.Name()
+				if !e.IsDir() || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") || skipDirs[n] {
+					continue
+				}
+				if len(found) > 0 && !nestedDirs[n] {
+					continue
+				}
+				below = append(below, walk(filepath.Join(dir, n), level+1)...)
 			}
-			if len(found) > 0 && n != "apps" && n != "packages" && n != "web" && n != "frontend" && n != "services" {
-				continue
-			}
-			walk(filepath.Join(dir, n), level+1)
 		}
+		// A workspace root's command runs the apps below it, which are
+		// proposed one by one instead.
+		if len(below) > 0 {
+			found = slices.DeleteFunc(found, func(s Suggestion) bool { return s.Kind == kindMonorepo })
+		}
+		return append(found, below...)
 	}
-	walk(root, 0)
-	sort.Slice(out, func(i, j int) bool { return out[i].Dir < out[j].Dir })
+	out := walk(root, 0)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Dir < out[j].Dir })
 	dedupeNames(out)
 	return out
 }
@@ -184,12 +191,10 @@ func exists(dir, name string) bool {
 	return err == nil
 }
 
-type pkgJSON struct {
-	Name            string            `json:"name"`
-	Scripts         map[string]string `json:"scripts"`
-	Dependencies    map[string]string `json:"dependencies"`
-	DevDependencies map[string]string `json:"devDependencies"`
-	Workspaces      json.RawMessage   `json:"workspaces"`
+// fileMatches reports whether the file dir/name exists and matches re.
+func fileMatches(dir, name string, re *regexp.Regexp) bool {
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	return err == nil && re.Match(data)
 }
 
 // generic directory names say nothing on their own ("web"), so they are
@@ -222,206 +227,42 @@ func nameFor(dir string) string {
 	return name
 }
 
+// detect proposes the servers of one directory. The application server comes
+// first and keeps the directory's name; asset servers and other entry points
+// get their kind as a suffix, Compose services "-services".
 func detect(dir string) []Suggestion {
-	var out []Suggestion
 	name := nameFor(dir)
-	if s, ok := detectNode(dir, name); ok {
-		out = append(out, s)
-	}
-	if len(out) == 0 && exists(dir, "manage.py") {
-		run := "python"
-		if exists(dir, "uv.lock") || exists(dir, "pyproject.toml") {
-			run = "uv run python"
+	var out []Suggestion
+	add := func(found ...Suggestion) {
+		for _, s := range found {
+			s.Dir = dir
+			if s.Name == "" {
+				s.Name = name
+			}
+			if slices.ContainsFunc(out, func(o Suggestion) bool { return o.Name == s.Name }) {
+				s.Name = Slug(s.Name + "-" + s.Kind)
+			}
+			out = append(out, s)
 		}
-		out = append(out, Suggestion{Name: name, Dir: dir, Kind: "django",
-			Cmd: run + " manage.py runserver 127.0.0.1:{PORT}"})
 	}
-	if len(out) == 0 && exists(dir, "Gemfile") && exists(dir, "bin/rails") {
-		out = append(out, Suggestion{Name: name, Dir: dir, Kind: "rails",
-			Cmd: "bin/rails server -b 127.0.0.1 -p {PORT}"})
+	add(detectBackend(dir)...)
+	if s, ok := detectNode(dir); ok {
+		add(s)
+	} else if s, ok := detectDeno(dir); ok {
+		add(s)
 	}
 	if !exists(dir, "manage.py") {
-		out = append(out, detectPython(dir, name)...)
+		add(detectPython(dir, name)...)
 	}
-	if compose := composeFile(dir); compose != "" {
-		s := Suggestion{Name: name, Dir: dir, Kind: "compose", StopAfter: "30s",
-			Cmd: "docker compose up --menu=false"}
-		if compose != "compose.yaml" && compose != "compose.yml" && compose != "docker-compose.yml" && compose != "docker-compose.yaml" {
-			s.Cmd = "docker compose -f " + compose + " up --menu=false"
-		}
-		if p := composePort(filepath.Join(dir, compose)); p > 0 {
-			s.Port = p
-		} else {
-			s.NoPort = true
-		}
+	add(detectGo(dir, name)...)
+	if s, ok := detectRust(dir); ok {
+		add(s)
+	}
+	if s, ok := detectCompose(dir); ok {
 		if len(out) > 0 {
 			s.Name = name + "-services"
 		}
-		out = append(out, s)
+		add(s)
 	}
 	return out
-}
-
-func detectPython(dir, name string) []Suggestion {
-	var project struct {
-		Project struct {
-			Dependencies []string          `toml:"dependencies"`
-			Scripts      map[string]string `toml:"scripts"`
-		}
-	}
-	if _, err := toml.DecodeFile(filepath.Join(dir, "pyproject.toml"), &project); err != nil {
-		return nil
-	}
-	var out []Suggestion
-	web := false
-	depName := regexp.MustCompile(`^[A-Za-z0-9_-]+`)
-	for _, dep := range project.Project.Dependencies {
-		n := strings.ToLower(depName.FindString(strings.TrimSpace(dep)))
-		if n == "uvicorn" || n == "fastapi" {
-			web = true
-		}
-	}
-	if web {
-		// Only conventional modules with an explicit ASGI app are proposed.
-		for _, module := range []string{"main", "app", "api.main", "app.main", "server.main", "src.main"} {
-			data, err := os.ReadFile(filepath.Join(dir, strings.ReplaceAll(module, ".", "/")+".py"))
-			if err == nil && asgiAppRe.Match(data) {
-				out = append(out, Suggestion{Name: name, Dir: dir, Kind: "python", Cmd: "uv run uvicorn " + module + ":app --reload --host 127.0.0.1 --port {PORT}"})
-				break
-			}
-		}
-	}
-	keys := make([]string, 0, len(project.Project.Scripts))
-	for k := range project.Project.Scripts {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, script := range keys {
-		if !pythonScriptRe.MatchString(script) || !pythonEntryRe.MatchString(project.Project.Scripts[script]) {
-			continue
-		}
-		// Entry points do not imply support for a port flag or even a listener.
-		out = append(out, Suggestion{Name: Slug(name + "-" + script), Dir: dir, Kind: "python", Cmd: "uv run " + script, NoPort: true})
-	}
-	return out
-}
-
-var asgiAppRe = regexp.MustCompile(`(?m)^app\s*(?::[^=\n]+)?=\s*(?:FastAPI|Starlette)\s*\(`)
-var pythonScriptRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-var pythonEntryRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*:[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$`)
-
-func composeFile(dir string) string {
-	for _, f := range []string{"compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml", "compose.dev.yaml", "docker-compose.dev.yml"} {
-		if exists(dir, f) {
-			return f
-		}
-	}
-	return ""
-}
-
-var composePortRe = regexp.MustCompile(`(?m)^\s*-\s*["']?(?:127\.0\.0\.1:|0\.0\.0\.0:)?(\d{2,5}):\d{2,5}`)
-
-func composePort(path string) int {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	m := composePortRe.FindSubmatch(data)
-	if m == nil {
-		return 0
-	}
-	p, _ := strconv.Atoi(string(m[1]))
-	return p
-}
-
-func detectNode(dir, name string) (Suggestion, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
-	if err != nil {
-		return Suggestion{}, false
-	}
-	var pkg pkgJSON
-	if json.Unmarshal(data, &pkg) != nil {
-		return Suggestion{}, false
-	}
-	script := ""
-	for _, s := range []string{"dev", "start:dev", "serve", "start"} {
-		if pkg.Scripts[s] != "" {
-			script = s
-			break
-		}
-	}
-	if script == "" {
-		return Suggestion{}, false
-	}
-	has := func(dep string) bool { return pkg.Dependencies[dep] != "" || pkg.DevDependencies[dep] != "" }
-	body := pkg.Scripts[script]
-	kind, flags := "node", ""
-	switch {
-	case has("next") || strings.Contains(body, "next "):
-		kind, flags = "next", "--hostname 127.0.0.1 --port {PORT}"
-	case has("astro"):
-		kind, flags = "astro", "--host 127.0.0.1 --port {PORT}"
-	case has("nuxt"):
-		kind, flags = "nuxt", "--host 127.0.0.1 --port {PORT}"
-	case has("@remix-run/dev") && !has("vite"):
-		kind = "remix"
-	case has("vite") || strings.Contains(body, "vite"):
-		kind, flags = "vite", "--host 127.0.0.1 --port {PORT} --strictPort"
-	case strings.Contains(body, "turbo ") || len(pkg.Workspaces) > 0 && !strings.Contains(body, " --port"):
-		kind = "monorepo"
-	}
-	pm := packageManager(dir)
-	cmd := pm.run(script)
-	// A script that pins its own port keeps it; the suggestion must use the same one.
-	if m := scriptPortRe.FindStringSubmatch(body); m != nil {
-		port, _ := strconv.Atoi(m[1])
-		return Suggestion{Name: name, Dir: dir, Cmd: cmd, Kind: kind, Port: port}, true
-	}
-	if flags != "" {
-		cmd += pm.sep() + flags
-	}
-	return Suggestion{Name: name, Dir: dir, Cmd: cmd, Kind: kind}, true
-}
-
-var scriptPortRe = regexp.MustCompile(`(?:--port[= ]|\s-p\s+)(\d{2,5})\b`)
-
-type pm string
-
-func packageManager(dir string) pm {
-	for d := dir; ; d = filepath.Dir(d) {
-		switch {
-		case exists(d, "pnpm-lock.yaml"):
-			return "pnpm"
-		case exists(d, "bun.lockb"), exists(d, "bun.lock"):
-			return "bun"
-		case exists(d, "yarn.lock"):
-			return "yarn"
-		case exists(d, "package-lock.json"):
-			return "npm"
-		}
-		if parent := filepath.Dir(d); parent == d || exists(d, ".git") {
-			return "npm"
-		}
-	}
-}
-
-func (p pm) run(script string) string {
-	switch p {
-	case "pnpm":
-		return "pnpm " + script
-	case "yarn":
-		return "yarn " + script
-	case "bun":
-		return "bun run " + script
-	default:
-		return "npm run " + script
-	}
-}
-
-// sep separates script arguments; npm needs "--" to forward them.
-func (p pm) sep() string {
-	if p == "npm" {
-		return " -- "
-	}
-	return " "
 }
