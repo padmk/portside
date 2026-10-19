@@ -92,6 +92,44 @@ enum Brand {
     static var name: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Portside" }
 }
 
+/// The project's icon, or its initials on a tile tinted from the name, as in the dashboard.
+struct ProjectTile: View {
+    let name: String
+    let image: NSImage?
+
+    private static let tints: [Color] = [.blue, .purple, .pink, .orange, .teal, .green]
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+            } else {
+                Text(verbatim: initials)
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(tint.opacity(0.18))
+            }
+        }
+        .frame(width: 20, height: 20)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+
+    /// The first letters of the first two name parts, else the first two letters.
+    private var initials: String {
+        let parts = name.split(whereSeparator: { "-_.".contains($0) })
+        if parts.count >= 2 { return (String(parts[0].prefix(1)) + String(parts[1].prefix(1))).uppercased() }
+        return String(name.prefix(2)).uppercased()
+    }
+
+    /// The same pick from the name as the dashboard's projectColor.
+    private var tint: Color {
+        var h = 0
+        for u in name.utf16 { h = (h * 31 + Int(u)) % 6 }
+        return Self.tints[h]
+    }
+}
+
 struct Lamp: View {
     let status: String
     @State private var pulse = false
@@ -351,6 +389,7 @@ struct MenuPanel: View {
         let issues = store.containerIssues[v.name] ?? []
         return HStack(spacing: 9) {
             Lamp(status: status)
+            ProjectTile(name: v.name, image: store.icons[v.name])
             VStack(alignment: .leading, spacing: 1) {
                 Text(v.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
                 Text(issues.isEmpty ? detail(v) : issues.map { "\($0.shortName) \($0.problem)" }.joined(separator: ", "))

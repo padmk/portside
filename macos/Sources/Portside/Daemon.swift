@@ -97,6 +97,8 @@ struct Server: Decodable, Identifiable, Hashable {
     let restartPending: Bool?
     /// The computer whose server holds this port through a forward, if any.
     let forwardedFrom: String?
+    /// Whether the project has an icon the daemon serves at /api/servers/<name>/icon.
+    let hasIcon: Bool?
 
     var id: String { name }
 
@@ -286,6 +288,13 @@ struct APIClient {
             throw DaemonError.failed("Could not create a sign-in link")
         }
         return SignInLink(url: url, dashboardHost: host)
+    }
+
+    /// The body of a GET that answered 200.
+    func get(_ path: String) async throws -> Data {
+        let (data, http) = try await send { URLRequest(url: base.appendingPathComponent(path)) }
+        guard http.statusCode == 200 else { throw DaemonError.failed("Request failed (\(http.statusCode))") }
+        return data
     }
 
     @discardableResult

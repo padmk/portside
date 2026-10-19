@@ -16,7 +16,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 
 ## Features
 
-- **A menu bar app on macOS.** The status icon shows at a glance whether everything runs, something is starting, or a server or one of its containers needs attention. Its panel lists every server with start, stop, restart, open and logs, plus group actions; the dashboard opens in its own window. A crash arrives as a notification with **Restart** and **Show Logs** buttons once the restart policy gives up (one per crash, not one per attempt), and so does a container that starts needing attention.
+- **A menu bar app on macOS.** The status icon shows at a glance whether everything runs, something is starting, or a server or one of its containers needs attention. Its panel lists every server with its project icon and start, stop, restart, open and logs, plus group actions; the dashboard opens in its own window. A crash arrives as a notification with **Restart** and **Show Logs** buttons once the restart policy gives up (one per crash, not one per attempt), and so does a container that starts needing attention.
 
 - **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop` starts web, api and worker) and dependencies (`api` waits for `db` to accept connections).
 - **Stable ports and clean URLs.** Each server keeps its port. Every server is also reachable at `http://<name>.localhost:7878` through a built-in proxy that handles WebSockets and hot reload.

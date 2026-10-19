@@ -31,6 +31,9 @@ final class Store {
 
     private(set) var connection: Connection = .connecting
     private(set) var servers: [Server] = []
+    /// Project icons by server name, fetched once per run for servers that have one.
+    private(set) var icons: [String: NSImage] = [:]
+    @ObservationIgnored private var iconsRequested: Set<String> = []
     private(set) var groups: [String] = []
     /// Containers that need attention, by server.
     private(set) var containerIssues: [String: [Container]] = [:]
@@ -296,6 +299,7 @@ final class Store {
         groups = state.groups ?? []
         servers = state.servers
         remote = state.remote
+        loadIcons()
         var issues: [String: [Container]] = [:]
         for c in state.docker?.containers ?? [] {
             for name in c.issueFor ?? [] { issues[name, default: []].append(c) }
@@ -357,6 +361,20 @@ final class Store {
         let rest = servers.filter { ($0.group ?? "").isEmpty }
         if !rest.isEmpty { out.append(Section(id: "ungrouped", group: nil, servers: rest)) }
         return out
+    }
+
+    /// Fetches the icons of local servers that have one and are not loaded
+    /// yet; a server whose icon fails keeps its initials tile.
+    private func loadIcons() {
+        guard remote == nil, let api else { return }
+        for v in servers where v.hasIcon == true && !iconsRequested.contains(v.name) {
+            iconsRequested.insert(v.name)
+            let name = v.name
+            Task { [weak self] in
+                guard let data = try? await api.get("api/servers/\(name)/icon"), let image = NSImage(data: data) else { return }
+                self?.icons[name] = image
+            }
+        }
     }
 
     // MARK: actions
