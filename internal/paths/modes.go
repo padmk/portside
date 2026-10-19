@@ -4,8 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-
-	"github.com/padmk/portside/internal/app"
 )
 
 // The config can hold secrets in server environments and the logs can hold
@@ -17,13 +15,35 @@ const (
 	FileMode os.FileMode = 0o600
 )
 
-// Restrict removes group and other access from the state directory and
-// everything in it, from the config file and, when it is the product's own
-// directory, from the config directory and its contents. Parent directories
-// such as ~/.config are left alone, and symlinks are not followed.
+// stateEntries are the files the daemon and its clients keep at the top of
+// the state directory. In a state directory chosen by the user only these,
+// the logs directory and the directory itself are tightened.
+var stateEntries = []string{
+	"auth-token", "container-stops.json", "daemon.lock", "daemon.log",
+	"daemon.port", "dashboard-host", "handoff.json", "last-good-config.json",
+	"remote-tokens.json", "remote.json", "share-devices.json", "share-target",
+	"state.json", "stopped",
+}
+
+// Restrict removes group and other access from the product's config and state.
+//
+// The default config and state directories belong to the product, so they are
+// tightened with everything in them. A config file elsewhere is tightened on
+// its own, and a state directory elsewhere is tightened itself together with
+// the product's files and logs in it; other files in such directories keep
+// their modes. Parent directories such as ~/.config are left alone, and
+// symlinks are not followed.
 func Restrict(cfgPath, stateDir string) {
-	restrictTree(stateDir)
-	if dir := filepath.Dir(cfgPath); filepath.Base(dir) == app.ID {
+	if samePath(stateDir, defaultStateDir()) {
+		restrictTree(stateDir)
+	} else {
+		restrict(stateDir)
+		for _, name := range stateEntries {
+			restrict(filepath.Join(stateDir, name))
+		}
+		restrictTree(filepath.Join(stateDir, "logs"))
+	}
+	if dir := filepath.Dir(cfgPath); samePath(dir, defaultConfigDir()) {
 		restrictTree(dir)
 	}
 	restrict(cfgPath)
@@ -33,6 +53,24 @@ func Restrict(cfgPath, stateDir string) {
 	}
 }
 
+// samePath reports whether a and b name the same location once symlinks in
+// them are resolved.
+func samePath(a, b string) bool {
+	return resolve(a) == resolve(b)
+}
+
+func resolve(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
+}
+
+// restrictTree tightens root and everything below it. A root that is a
+// symlink is left alone, like any symlink inside it.
 func restrictTree(root string) {
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

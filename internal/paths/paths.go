@@ -25,11 +25,17 @@ func ConfigFile() string {
 	if p := os.Getenv(app.Env("CONFIG")); p != "" {
 		return ExpandHome(p)
 	}
+	return filepath.Join(defaultConfigDir(), app.ID+".toml")
+}
+
+// defaultConfigDir is the product's own config directory, used unless the
+// config path is overridden.
+func defaultConfigDir() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		base = filepath.Join(home(), ".config")
 	}
-	return filepath.Join(base, app.ID, app.ID+".toml")
+	return filepath.Join(base, app.ID)
 }
 
 // StateDir returns the directory for runtime state, logs and the lock file.
@@ -37,6 +43,12 @@ func StateDir() string {
 	if p := os.Getenv(app.Env("STATE_DIR")); p != "" {
 		return ExpandHome(p)
 	}
+	return defaultStateDir()
+}
+
+// defaultStateDir is the product's own state directory, used unless the state
+// path is overridden.
+func defaultStateDir() string {
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
 		base = filepath.Join(home(), ".local", "state")

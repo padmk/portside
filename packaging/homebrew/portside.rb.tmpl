@@ -9,7 +9,7 @@ cask "portside" do
   homepage "https://github.com/__REPO__"
 
   depends_on arch: :arm64
-  depends_on macos: :sonoma
+  depends_on macos: :tahoe
 
   app "Portside.app"
   binary "#{appdir}/Portside.app/Contents/Helpers/portside"
@@ -23,17 +23,22 @@ cask "portside" do
   uninstall quit: "__BUNDLE_ID__"
 
   # The bundled binary is already removed when this runs, so the login
-  # service is removed and any other daemon gets SIGTERM, which stops its
-  # servers; the script waits for it before config and state are trashed.
+  # service is removed and the user's other daemon processes get SIGTERM,
+  # which stops their servers within their stop timeouts. The script waits
+  # until they are gone and fails otherwise, so config and state are trashed
+  # only once no daemon uses them.
   zap launchctl: "__SERVICE_LABEL__",
       script:    {
-        executable:   "/bin/sh",
-        args:         [
+        executable: "/bin/sh",
+        args:       [
           "-c",
-          "pkill -TERM -x portside; i=0; " \
-          "while pgrep -x portside >/dev/null && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done",
+          'u=$(id -u); pkill -TERM -U "$u" -x portside; i=0; ' \
+          'while pgrep -U "$u" -x portside >/dev/null; do ' \
+          '[ $i -ge 600 ] && { echo "portside is still stopping its servers after 10 minutes; ' \
+          "check with: pgrep -lU $u -x portside; when it has exited, " \
+          'run brew uninstall --zap --cask portside again" >&2; exit 1; }; ' \
+          "sleep 1; i=$((i+1)); done",
         ],
-        must_succeed: false,
       },
       trash:     [
         "~/.config/portside",

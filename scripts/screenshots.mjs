@@ -6,13 +6,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const [demo, out, set = 'readme'] = process.argv.slice(2)
-const BASE = 'http://127.0.0.1:7990'
+// Direct API calls go to the loopback address; the browser uses the dashboard's
+// own host, taken from the sign-in link.
+const API = 'http://127.0.0.1:7990'
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const token = readFileSync(join(demo, 'state', 'auth-token'), 'utf8').trim()
 
 async function signInLink(next = '/') {
-  const res = await fetch(`${BASE}/api/auth/code`, {
+  const res = await fetch(`${API}/api/auth/code`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ next }),
@@ -54,7 +56,7 @@ const theme = async (family, mode) => {
 let loads = 0
 // A query string forces a real reload so the stored theme is applied.
 const open = async (hash = '', wait = 2500) => {
-  await send('Page.navigate', { url: `${BASE}/?shot=${++loads}${hash}` })
+  await send('Page.navigate', { url: `${dashboard}/?shot=${++loads}${hash}` })
   await sleep(wait)
 }
 
@@ -68,6 +70,7 @@ const containersTab = async (name) => {
 await send('Page.enable')
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
 const link = await signInLink('/')
+const dashboard = new URL(link).origin
 await send('Page.navigate', { url: link })
 await sleep(2000)
 

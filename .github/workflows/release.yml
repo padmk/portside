@@ -9,7 +9,7 @@ permissions:
 jobs:
   cli:
     # Linux and macOS command-line archives with the embedded dashboard.
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -35,7 +35,7 @@ jobs:
   app:
     # macOS menu bar app, attached to the same release and published as a Homebrew cask.
     needs: cli
-    runs-on: macos-latest
+    runs-on: macos-26
     env:
       HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:

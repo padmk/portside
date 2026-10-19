@@ -12,5 +12,5 @@ First public release.
 - **Coding agents:** an MCP server (`portside mcp`) and a skill (`portside skill install`) for Claude Code and Codex: list, ensure, restart and stop servers, read and search server and container logs with times, act on containers. `portside doctor` checks the setup.
 - **CLI:** `up`, `down`, `restart`, `ensure`, `logs` (with `--grep`, `-C`, `--since`), `attach`, `containers`, `scan`, `add`, `share`, `computers`, `skill`, `doctor` and more.
 - **`*.localhost` proxy** with WebSocket support.
-- **macOS menu bar app:** status icon, quick actions, crash and container notifications, a dashboard window and launch at login. Linux uses the dashboard in the browser and a systemd user service.
+- **macOS menu bar app** (macOS 26 or later, Apple Silicon): status icon, quick actions, crash and container notifications, a dashboard window and launch at login. Linux uses the dashboard in the browser and a systemd user service.
 - **Security:** loopback only, Host and Origin checks, a per-user API token, one-time sign-in links for browsers and sandboxed project icons.
