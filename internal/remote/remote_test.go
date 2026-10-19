@@ -36,9 +36,12 @@ func connected(t *testing.T) (*Manager, *conn) {
 	return m, c
 }
 
+// freePort returns a port free on every address. A port picked on
+// 127.0.0.1 alone can be held on the wildcard address by another process
+// (macOS allows both binds), which mirrors report as busy.
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
 	}
