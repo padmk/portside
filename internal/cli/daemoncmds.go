@@ -92,6 +92,10 @@ func cmdService(e *env, args []string) error {
 	}
 	switch args[0] {
 	case "install":
+		if !service.Supported() && runtime.GOOS == "linux" {
+			fmt.Fprint(e.out, service.NoSystemdHint())
+			return nil
+		}
 		if err := e.ensureConfig(); err != nil {
 			return err
 		}
@@ -426,8 +430,13 @@ func cmdDoctor(e *env, args []string) error {
 		}
 	}
 
+	// Another program, or another account's daemon, on the default port
+	// while none of this account's runs: the daemon picks another port.
+	movable := cfg != nil && cfg.PortAuto && !client.DaemonRunning()
 	c := client.New(e.port())
-	if h, err := c.Ping(e.ctx); err == nil && !h.Verified {
+	if h, err := c.Ping(e.ctx); (err == nil || ports.Listening(e.port())) && movable {
+		fmt.Fprintf(e.out, "%s port %d is taken by another program or another account's daemon; the daemon will listen on another port and save it in the config\n", e.paint(dim, "•"), e.port())
+	} else if err == nil && !h.Verified {
 		bad("port %d answers as %s %s (pid %d) but cannot prove it is this account's daemon; `%s daemon restart` replaces a daemon from before verified requests", e.port(), app.Name, h.Version, h.PID, app.ID)
 	} else if err == nil {
 		ok("daemon running (pid %d, %s) at %s", h.PID, h.Version, c.Base)
@@ -452,7 +461,7 @@ func cmdDoctor(e *env, args []string) error {
 			}
 		}
 	} else if ports.Listening(e.port()) {
-		bad("port %d is taken by another program; set `port` in the config", e.port())
+		bad("port %d is taken by another program; change `port` in the config", e.port())
 	} else if daemon.Stopped() {
 		fmt.Fprintf(e.out, "%s daemon stopped on request; any command starts it\n", e.paint(dim, "•"))
 	} else {
@@ -466,8 +475,13 @@ func cmdDoctor(e *env, args []string) error {
 		if service.LingerOff() {
 			warn("systemd stops the daemon when you log out and starts it only at login; to keep it running: sudo loginctl enable-linger $USER")
 		}
+		if service.MissingDisplay() {
+			warn("the login service runs without DISPLAY or WAYLAND_DISPLAY, so notifications and opening an editor or terminal fail; `%[1]s daemon stop` and then `%[1]s daemon start` from this desktop session start it with them (this stops its servers)", app.ID)
+		}
 	case service.MenuBarAppStartsDaemon():
 		ok("the %s app opens at login and starts the daemon", app.Name)
+	case !service.Supported():
+		fmt.Fprintf(e.out, "%s no systemd, so no login service; `%s daemon start` in your shell profile starts the daemon at login\n", e.paint(dim, "•"), app.ID)
 	default:
 		fmt.Fprintf(e.out, "%s login service not installed; `%s service install` starts the daemon at login\n", e.paint(dim, "•"), app.ID)
 	}

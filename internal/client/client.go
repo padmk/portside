@@ -411,34 +411,112 @@ func LivePort() int {
 // ErrNotRunning means no daemon answered and none was started.
 var ErrNotRunning = errors.New("daemon is not running")
 
+// ErrSandboxed means no daemon answered and none was started because the
+// caller runs in an agent's sandbox: a daemon started there would inherit
+// the sandbox's file and network limits, and every server it starts too.
+var ErrSandboxed = errors.New("not starting the daemon from inside a sandbox")
+
+// sandboxEnv are variables that agent sandboxes set for the commands they
+// run: Codex sets CODEX_SANDBOX (seatbelt on macOS) and
+// CODEX_SANDBOX_NETWORK_DISABLED, Claude Code's sandbox SANDBOX_RUNTIME.
+var sandboxEnv = []string{"CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "SANDBOX_RUNTIME"}
+
+// Sandboxed reports whether this process appears to run in an agent's sandbox.
+func Sandboxed() bool {
+	for _, k := range sandboxEnv {
+		if os.Getenv(k) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func sandboxedError() error {
+	return fmt.Errorf("%s daemon is not running, and %w (it would inherit the sandbox); start it outside: run `%s daemon start` in a normal terminal or open the %s app, then try again", app.Name, ErrSandboxed, app.ID, app.Name)
+}
+
+// DaemonRunning reports whether a daemon holds this state directory's lock.
+// The test takes a shared lock for a moment; a daemon starting meanwhile
+// retries its own.
+func DaemonRunning() bool {
+	f, err := os.Open(filepath.Join(paths.StateDir(), "daemon.lock"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		return errors.Is(err, syscall.EWOULDBLOCK)
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
+}
+
+// follow points the client at the port a daemon recorded, when that differs
+// from its own: a daemon whose default port was taken listens on another.
+func (c *Client) follow() {
+	p := LivePort()
+	if p <= 0 || p == c.Port {
+		return
+	}
+	host := "127.0.0.1"
+	if u, err := url.Parse(c.Base); err == nil && u.Hostname() != "" {
+		host = u.Hostname()
+	}
+	c.Port = p
+	c.Base = "http://" + net.JoinHostPort(host, strconv.Itoa(p))
+	c.setEpoch("")
+}
+
 // Ensure makes sure a daemon answers and proves itself, starting one in the
 // background if none answers. When what answers cannot prove itself, it
-// returns its claimed identity and an error wrapping ErrUnverified.
+// returns its claimed identity and an error wrapping ErrUnverified. When
+// another program, or another account's daemon, holds the port and no
+// daemon of this account runs, it starts one anyway: a daemon without a
+// configured port then listens on another port, which the client follows.
 func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	h, err := c.Ping(ctx)
-	if err == nil {
-		if !h.Verified {
-			return h, c.Unverified()
-		}
+	if err == nil && h.Verified {
 		return h, nil
 	}
 	var apiErr *APIError
-	if errors.As(err, &apiErr) || (h.App != "" && h.App != app.ID) {
-		return h, err
+	foreign := err == nil || errors.As(err, &apiErr) || (h.App != "" && h.App != app.ID)
+	var held error
+	if foreign {
+		if err == nil {
+			err = c.Unverified()
+		}
+		if DaemonRunning() {
+			return h, err
+		}
+		held = err
+	}
+	if Sandboxed() {
+		if held != nil {
+			return h, fmt.Errorf("%w; %w", held, sandboxedError())
+		}
+		return h, sandboxedError()
 	}
 	exited, err := startDaemon()
 	if err != nil {
 		return h, fmt.Errorf("starting daemon: %w", err)
 	}
 	failed := fmt.Errorf("daemon did not come up; see %s", paths.ShortenHome(paths.DaemonLog()))
+	if held != nil {
+		failed = fmt.Errorf("%w; the daemon could not start (see %s)", held, paths.ShortenHome(paths.DaemonLog()))
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(150 * time.Millisecond)
+		c.follow()
 		if h, err = c.Ping(ctx); err == nil {
-			if !h.Verified {
+			if h.Verified {
+				return h, nil
+			}
+			// What held the port before still does; the new daemon has not
+			// reported its own port yet.
+			if held == nil {
 				return h, c.Unverified()
 			}
-			return h, nil
 		}
 		select {
 		case err := <-exited:

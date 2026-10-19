@@ -34,8 +34,10 @@ func wantMode(t *testing.T, path string, want os.FileMode) {
 
 func TestRestrictDefaultLocations(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	// macOS ignores the XDG variables, Linux follows them: both land here.
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, ".local", "state"))
 	cfgDir, stateDir := defaultConfigDir(), defaultStateDir()
 	cfg := filepath.Join(cfgDir, app.ID+".toml")
 	writeMode(t, cfg, 0o644)
@@ -51,13 +53,14 @@ func TestRestrictDefaultLocations(t *testing.T) {
 	wantMode(t, filepath.Join(cfgDir, "notes.txt"), 0o600)
 	wantMode(t, cfgDir, 0o700)
 	wantMode(t, filepath.Join(stateDir, "other", "file"), 0o600)
-	wantMode(t, filepath.Join(root, "config"), 0o755)
+	wantMode(t, filepath.Join(root, ".config"), 0o755)
 }
 
 func TestRestrictCustomLocations(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, ".local", "state"))
 	// A config inside a repository named like the product.
 	repo := filepath.Join(root, app.ID)
 	cfg := filepath.Join(repo, app.ID+".toml")

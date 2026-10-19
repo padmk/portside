@@ -63,6 +63,7 @@ func LoadRecoverable(path, stateDir string) (*Config, error) {
 	cfg, _ := Parse(path, nil)
 	if port, err := ReadPort(path); err == nil {
 		cfg.Port = port
+		cfg.PortAuto = port == app.DefaultPort
 	}
 	return cfg, original
 }

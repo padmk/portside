@@ -2,11 +2,16 @@
 //
 // The same XDG-style layout is used on macOS and Linux so that the config file
 // is easy to find and edit by hand: ~/.config/<id>/ and ~/.local/state/<id>/.
+// On Linux XDG_CONFIG_HOME and XDG_STATE_HOME move them. On macOS they do not:
+// the menu bar app and launchd never see a shell's XDG variables, so honoring
+// them there would give the CLI another config, state directory, token and
+// lock than the app.
 package paths
 
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/padmk/portside/internal/app"
@@ -25,17 +30,27 @@ func ConfigFile() string {
 	if p := os.Getenv(app.Env("CONFIG")); p != "" {
 		return ExpandHome(p)
 	}
-	return filepath.Join(defaultConfigDir(), app.ID+".toml")
+	return DefaultConfigFile()
 }
+
+// DefaultConfigFile is the config file used unless the config path is overridden.
+func DefaultConfigFile() string { return filepath.Join(defaultConfigDir(), app.ID+".toml") }
 
 // defaultConfigDir is the product's own config directory, used unless the
 // config path is overridden.
 func defaultConfigDir() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(home(), ".config")
+	return filepath.Join(xdgBase("XDG_CONFIG_HOME", ".config"), app.ID)
+}
+
+// xdgBase is the XDG base directory named by env, or ~/<fallback>. Only Linux
+// reads the variable (see the package comment).
+func xdgBase(env, fallback string) string {
+	if runtime.GOOS != "darwin" {
+		if base := os.Getenv(env); base != "" {
+			return base
+		}
 	}
-	return filepath.Join(base, app.ID)
+	return filepath.Join(home(), fallback)
 }
 
 // StateDir returns the directory for runtime state, logs and the lock file.
@@ -49,11 +64,14 @@ func StateDir() string {
 // defaultStateDir is the product's own state directory, used unless the state
 // path is overridden.
 func defaultStateDir() string {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		base = filepath.Join(home(), ".local", "state")
-	}
-	return filepath.Join(base, app.ID)
+	return filepath.Join(xdgBase("XDG_STATE_HOME", filepath.Join(".local", "state")), app.ID)
+}
+
+// Default reports whether cfgPath and stateDir are the default config file
+// and state directory, as for the account's main daemon rather than an
+// isolated instance.
+func Default(cfgPath, stateDir string) bool {
+	return samePath(ExpandHome(cfgPath), DefaultConfigFile()) && samePath(stateDir, defaultStateDir())
 }
 
 // LogDir returns the directory holding one log file per server.

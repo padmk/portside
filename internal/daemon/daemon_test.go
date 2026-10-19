@@ -78,12 +78,19 @@ func TestHandoffCarriesDashboardHost(t *testing.T) {
 
 func TestServiceSkillRefreshIsolation(t *testing.T) {
 	base := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", base)
+	t.Setenv("HOME", base)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, ".config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(base, ".local", "state"))
 	t.Setenv(app.Env("STATE_DIR"), "")
-	path := filepath.Join(base, app.ID, app.ID+".toml")
+	path := filepath.Join(base, ".config", app.ID, app.ID+".toml")
 	t.Setenv(app.Env("CONFIG"), path)
 	if !refreshInstalledSkill(path) {
 		t.Fatal("a service using the default config must refresh the installed skill")
+	}
+	// The service pins the default state directory explicitly.
+	t.Setenv(app.Env("STATE_DIR"), filepath.Join(base, ".local", "state", app.ID))
+	if !refreshInstalledSkill(path) {
+		t.Fatal("a service pinning the default state directory must refresh the installed skill")
 	}
 	if refreshInstalledSkill(filepath.Join(base, "isolated.toml")) {
 		t.Fatal("a custom config must not refresh the installed skill")

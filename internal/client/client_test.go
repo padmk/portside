@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/padmk/portside/internal/app"
@@ -101,6 +102,16 @@ func TestClientRefusesUnprovenDaemon(t *testing.T) {
 	}
 	if _, err := c.DialWebSocket(context.Background(), "/api/events"); !errors.Is(err, ErrUnverified) {
 		t.Errorf("DialWebSocket: %v, want ErrUnverified", err)
+	}
+	// A daemon of this account holds the lock (one from before verified
+	// requests), so Ensure starts no other.
+	lock, err := os.Create(filepath.Join(os.Getenv(app.Env("STATE_DIR")), "daemon.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := c.Ensure(context.Background()); !errors.Is(err, ErrUnverified) {
 		t.Errorf("Ensure: %v, want ErrUnverified", err)

@@ -95,9 +95,12 @@ type Server struct {
 
 // Config is the parsed configuration file.
 type Config struct {
-	Path        string
-	Root        string
-	Port        int
+	Path string
+	Root string
+	Port int
+	// PortAuto is true when the file sets no dashboard port, so the daemon
+	// may choose and save another one when the default is taken.
+	PortAuto    bool
 	Shell       string
 	PathPrepend []string
 	Env         map[string]string
@@ -241,6 +244,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 	}
 	if cfg.Port == 0 {
 		cfg.Port = app.DefaultPort
+		cfg.PortAuto = true
 	}
 	if cfg.Shell == "" {
 		cfg.Shell = "bash"
