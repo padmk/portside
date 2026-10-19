@@ -3,6 +3,7 @@ package discover
 import (
 	"bufio"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -18,22 +19,24 @@ type pyRunner struct {
 	bin    string // virtual environment bin directory, with a trailing slash
 }
 
+var (
+	lookPath       = exec.LookPath
+	pyprojectRe    = regexp.MustCompile(`(?m)^\[project\]`)
+	pythonBinRe    = regexp.MustCompile(`^python(?:3(?:\.\d+)?)?$`)
+	pythonRunnerRe = regexp.MustCompile(`^(?:uv|poetry|pipenv|pdm)$`)
+)
+
 // pythonRunner chooses the runner by lockfile (in the project or a parent up
-// to the repository root), then a virtual environment, then python3.
+// to the repository root), then uv when it is installed and the project has
+// a PEP 621 pyproject.toml (uv run uses its .venv too), then a virtual
+// environment, then python3.
 func pythonRunner(dir string) pyRunner {
-	for d := dir; ; d = filepath.Dir(d) {
-		switch {
-		case exists(d, "uv.lock"):
+	if r, ok := lockedRunner(dir); ok {
+		return r
+	}
+	if fileMatches(dir, "pyproject.toml", pyprojectRe) {
+		if _, err := lookPath("uv"); err == nil {
 			return pyRunner{prefix: "uv run ", python: "uv run python"}
-		case exists(d, "poetry.lock"):
-			return pyRunner{prefix: "poetry run ", python: "poetry run python"}
-		case exists(d, "Pipfile.lock"), exists(d, "Pipfile"):
-			return pyRunner{prefix: "pipenv run ", python: "pipenv run python"}
-		case exists(d, "pdm.lock"):
-			return pyRunner{prefix: "pdm run ", python: "pdm run python"}
-		}
-		if parent := filepath.Dir(d); parent == d || exists(d, ".git") {
-			break
 		}
 	}
 	for _, venv := range []string{".venv", "venv"} {
@@ -42,6 +45,52 @@ func pythonRunner(dir string) pyRunner {
 		}
 	}
 	return pyRunner{python: "python3"}
+}
+
+// pythonIdentity reduces the ways one Python command can be run to one form,
+// so a configured "uv run uvicorn main:app" matches a proposed
+// "python3 -m uvicorn main:app": runner prefixes go, interpreters become
+// "python", "python -m X" becomes "X" and virtual environment tools lose
+// their folder.
+func pythonIdentity(fields []string) []string {
+	if len(fields) > 1 && pythonRunnerRe.MatchString(fields[0]) && fields[1] == "run" {
+		fields = fields[2:]
+	}
+	if len(fields) == 0 {
+		return fields
+	}
+	first := fields[0]
+	inVenv := strings.HasPrefix(first, ".venv/bin/") || strings.HasPrefix(first, "venv/bin/")
+	if inVenv {
+		first = filepath.Base(first)
+	}
+	if pythonBinRe.MatchString(first) {
+		if len(fields) > 2 && fields[1] == "-m" {
+			return fields[2:]
+		}
+		first = "python"
+	}
+	return append([]string{first}, fields[1:]...)
+}
+
+// lockedRunner finds a tool's lockfile in dir or a parent up to the
+// repository root.
+func lockedRunner(dir string) (pyRunner, bool) {
+	for d := dir; ; d = filepath.Dir(d) {
+		switch {
+		case exists(d, "uv.lock"):
+			return pyRunner{prefix: "uv run ", python: "uv run python"}, true
+		case exists(d, "poetry.lock"):
+			return pyRunner{prefix: "poetry run ", python: "poetry run python"}, true
+		case exists(d, "Pipfile.lock"), exists(d, "Pipfile"):
+			return pyRunner{prefix: "pipenv run ", python: "pipenv run python"}, true
+		case exists(d, "pdm.lock"):
+			return pyRunner{prefix: "pdm run ", python: "pdm run python"}, true
+		}
+		if parent := filepath.Dir(d); parent == d || exists(d, ".git") {
+			return pyRunner{}, false
+		}
+	}
 }
 
 // module runs an installed Python module or tool such as uvicorn.

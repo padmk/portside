@@ -99,6 +99,8 @@ var (
 	goMainRe  = regexp.MustCompile(`(?m)^package main\b`)
 	goServeRe = regexp.MustCompile(`\.ListenAndServe(?:TLS)?\(|"github\.com/gin-gonic/gin"|"github\.com/labstack/echo(?:/v\d+)?"|"github\.com/gofiber/fiber(?:/v\d+)?"`)
 	goPortRe  = regexp.MustCompile(`(?:Getenv|LookupEnv)\("PORT"\)`)
+	// safeSegmentRe matches folder names that may appear in a command.
+	safeSegmentRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
 )
 
 // detectGo proposes go run for main packages, in the module root or under
@@ -113,7 +115,8 @@ func detectGo(dir, name string) []Suggestion {
 	}
 	entries, _ := os.ReadDir(filepath.Join(dir, "cmd"))
 	for _, e := range entries {
-		if e.IsDir() {
+		// The folder name goes into the command, so only plain names do.
+		if e.IsDir() && safeSegmentRe.MatchString(e.Name()) {
 			if s, ok := goServer(dir, "./cmd/"+e.Name()); ok {
 				s.Name = Slug(name + "-" + e.Name())
 				out = append(out, s)
@@ -141,7 +144,7 @@ func goServer(dir, pkg string) (Suggestion, bool) {
 	if !main || !serves {
 		return Suggestion{}, false
 	}
-	return Suggestion{Kind: "go", Cmd: "go run " + pkg, NoPort: !port}, true
+	return Suggestion{Kind: "go", Cmd: "go run " + shellQuote(pkg), NoPort: !port}, true
 }
 
 var (

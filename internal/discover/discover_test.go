@@ -2,6 +2,7 @@ package discover
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,6 +47,13 @@ func TestPrepareDistinguishesComposeProjects(t *testing.T) {
 }
 
 func TestDetectPython(t *testing.T) {
+	defer func(f func(string) (string, error)) { lookPath = f }(lookPath)
+	lookPath = func(name string) (string, error) {
+		if name == "uv" {
+			return "/usr/local/bin/uv", nil
+		}
+		return "", exec.ErrNotFound
+	}
 	uv := map[string]string{"uv.lock": ""}
 	with := func(base map[string]string, kv ...string) map[string]string {
 		m := map[string]string{}
@@ -71,6 +79,7 @@ func TestDetectPython(t *testing.T) {
 		{"poetry", with(nil, "poetry.lock", "", "pyproject.toml", "[tool.poetry.dependencies]\npython = '^3.12'\nfastapi = '*'\n", "main.py", "app = FastAPI()\n"), []string{"poetry run uvicorn main:app --reload --host 127.0.0.1 --port {PORT}"}},
 		{"requirements", with(nil, "requirements.txt", "# web\nuvicorn[standard]==0.30\n", "app.py", "app = FastAPI()\n"), []string{"python3 -m uvicorn app:app --reload --host 127.0.0.1 --port {PORT}"}},
 		{"flask venv", with(nil, "requirements.txt", "Flask>=3\n", ".venv/bin/python", "", "wsgi.py", "from flask import Flask\napp = Flask(__name__)\n"), []string{".venv/bin/python -m flask --app wsgi run -h 127.0.0.1 -p {PORT}"}},
+		{"uv installed", with(nil, "pyproject.toml", "[project]\nname = 'api'\ndependencies = ['fastapi']\n", ".venv/bin/python", "", "main.py", "app = FastAPI()\n"), []string{"uv run uvicorn main:app --reload --host 127.0.0.1 --port {PORT}"}},
 		{"flask factory", with(nil, "Pipfile", "[packages]\nflask = '*'\n", "app/__init__.py", "def create_app():\n    pass\n"), []string{"pipenv run flask --app app run -h 127.0.0.1 -p {PORT}"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

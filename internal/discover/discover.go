@@ -4,8 +4,10 @@
 // Detection is conservative, because a wrong suggestion is worse than none: a
 // suggestion gets an automatic port only when its command is known to listen
 // on {PORT} or $PORT, and a project kind is proposed only on clear evidence.
-// Node and Deno scripts live in node.go, Python in python.go, other
-// ecosystems and Compose in backends.go.
+// Node and Deno scripts live in node.go, JavaScript workspace roots in
+// workspace.go, Python in python.go, other ecosystems and Compose in
+// backends.go. Names taken from the project (folders, scripts) enter a
+// generated command only when they are plain words.
 package discover
 
 import (
@@ -78,7 +80,7 @@ func prepare(cfg *config.Config, found []Suggestion, listening func(int) bool) [
 
 // Ignore the flags added by detection when identifying an existing service.
 func commandIdentity(cmd string) string {
-	fields := strings.Fields(cmd)
+	fields := pythonIdentity(strings.Fields(cmd))
 	compose := strings.Contains(cmd, "docker compose") || strings.Contains(cmd, "docker-compose") || strings.Contains(cmd, "podman compose")
 	out := []string{}
 	for i := 0; i < len(fields); i++ {
@@ -123,11 +125,13 @@ var nestedDirs = map[string]bool{"apps": true, "packages": true, "web": true, "f
 // Scan walks root up to depth levels deep and returns suggestions sorted by
 // directory. Directories in skip (absolute paths) are left out.
 func Scan(root string, depth int, skip map[string]bool) []Suggestion {
+	visited := map[string]bool{}
 	var walk func(dir string, level int) []Suggestion
 	walk = func(dir string, level int) []Suggestion {
-		if skip[dir] {
+		if skip[dir] || visited[dir] {
 			return nil
 		}
+		visited[dir] = true
 		found := detect(dir)
 		var below []Suggestion
 		if entries, err := os.ReadDir(dir); err == nil && level < depth {
@@ -140,6 +144,13 @@ func Scan(root string, depth int, skip map[string]bool) []Suggestion {
 					continue
 				}
 				below = append(below, walk(filepath.Join(dir, n), level+1)...)
+			}
+			// Workspace packages may live outside the folders searched above.
+			if pkg, ok := readPackageJSON(dir); ok {
+				_, packages := workspaceRoot(dir, pkg)
+				for _, p := range packages {
+					below = append(below, walk(p, level+1)...)
+				}
 			}
 		}
 		// A workspace root's command runs the apps below it, which are
