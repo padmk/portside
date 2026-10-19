@@ -2,7 +2,10 @@ package docker
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,20 +102,94 @@ func (m *Monitor) startCommand(ep Endpoint) ([]string, error) {
 	if c := strings.TrimSpace(m.custom()); c != "" {
 		return []string{"/bin/sh", "-c", c}, nil
 	}
-	if args := m.engineStarter(engineName(ep), ep.Context); args != nil {
+	if ep.Network == "ssh" || (ep.Network == "tcp" && !isLoopback(ep.Address)) {
+		return nil, errors.New("the engine runs on another computer; start it there")
+	}
+	name := engineName(ep)
+	if args := m.engineStarter(name, ep.Context); args != nil {
 		return args, nil
 	}
-	for _, name := range []string{"OrbStack", "Docker Desktop", "Colima", "Rancher Desktop"} {
+	if name == "Docker" && runtime.GOOS == "linux" {
+		if systemctl := m.host.LookPath("systemctl"); systemctl != "" {
+			// Rootless Docker is a user unit; the usual rootful one is a
+			// system unit, which needs root to start.
+			if m.unitExists(systemctl, true, "docker.service") {
+				return []string{systemctl, "--user", "start", "docker"}, nil
+			}
+			if m.unitExists(systemctl, false, "docker.service") {
+				return nil, errors.New("Docker runs as a system service: run `sudo systemctl start docker`")
+			}
+		}
+	}
+	for _, name := range []string{"OrbStack", "Docker Desktop", "Colima", "Rancher Desktop", "Podman"} {
 		if m.installed(name) {
 			if args := m.engineStarter(name, ""); args != nil {
 				return args, nil
 			}
 		}
 	}
-	if runtime.GOOS == "linux" && m.host.LookPath("systemctl") != "" {
-		return []string{m.host.LookPath("systemctl"), "--user", "start", "docker"}, nil
-	}
 	return nil, errors.New("no container engine found; set docker_start in the config")
+}
+
+// unitExists reports whether systemd knows a unit, as a user unit or a
+// system one.
+func (m *Monitor) unitExists(systemctl string, user bool, unit string) bool {
+	args := []string{"cat", unit}
+	if user {
+		args = []string{"--user", "cat", unit}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, systemctl, args...)
+	cmd.Env = m.host.Environ()
+	return cmd.Run() == nil
+}
+
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// explain replaces "not running" with the reason when the engine cannot
+// serve the Docker API at all.
+func (m *Monitor) explain(ep Endpoint, err error) error {
+	if ep.Network != "unix" || describe(err) != "Docker is not running" {
+		return err
+	}
+	if rancherEngine() == "containerd" {
+		return errors.New("Rancher Desktop uses containerd, which has no Docker API: choose dockerd (moby) as its container engine")
+	}
+	return err
+}
+
+// rancherEngine reads the container engine chosen in Rancher Desktop's
+// settings, "" when it is not installed.
+func rancherEngine() string {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, ".config")
+	if runtime.GOOS == "darwin" {
+		dir = filepath.Join(home, "Library", "Application Support")
+	} else if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		dir = x
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "rancher-desktop", "settings.json"))
+	if err != nil {
+		return ""
+	}
+	var s struct {
+		ContainerEngine struct {
+			Name string `json:"name"`
+		} `json:"containerEngine"`
+	}
+	_ = json.Unmarshal(data, &s)
+	return s.ContainerEngine.Name
 }
 
 func (m *Monitor) engineStarter(name, context string) []string {
@@ -146,13 +223,21 @@ func (m *Monitor) engineStarter(name, context string) []string {
 		if mac {
 			return []string{"/usr/bin/open", "-g", "-a", "Rancher Desktop"}
 		}
+	case "Podman":
+		if mac {
+			if p := m.host.LookPath("podman"); p != "" {
+				return []string{p, "machine", "start"}
+			}
+		} else if p := m.host.LookPath("systemctl"); p != "" {
+			return []string{p, "--user", "start", "podman.socket"}
+		}
 	}
 	return nil
 }
 
 func (m *Monitor) installed(name string) bool {
 	apps := map[string]string{"OrbStack": "OrbStack.app", "Docker Desktop": "Docker.app", "Rancher Desktop": "Rancher Desktop.app"}
-	tools := map[string]string{"OrbStack": "orb", "Colima": "colima", "Rancher Desktop": "rdctl"}
+	tools := map[string]string{"OrbStack": "orb", "Colima": "colima", "Rancher Desktop": "rdctl", "Podman": "podman"}
 	if runtime.GOOS == "darwin" && apps[name] != "" {
 		home, _ := os.UserHomeDir()
 		for _, dir := range []string{"/Applications", filepath.Join(home, "Applications")} {

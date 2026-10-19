@@ -105,6 +105,9 @@ type Supervisor struct {
 	// release frees a port this daemon holds for another purpose before a
 	// server that needs it starts.
 	release func(port int)
+	// publishedPort reports whether a running container publishes a port,
+	// for when the listener's owner is hidden (a root docker-proxy).
+	publishedPort func(port int) bool
 	// forwarded reports a port this daemon forwards to another computer,
 	// and that computer's name.
 	forwarded func(port int) (string, bool)
@@ -158,6 +161,14 @@ func New(cfg *config.Config, stateDir string) *Supervisor {
 func (s *Supervisor) SetPortRelease(fn func(port int)) {
 	s.mu.Lock()
 	s.release = fn
+	s.mu.Unlock()
+}
+
+// SetPublishedPorts registers fn, which reports whether a running container
+// publishes a port.
+func (s *Supervisor) SetPublishedPorts(fn func(port int) bool) {
+	s.mu.Lock()
+	s.publishedPort = fn
 	s.mu.Unlock()
 }
 
@@ -468,6 +479,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	prepend := s.cfg.PathPrepend
 	globalEnv := s.cfg.Env
 	release := s.release
+	published := s.publishedPort
 	s.mu.Unlock()
 
 	if sv.Port > 0 && release != nil {
@@ -482,7 +494,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	if sv.Port > 0 && ports.Listening(sv.Port) && !composeOwnsPort(sv.Cmd, sv.Port) {
+	if sv.Port > 0 && ports.Listening(sv.Port) && !composeOwnsPort(sv.Cmd, sv.Port, published) {
 		owner, found := ports.Owner(context.Background(), sv.Port)
 		if !opt.Takeover || !found {
 			s.mu.Lock()
@@ -1034,12 +1046,16 @@ func (s *Supervisor) IsManagedPID(pid int) (string, bool) {
 // composeOwnsPort reports whether a container runtime holds the port for a
 // server that is itself a compose stack. Its containers may still be up from
 // an earlier run; "docker compose up" attaches to them instead of failing.
-func composeOwnsPort(cmd string, port int) bool {
+// When the owner is hidden, as a rootful engine's docker-proxy is from other
+// accounts, published asks the engine whether a container publishes the port.
+func composeOwnsPort(cmd string, port int, published func(port int) bool) bool {
 	if !IsComposeCommand(cmd) {
 		return false
 	}
-	owner, ok := ports.Owner(context.Background(), port)
-	return ok && IsContainerRuntime(owner.Command)
+	if owner, ok := ports.Owner(context.Background(), port); ok {
+		return IsContainerRuntime(owner.Command)
+	}
+	return published != nil && published(port)
 }
 
 // IsComposeCommand reports whether a server's command runs a compose stack.
@@ -1048,11 +1064,18 @@ func IsComposeCommand(cmd string) bool {
 	return strings.Contains(c, "docker compose") || strings.Contains(c, "docker-compose") || strings.Contains(c, "podman compose")
 }
 
-// IsContainerRuntime reports whether a process name belongs to Docker,
-// OrbStack, Colima or Podman, which publish container ports on the host.
+// containerRuntimes are parts of process names that publish container ports
+// on the host: Docker (docker-proxy, Docker Desktop's com.docker.backend),
+// OrbStack, Colima and Lima, Podman and its port forwarders (gvproxy on a
+// machine, conmon, pasta or slirp4netns rootless), and rootless Docker's
+// rootlesskit and rootlessport.
+var containerRuntimes = []string{"docker", "com.docke", "orbstack", "vpnkit", "colima", "lima", "podman", "gvproxy", "conmon", "pasta", "slirp4netns", "rootless"}
+
+// IsContainerRuntime reports whether a process name belongs to a container
+// engine that publishes container ports on the host.
 func IsContainerRuntime(command string) bool {
 	lc := strings.ToLower(command)
-	for _, rt := range []string{"docker", "com.docke", "orbstack", "vpnkit", "colima", "lima", "podman"} {
+	for _, rt := range containerRuntimes {
 		if strings.Contains(lc, rt) {
 			return true
 		}
@@ -1061,8 +1084,9 @@ func IsContainerRuntime(command string) bool {
 }
 
 // protected process names are never killed by takeover: stopping them would
-// take down Docker, AirPlay or the session rather than a stray dev server.
-var protected = []string{"docker", "com.docke", "orbstack", "vpnkit", "launchd", "controlce", "rapportd", "systemd", "colima", "lima", "podman"}
+// take down a container engine, AirPlay or the session rather than a stray
+// dev server.
+var protected = append([]string{"launchd", "controlce", "rapportd", "systemd"}, containerRuntimes...)
 
 // Killable reports why a foreign listener may not be killed, or "" if it may.
 func (s *Supervisor) Killable(l ports.Listener) string {

@@ -21,20 +21,19 @@ import (
 type Client struct {
 	ep   Endpoint
 	http *http.Client
+	dial func(ctx context.Context) (net.Conn, error)
 }
 
-// NewClient returns a client for ep.
-func NewClient(ep Endpoint) *Client {
-	dial := func(ctx context.Context) (net.Conn, error) {
-		var d net.Dialer
-		return d.DialContext(ctx, ep.Network, ep.Address)
-	}
+// NewClient returns a client for ep. env is the environment of helper
+// processes, such as ssh for an ssh:// endpoint.
+func NewClient(ep Endpoint, env []string) *Client {
+	dial := dialer(ep, env)
 	tr := &http.Transport{
 		DialContext:         func(ctx context.Context, _, _ string) (net.Conn, error) { return dial(ctx) },
 		MaxIdleConnsPerHost: 8,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	return &Client{ep: ep, http: &http.Client{Transport: tr}}
+	return &Client{ep: ep, http: &http.Client{Transport: tr}, dial: dial}
 }
 
 // Endpoint returns where the client connects.
@@ -399,8 +398,7 @@ func (c *Client) ExecDetached(ctx context.Context, id string, cmd []string) erro
 // stream of its TTY. Closing the connection does not end the command; the
 // engine keeps it running until it exits.
 func (c *Client) ExecAttach(ctx context.Context, execID string) (net.Conn, io.Reader, error) {
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, c.ep.Network, c.ep.Address)
+	conn, err := c.dial(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

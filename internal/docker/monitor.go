@@ -263,6 +263,27 @@ func (m *Monitor) Find(ref string) (Container, bool) {
 	return Container{}, false
 }
 
+// PublishesPort reports whether a running container of a local engine
+// publishes TCP port on the host.
+func (m *Monitor) PublishesPort(port int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.status != Ready || m.ep.Network == "ssh" || (m.ep.Network == "tcp" && !isLoopback(m.ep.Address)) {
+		return false
+	}
+	for _, e := range m.entries {
+		if e.c.State != "running" && e.c.State != "restarting" && e.c.State != "paused" {
+			continue
+		}
+		for _, p := range e.c.Ports {
+			if p.Public == port && p.Proto == "tcp" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Client returns the connected client, or an error while the engine is unavailable.
 func (m *Monitor) Client() (*Client, error) {
 	m.mu.Lock()
@@ -293,12 +314,18 @@ func (m *Monitor) Run(ctx context.Context) {
 		var c *Client
 		var version string
 		if err == nil {
-			c = NewClient(ep)
-			pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			c = NewClient(ep, m.host.Environ())
+			// An SSH connection needs time for the handshake.
+			wait := 3 * time.Second
+			if ep.Network == "ssh" {
+				wait = 20 * time.Second
+			}
+			pctx, cancel := context.WithTimeout(ctx, wait)
 			version, err = c.Ping(pctx)
 			cancel()
 		}
 		if err != nil {
+			err = m.explain(ep, err)
 			if c != nil {
 				c.Close()
 			}
@@ -381,7 +408,10 @@ func (m *Monitor) setUnavailable(ep Endpoint, err error) {
 // describe turns connection errors into a short reason.
 func describe(err error) string {
 	var ne *net.OpError
+	var se *SSHError
 	switch {
+	case errors.As(err, &se):
+		return se.Error()
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ECONNREFUSED), errors.Is(err, syscall.ENOENT):
 		return "Docker is not running"
 	case errors.Is(err, syscall.EACCES), errors.Is(err, os.ErrPermission):
@@ -729,7 +759,7 @@ func splitList(s string) []string {
 
 // engineName names the product behind an endpoint for messages.
 func engineName(ep Endpoint) string {
-	s := strings.ToLower(ep.Context + " " + ep.Host)
+	s := strings.ToLower(ep.Context + " " + ep.Host + " " + ep.Target)
 	switch {
 	case strings.Contains(s, "orbstack"):
 		return "OrbStack"
@@ -737,6 +767,8 @@ func engineName(ep Endpoint) string {
 		return "Colima"
 	case strings.Contains(s, "rancher") || strings.Contains(s, "/.rd/"):
 		return "Rancher Desktop"
+	case strings.Contains(s, "podman"):
+		return "Podman"
 	case strings.Contains(s, "desktop-linux") || strings.Contains(s, "/.docker/run/") || strings.Contains(s, "/.docker/desktop/"):
 		return "Docker Desktop"
 	}

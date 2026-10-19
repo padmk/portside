@@ -114,7 +114,7 @@ func fakeEngine(t *testing.T, code int, policy string) *Client {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return NewClient(Endpoint{Network: "tcp", Address: srv.Listener.Addr().String(), Host: "tcp://" + srv.Listener.Addr().String()})
+	return NewClient(Endpoint{Network: "tcp", Address: srv.Listener.Addr().String(), Host: "tcp://" + srv.Listener.Addr().String()}, nil)
 }
 
 func TestRefreshStopIntent(t *testing.T) {
@@ -283,7 +283,7 @@ func TestCustomBuiltImageLabels(t *testing.T) {
 		_, _ = io.WriteString(w, `{"Config":{"Labels":{"com.docker.compose.project":"demo","com.docker.compose.service":"api"}}}`)
 	}))
 	defer srv.Close()
-	cl := NewClient(Endpoint{Network: "tcp", Address: srv.Listener.Addr().String()})
+	cl := NewClient(Endpoint{Network: "tcp", Address: srv.Listener.Addr().String()}, nil)
 	in := inspect(t, "running", 0, false, "")
 	in.ImageID = "sha256:built"
 	in.Config.Labels = map[string]string{labelProject: "demo", labelService: "api"}

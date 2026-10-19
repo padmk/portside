@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -118,11 +119,25 @@ func composeArgs(c Container, kind string) []string {
 	return append(args, c.Service)
 }
 
-func (m *Monitor) runCompose(c Container, kind string) (*Job, error) {
-	bin := m.host.LookPath("docker")
-	if bin == "" {
-		return nil, errors.New("the docker command was not found on PATH")
+// composeCommand finds a Compose implementation for args, which start
+// with "compose": the docker CLI plugin, the standalone docker-compose,
+// podman compose or podman-compose.
+func (m *Monitor) composeCommand(args []string) (string, []string, error) {
+	for _, alt := range []struct {
+		bin    string
+		subcmd bool
+	}{{"docker", true}, {"docker-compose", false}, {"podman", true}, {"podman-compose", false}} {
+		if p := m.host.LookPath(alt.bin); p != "" {
+			if alt.subcmd {
+				return p, args, nil
+			}
+			return p, args[1:], nil
+		}
 	}
+	return "", nil, errors.New("no Compose command found on PATH: install the docker CLI with Compose, docker-compose or podman-compose")
+}
+
+func (m *Monitor) runCompose(c Container, kind string) (*Job, error) {
 	cl, err := m.Client()
 	if err != nil {
 		return nil, err
@@ -131,7 +146,10 @@ func (m *Monitor) runCompose(c Container, kind string) (*Job, error) {
 		m.Kick()
 		return nil, errors.New("the Docker context changed; try again in a moment")
 	}
-	args := composeArgs(c, kind)
+	bin, args, err := m.composeCommand(composeArgs(c, kind))
+	if err != nil {
+		return nil, err
+	}
 	service := c.Service
 	if kind == "start" || kind == "stop" || kind == "down" {
 		service = ""
@@ -162,12 +180,16 @@ func (m *Monitor) runCompose(c Container, kind string) (*Job, error) {
 	// it would pick on its own.
 	env := []string{}
 	for _, kv := range m.host.Environ() {
-		if !strings.HasPrefix(kv, "DOCKER_HOST=") && !strings.HasPrefix(kv, "DOCKER_CONTEXT=") {
+		key, _, _ := strings.Cut(kv, "=")
+		switch key {
+		case "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH":
+		default:
 			env = append(env, kv)
 		}
 	}
-	cmd.Env = append(env, "DOCKER_HOST="+cl.ep.Host, "TERM=xterm-256color", "COLORTERM=truecolor")
-	fmt.Fprintf(j.logs, "\x1b[2m$ docker %s\x1b[0m\r\n", strings.Join(args, " "))
+	env = append(env, cl.ep.cliEnv()...)
+	cmd.Env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+	fmt.Fprintf(j.logs, "\x1b[2m$ %s %s\x1b[0m\r\n", filepath.Base(bin), strings.Join(args, " "))
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 32})
 	if err != nil {
 		m.finish(c.Name, j, err)
