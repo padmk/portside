@@ -16,7 +16,10 @@ VERSION="${VERSION:-0.1.0-dev}"
 BUILD="$(date +%Y%m%d%H%M)"
 OUT=dist/macos
 APP="$OUT/Portside.app"
-LDFLAGS="-s -w -X github.com/padmk/portside/internal/app.Version=$VERSION"
+# The bundle identifier comes from internal/app, like the service label.
+BUNDLE_ID="$(sed -n 's/^[[:space:]]*ServiceLabel = "\(.*\)"$/\1/p' internal/app/app.go).app"
+[ "$BUNDLE_ID" != .app ] || { echo "ServiceLabel not found in internal/app/app.go" >&2; exit 1; }
+LDFLAGS="-s -w -X main.version=$VERSION"
 
 echo "==> dashboard"
 if [ "${SKIP_UI:-0}" != 1 ]; then
@@ -41,7 +44,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Portside"
 cp "$OUT/tmp/portside-arm64" "$APP/Contents/Helpers/portside"
 cp macos/Resources/AppIcon.icns macos/Resources/AppIconDark.png "$APP/Contents/Resources/"
-sed -e "s/__VERSION__/${VERSION%%-*}/" -e "s/__BUILD__/$BUILD/" macos/Resources/Info.plist > "$APP/Contents/Info.plist"
+sed -e "s/__VERSION__/${VERSION%%-*}/" -e "s/__BUILD__/$BUILD/" -e "s/__BUNDLE_ID__/$BUNDLE_ID/" macos/Resources/Info.plist > "$APP/Contents/Info.plist"
 
 echo "==> sign"
 IDENTITY="${SIGN_IDENTITY:--}"

@@ -6,7 +6,7 @@
   <key>CFBundleDisplayName</key><string>Portside</string>
   <key>CFBundleName</key><string>Portside</string>
   <key>CFBundleExecutable</key><string>Portside</string>
-  <key>CFBundleIdentifier</key><string>app.foreverbeta.portside.app</string>
+  <key>CFBundleIdentifier</key><string>__BUNDLE_ID__</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>__VERSION__</string>

@@ -20,7 +20,7 @@ const (
 	PeerHeader = "X-" + Name + "-Peer"
 )
 
-// Version is set at build time with -ldflags "-X .../internal/app.Version=v1.2.3".
+// Version is the build's version; the command sets it from its -ldflags value.
 var Version = "dev"
 
 // Env returns the name of an environment variable in the product namespace,

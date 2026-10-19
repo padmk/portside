@@ -23,7 +23,7 @@ type Handoff struct {
 	PID      int    `json:"pid"`
 	PIDStart string `json:"pidStart"`
 	// PTY is the descriptor number of the terminal's controlling side.
-	PTY         int           `json:"pty"`
+	PTY         int `json:"pty"`
 	pty         *os.File
 	Config      config.Server `json:"config"` // what the process was started with
 	Env         []string      `json:"env"`

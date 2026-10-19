@@ -67,9 +67,11 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           sha=$(shasum -a 256 "dist/macos/Portside-$version.zip" | cut -d' ' -f1)
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/padmk/homebrew-tap.git" tap
+          bundle=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' dist/macos/Portside.app/Contents/Info.plist)
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
           mkdir -p tap/Casks
-          sed -e "s/__VERSION__/$version/" -e "s/__SHA256__/$sha/" packaging/homebrew/portside.rb.tmpl > tap/Casks/portside.rb
+          sed -e "s/__VERSION__/$version/" -e "s/__SHA256__/$sha/" -e "s#__REPO__#$GITHUB_REPOSITORY#" -e "s/__BUNDLE_ID__/$bundle/" \
+            packaging/homebrew/portside.rb.tmpl > tap/Casks/portside.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

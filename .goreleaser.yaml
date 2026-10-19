@@ -18,17 +18,13 @@ builds:
         goarch: amd64
     flags: [-trimpath]
     ldflags:
-      - -s -w -X github.com/padmk/portside/internal/app.Version={{.Version}}
+      - -s -w -X main.version={{.Version}}
 
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files: [LICENSE, README.md]
 
-release:
-  github:
-    owner: padmk
-    name: portside
 
 checksum:
   name_template: checksums.txt

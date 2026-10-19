@@ -2,8 +2,8 @@ package supervisor
 
 import (
 	"bufio"
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"

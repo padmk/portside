@@ -11,7 +11,7 @@ Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded Reac
 
 ## Layout
 
-- `internal/app`: product name, ID, service label, default port, env prefix. The only place the product name is defined.
+- `internal/app`: product name, ID, service label (the macOS app's bundle ID is `<label>.app`, read from here by `scripts/build-macos-app.sh`), default port, env prefix. The only place the product name is defined. The version comes from `-X main.version`; the release workflow takes the repository and tap owner from GitHub.
 - `internal/config`: TOML loading and validation (`config.go`), comment-preserving field edits of `[servers.<name>]` tables (`edit.go`, `edit_values.go`), automatic port persistence on daemon load, last-good startup fallback (`recovery.go`), starter file, devctl importer.
 - `internal/supervisor`: process lifecycle in PTYs (`supervisor.go`), continuous readiness and loopback selection (`readiness.go`), scrollback and log files (`logbuf.go`), environment from the account's login shell (`shellenv.go`; see README "Configuration" for how it is read and refreshed), CPU/memory sampling, persisted state and orphan recovery (`state.go`), handing live servers to a re-executed daemon and adopting them (`handoff.go`), temporary copies of a server for other git worktrees (`worktree.go`; kept in state, never in the config), JSON `View`.
 - `internal/docker`: Docker Engine API client over the active context's socket (`endpoint.go`, `client.go`), the live container monitor with events and stats (`monitor.go`), engine start detection (`engine.go`) compose service and project jobs (`job.go`), and deliberate stop persistence (`stopstate.go`). Compose jobs shell out to the docker CLI; lifecycle and logs use the Engine API.

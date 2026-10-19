@@ -3,10 +3,10 @@ cask "portside" do
   version "__VERSION__"
   sha256 "__SHA256__"
 
-  url "https://github.com/padmk/portside/releases/download/v#{version}/Portside-#{version}.zip"
+  url "https://github.com/__REPO__/releases/download/v#{version}/Portside-#{version}.zip"
   name "Portside"
   desc "Keep your local dev servers running, in one place"
-  homepage "https://github.com/padmk/portside"
+  homepage "https://github.com/__REPO__"
 
   depends_on macos: ">= :sonoma"
 
@@ -18,11 +18,11 @@ cask "portside" do
     system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Portside.app"]
   end
 
-  uninstall quit: "app.foreverbeta.portside.app"
+  uninstall quit: "__BUNDLE_ID__"
 
   zap trash: [
     "~/.config/portside",
     "~/.local/state/portside",
-    "~/Library/Preferences/app.foreverbeta.portside.app.plist",
+    "~/Library/Preferences/__BUNDLE_ID__.plist",
   ]
 end

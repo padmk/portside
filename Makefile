@@ -1,5 +1,5 @@
 VERSION ?= $(shell git describe --tags --dirty 2>/dev/null || echo 0.1.0-dev)
-LDFLAGS := -s -w -X github.com/padmk/portside/internal/app.Version=$(VERSION)
+LDFLAGS := -s -w -X main.version=$(VERSION)
 PREFIX  ?= $(HOME)/.local
 
 .PHONY: build ui go install dev-daemon dev-open dev-ui check clean snapshot app app-install

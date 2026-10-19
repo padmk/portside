@@ -206,7 +206,7 @@ func Run(cfgPath string) error {
 		log.Printf("a stop was requested during the upgrade")
 		shutdown()
 	}
-	httpSrv :=&http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	// serve runs the API on lns. Closing them for an upgrade sets the
 	// returned flag first, so that is not taken for a failure.
 	serve := func(lns []net.Listener) *atomic.Bool {
