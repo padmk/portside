@@ -3,7 +3,7 @@ import type { ServerView } from '../api/types'
 import type { Key } from '../i18n'
 import { closeServer, openContainers, selectServer } from '../state/route'
 import { closeDialog, openAddServer, openDialog, showTerminal } from '../state/ui'
-import { isModKey } from '../ui/keys'
+import { isPaletteKey, paletteKey } from '../ui/keys'
 import { restartServer, toggleServer } from '../features/servers/actions'
 import { hasProcess } from '../features/servers/format'
 import {
@@ -44,7 +44,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
   {
     title: 'shortcuts.global',
     items: [
-      { keys: ['mod', 'K'], label: 'shortcuts.palette' },
+      { keys: ['mod', paletteKey], label: 'shortcuts.palette' },
       { keys: ['c'], label: 'shortcuts.cards' },
       { keys: ['l'], label: 'shortcuts.list' },
       { keys: ['g', 'p'], label: 'shortcuts.ports', chord: true },
@@ -85,7 +85,7 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
   useEffect(() => {
     let chord = 0
     const onKey = (e: KeyboardEvent) => {
-      if (isModKey(e, 'k')) {
+      if (isPaletteKey(e)) {
         e.preventDefault()
         if (document.querySelector('dialog[open].palette')) closeDialog()
         else if (!document.querySelector('dialog[open]')) openDialog({ kind: 'palette' })

@@ -181,7 +181,7 @@ root = %[2]s
 # restart = "on-failure"         # no | on-failure | always
 # health = "/"                   # HTTP path that must answer before "running"
 # wrap = "none"                  # skip direnv, devbox, mise, fnm or nvm; or a prefix such as "nix develop -c"
-# env ={ NODE_ENV = "development" }
+# env = { NODE_ENV = "development" }
 `, app.Name, Quote(StarterRoot()), app.DefaultPort)
 	return WriteAtomic(path, []byte(text))
 }

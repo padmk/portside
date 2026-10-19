@@ -5,7 +5,7 @@ import { useT } from '../i18n'
 import { closeServer, openContainers } from '../state/route'
 import { openAddServer, openDialog } from '../state/ui'
 import { Lamp } from '../ui/Lamp'
-import { modCombo } from '../ui/keys'
+import { modCombo, paletteKey } from '../ui/keys'
 import { Menu, MenuItem, MenuSeparator } from '../ui/Menu'
 import { ConfirmDialog } from '../features/dialogs/ConfirmDialog'
 import { countsOf } from '../features/overview/status'
@@ -111,7 +111,7 @@ export function TopBar({ servers, docker, connection, remote, inDetail }: Props)
         </div>
       )}
       <button type="button" className="btn palette-btn" onClick={() => openDialog({ kind: 'palette' })} aria-label={t('top.search')} title={t('top.search')}>
-        <span aria-hidden="true" className="palette-keys">{modCombo('K')}</span>
+        <span aria-hidden="true" className="palette-keys">{modCombo(paletteKey, t)}</span>
       </button>
       <button type="button" className="btn top-add" onClick={() => openAddServer()}>
         <Plus size={17} aria-hidden="true" />

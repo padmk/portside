@@ -77,6 +77,10 @@ type agent struct {
 	cli  string
 	// dir is its configuration directory; it exists once the agent ran.
 	dir func(agentskill.Dirs) string
+	// envKey is the variable that moves dir; home gives its value for dirs
+	// and the default value.
+	envKey string
+	home   func(d agentskill.Dirs, def bool) string
 	// registered reports whether the MCP server is configured for it.
 	registered func(agentskill.Dirs) bool
 	add        func(exe string) []string // arguments that register the MCP server
@@ -85,7 +89,14 @@ type agent struct {
 
 var agents = []agent{
 	{key: "claude", name: "Claude Code", cli: "claude", skill: true,
-		dir: func(d agentskill.Dirs) string { return d.Claude },
+		dir:    func(d agentskill.Dirs) string { return d.Claude },
+		envKey: "CLAUDE_CONFIG_DIR",
+		home: func(d agentskill.Dirs, def bool) string {
+			if def {
+				return filepath.Join(d.Home, ".claude")
+			}
+			return d.Claude
+		},
 		registered: func(d agentskill.Dirs) bool {
 			// The file is in the home directory, or in CLAUDE_CONFIG_DIR
 			// when that is set.
@@ -98,7 +109,14 @@ var agents = []agent{
 			return []string{"mcp", "add", "--scope", "user", app.ID, "--", exe, "mcp"}
 		}},
 	{key: "codex", name: "Codex", cli: "codex", skill: true,
-		dir: func(d agentskill.Dirs) string { return d.Codex },
+		dir:    func(d agentskill.Dirs) string { return d.Codex },
+		envKey: "CODEX_HOME",
+		home: func(d agentskill.Dirs, def bool) string {
+			if def {
+				return filepath.Join(d.Home, ".codex")
+			}
+			return d.Codex
+		},
 		registered: func(d agentskill.Dirs) bool {
 			var cfg struct {
 				MCPServers map[string]toml.Primitive `toml:"mcp_servers"`
@@ -113,7 +131,14 @@ var agents = []agent{
 			return []string{"mcp", "add", app.ID, "--", exe, "mcp"}
 		}},
 	{key: "gemini", name: "Gemini CLI", cli: "gemini",
-		dir: func(d agentskill.Dirs) string { return d.Gemini },
+		dir:    func(d agentskill.Dirs) string { return d.Gemini },
+		envKey: "GEMINI_CLI_HOME",
+		home: func(d agentskill.Dirs, def bool) string {
+			if def {
+				return d.Home
+			}
+			return filepath.Dir(d.Gemini)
+		},
 		registered: func(d agentskill.Dirs) bool {
 			return jsonHasServer(filepath.Join(d.Gemini, "settings.json"))
 		},
@@ -193,6 +218,7 @@ func mcpItem(a agent, dirs agentskill.Dirs, exe string, t *tools) Item {
 	default:
 		it.State = Missing
 		args := a.add(exe)
+		env = agentEnv(a, dirs, env)
 		it.apply = func(ctx context.Context) error {
 			ctx, cancel := context.WithTimeout(ctx, time.Minute)
 			defer cancel()
@@ -209,6 +235,27 @@ func mcpItem(a agent, dirs agentskill.Dirs, exe string, t *tools) Item {
 		}
 	}
 	return it
+}
+
+// agentEnv is the environment to run a's CLI with: env (nil for this
+// process's own) with a's directory variable set when the directory found
+// is not the default, since it may come only from the login shell's startup
+// files, which a CLI found on this process's PATH does not see.
+func agentEnv(a agent, dirs agentskill.Dirs, env []string) []string {
+	v := a.home(dirs, false)
+	if v == a.home(dirs, true) {
+		return env
+	}
+	if env == nil {
+		env = os.Environ()
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, a.envKey+"=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, a.envKey+"="+v)
 }
 
 func skillItems(dirs agentskill.Dirs, self, content string) []Item {

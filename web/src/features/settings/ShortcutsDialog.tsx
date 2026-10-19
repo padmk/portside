@@ -2,7 +2,7 @@ import { useT } from '../../i18n'
 import { closeDialog } from '../../state/ui'
 import { Dialog } from '../../ui/Dialog'
 import { SHORTCUTS } from '../../app/shortcuts'
-import { modLabel } from '../../ui/keys'
+import { keyLabel } from '../../ui/keys'
 import './settings.css'
 
 
@@ -21,7 +21,7 @@ export function ShortcutsDialog() {
                     {item.keys.map((k, i) => (
                       <span key={k}>
                         {i > 0 && <span className="then">{item.chord ? t('shortcuts.then') : '+'}</span>}
-                        <kbd>{k === 'mod' ? modLabel : k}</kbd>
+                        <kbd>{keyLabel(k, t)}</kbd>
                       </span>
                     ))}
                   </dt>

@@ -62,7 +62,19 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil && c != nil {
 		c.Env = s.sup.Environ()
-		err = launch(c)
+		if runtime.GOOS == "darwin" && filepath.Base(c.Path) == "open" {
+			err = runOpen(c)
+		} else {
+			err = launch(c)
+		}
+		if err != nil {
+			switch {
+			case (body.Target == "editor" || body.Target == "config") && cfg.Editor != "":
+				err = fmt.Errorf("editor setting %q: %w", cfg.Editor, err)
+			case body.Target == "terminal" && cfg.Terminal != "":
+				err = fmt.Errorf("terminal setting %q: %w", cfg.Terminal, err)
+			}
+		}
 	}
 	if err != nil {
 		fail(w, http.StatusBadRequest, err)
@@ -154,6 +166,32 @@ func launch(c *exec.Cmd) error {
 	return nil
 }
 
+// runOpen waits for macOS open, which returns once the app has been asked to
+// open the target and exits non-zero when the app or target cannot be found.
+// It reports that failure with open's message; an open still running after a
+// few seconds counts as started and is reaped in the background.
+func runOpen(c *exec.Cmd) error {
+	var out strings.Builder
+	c.Stdout, c.Stderr = &out, &out
+	if err := c.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			if msg := strings.TrimSpace(out.String()); msg != "" {
+				return errors.New(msg)
+			}
+			return err
+		}
+		return nil
+	case <-time.After(5 * time.Second):
+		return nil
+	}
+}
+
 func reveal(p string) error {
 	if runtime.GOOS == "darwin" {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
@@ -230,7 +268,9 @@ var terminalApps = []desktopApp{
 	{Name: "kitty", Bundle: "net.kovidgoyal.kitty", Cmds: []string{"kitty"}, mac: openNew("--directory", "{DIR}"), args: flags("--directory", "{DIR}")},
 	{Name: "Alacritty", Bundle: "org.alacritty", Cmds: []string{"alacritty"}, mac: openNew("--working-directory", "{DIR}"), args: flags("--working-directory", "{DIR}")},
 	{Name: "Warp", Bundle: "dev.warp.Warp-Stable", mac: func(_, dir string) []string {
-		return []string{"open", "warp://action/new_window?path=" + url.QueryEscape(dir)}
+		// Percent-encode the path with %20 for spaces: QueryEscape's "+"
+		// would reach Warp as a literal plus.
+		return []string{"open", "warp://action/new_window?path=" + strings.ReplaceAll(url.QueryEscape(dir), "+", "%20")}
 	}},
 	{Name: "foot", Cmds: []string{"foot"}, args: flags("--working-directory={DIR}")},
 	{Name: "Ptyxis", Cmds: []string{"ptyxis"}, args: flags("--new-window", "--working-directory={DIR}")},

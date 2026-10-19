@@ -9,7 +9,7 @@ import { errorText, wsUrl } from '../../api/client'
 import { useT } from '../../i18n'
 import { usePrefs } from '../../state/prefs'
 import { useUi } from '../../state/ui'
-import { isModKey } from '../../ui/keys'
+import { isModKey, isPaletteKey } from '../../ui/keys'
 import { searchDecorations, terminalBackground, terminalTheme } from '../../theme/terminal'
 import './terminal.css'
 
@@ -164,7 +164,7 @@ export function TerminalPane({ source, interactive, input = 'toggle', reconnect 
           return false
         }
         // The command palette; the window's handler opens it.
-        if (isModKey(e, 'k')) return false
+        if (isPaletteKey(e)) return false
         if (e.key === 'Escape' && !typingRef.current) {
           tm.blur()
           return false
