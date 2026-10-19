@@ -148,6 +148,7 @@ type Monitor struct {
 	killedAt  map[string]time.Time
 	killed    map[string]bool // containers signalled to stop since they last started
 	jobs      map[string]*Job // by container name
+	composeOK map[string]bool // CLIs whose compose subcommand works
 	subs      map[chan struct{}]struct{}
 	kick      chan struct{}
 }
@@ -263,25 +264,27 @@ func (m *Monitor) Find(ref string) (Container, bool) {
 	return Container{}, false
 }
 
-// PublishesPort reports whether a running container of a local engine
-// publishes TCP port on the host.
-func (m *Monitor) PublishesPort(port int) bool {
+// Publishing lists the running containers of a local engine that publish
+// TCP port on the host.
+func (m *Monitor) Publishing(port int) []Container {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.status != Ready || m.ep.Network == "ssh" || (m.ep.Network == "tcp" && !isLoopback(m.ep.Address)) {
-		return false
+		return nil
 	}
+	var out []Container
 	for _, e := range m.entries {
 		if e.c.State != "running" && e.c.State != "restarting" && e.c.State != "paused" {
 			continue
 		}
 		for _, p := range e.c.Ports {
 			if p.Public == port && p.Proto == "tcp" {
-				return true
+				out = append(out, e.c)
+				break
 			}
 		}
 	}
-	return false
+	return out
 }
 
 // Client returns the connected client, or an error while the engine is unavailable.
@@ -464,6 +467,9 @@ func (m *Monitor) session(ctx context.Context, c *Client) error {
 		eventsDone <- err
 	}()
 	mark()
+	if c.ep.Network == "ssh" {
+		go m.pollStats(sctx, c)
+	}
 	resync := time.NewTicker(30 * time.Second)
 	defer resync.Stop()
 	// Usage samples of all containers go out together, once per interval.
@@ -523,7 +529,7 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 	infos := make([]*Inspect, len(list))
 	buildable := make([]bool, len(list))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 8)
+	sem := make(chan struct{}, parallelRequests(c))
 	for i, it := range list {
 		wg.Add(1)
 		go func(i int, id string) {
@@ -579,7 +585,9 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 			e.cpu, e.mem = nil, nil
 		}
 		e.c = next
-		if running && !e.tracking {
+		if c.ep.Network == "ssh" {
+			// pollStats samples these; a stream each would be an ssh login each.
+		} else if running && !e.tracking {
 			sctx, scancel := context.WithCancel(ctx)
 			e.cancel, e.tracking = scancel, true
 			go m.follow(sctx, c, next.ID)
@@ -603,21 +611,7 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 // follow records usage samples of one running container.
 func (m *Monitor) follow(ctx context.Context, c *Client, id string) {
 	began := time.Now()
-	_ = c.stats(ctx, id, func(s *statsSample) {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		e := m.entries[id]
-		if e == nil {
-			return
-		}
-		e.c.CPU, e.c.Mem, e.c.MemLimit = s.cpuPercent(), s.memBytes(), int64(s.Memory.Limit)
-		if time.Since(e.sampled) >= m.interval-200*time.Millisecond {
-			e.sampled = time.Now()
-			e.cpu = appendRing(e.cpu, e.c.CPU)
-			e.mem = appendRing(e.mem, e.c.Mem)
-			m.sampled = true
-		}
-	})
+	_ = c.stats(ctx, id, func(s *statsSample) { m.record(id, s) })
 	m.mu.Lock()
 	ended := false
 	if e := m.entries[id]; e != nil && ctx.Err() == nil {
@@ -632,6 +626,72 @@ func (m *Monitor) follow(ctx context.Context, c *Client, id string) {
 	// A stream that fails right away waits for the next resync instead.
 	if ended && time.Since(began) > 2*time.Second {
 		m.Kick()
+	}
+}
+
+// pollStats samples running containers one request at a time per slot, once
+// per interval, for ssh:// engines: the requests share the transport's few
+// kept-alive connections instead of holding an ssh login per container.
+func (m *Monitor) pollStats(ctx context.Context, c *Client) {
+	sem := make(chan struct{}, parallelRequests(c))
+	for ctx.Err() == nil {
+		began := time.Now()
+		m.mu.Lock()
+		var ids []string
+		for id, e := range m.entries {
+			if e.c.State == "running" {
+				ids = append(ids, id)
+			}
+		}
+		m.mu.Unlock()
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				if s, err := c.statsOnce(sctx, id); err == nil {
+					m.record(id, s)
+				}
+			}()
+		}
+		wg.Wait()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(m.interval - time.Since(began)):
+		}
+	}
+}
+
+// parallelRequests bounds concurrent requests of one refresh or stats round.
+// Over ssh:// each new connection is a login, and sshd refuses many at once
+// (MaxStartups).
+func parallelRequests(c *Client) int {
+	if c.ep.Network == "ssh" {
+		return 4
+	}
+	return 8
+}
+
+// record stores a usage sample of a container and adds it to the history
+// once per interval.
+func (m *Monitor) record(id string, s *statsSample) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e := m.entries[id]
+	if e == nil || (e.c.State != "running" && e.c.State != "paused") {
+		return
+	}
+	e.c.CPU, e.c.Mem, e.c.MemLimit = s.cpuPercent(), s.memBytes(), int64(s.Memory.Limit)
+	if time.Since(e.sampled) >= m.interval-200*time.Millisecond {
+		e.sampled = time.Now()
+		e.cpu = appendRing(e.cpu, e.c.CPU)
+		e.mem = appendRing(e.mem, e.c.Mem)
+		m.sampled = true
 	}
 }
 

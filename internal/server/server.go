@@ -103,6 +103,7 @@ func New(opt Options) *Server {
 	}
 	s.shareWant = opt.Supervisor.Config().Share
 	opt.Share.Set(s.shareWant)
+	opt.Supervisor.SetPublishedPorts(s.publishedBy)
 	s.routes()
 	return s
 }

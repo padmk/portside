@@ -105,7 +105,13 @@ func (c *Client) call(ctx context.Context, method, path string, q url.Values, bo
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return err
+	}
+	// Reading to the end lets the transport reuse the connection, which for
+	// ssh:// saves a login per request.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	return nil
 }
 
 // Ping checks that the engine answers and returns its version.
@@ -306,6 +312,16 @@ func (c *Client) stats(ctx context.Context, id string, fn func(*statsSample)) er
 		}
 		fn(&s)
 	}
+}
+
+// statsOnce returns one usage sample. The engine takes about a second to
+// measure CPU use against the previous reading.
+func (c *Client) statsOnce(ctx context.Context, id string) (*statsSample, error) {
+	var s statsSample
+	if err := c.call(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/stats", url.Values{"stream": {"0"}}, nil, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 // Logs streams a container's output. tail limits the backlog ("all" or a

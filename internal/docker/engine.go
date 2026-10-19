@@ -160,23 +160,36 @@ func isLoopback(addr string) bool {
 // explain replaces "not running" with the reason when the engine cannot
 // serve the Docker API at all.
 func (m *Monitor) explain(ep Endpoint, err error) error {
-	if ep.Network != "unix" || describe(err) != "Docker is not running" {
+	if ep.Network != "unix" || describe(err) != "Docker is not running" || !rancherEndpoint(ep) {
 		return err
 	}
-	if rancherEngine() == "containerd" {
+	if m.rancherEngine() == "containerd" {
 		return errors.New("Rancher Desktop uses containerd, which has no Docker API: choose dockerd (moby) as its container engine")
 	}
 	return err
 }
 
+// rancherEndpoint reports whether ep is Rancher Desktop's: its context, or
+// its socket ~/.rd/docker.sock, also behind /var/run/docker.sock.
+func rancherEndpoint(ep Endpoint) bool {
+	if ep.Context == "rancher-desktop" {
+		return true
+	}
+	home, _ := os.UserHomeDir()
+	sock := filepath.Join(home, ".rd", "docker.sock")
+	return ep.Address == sock || ep.Target == sock
+}
+
 // rancherEngine reads the container engine chosen in Rancher Desktop's
-// settings, "" when it is not installed.
-func rancherEngine() string {
+// settings, "" when it is not installed. The file is in rdctl's config
+// directory: ~/Library/Preferences/rancher-desktop on macOS,
+// $XDG_CONFIG_HOME/rancher-desktop (default ~/.config) on Linux.
+func (m *Monitor) rancherEngine() string {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, ".config")
 	if runtime.GOOS == "darwin" {
-		dir = filepath.Join(home, "Library", "Application Support")
-	} else if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		dir = filepath.Join(home, "Library", "Preferences")
+	} else if x := m.getenv("XDG_CONFIG_HOME"); x != "" {
 		dir = x
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "rancher-desktop", "settings.json"))

@@ -121,20 +121,49 @@ func composeArgs(c Container, kind string) []string {
 
 // composeCommand finds a Compose implementation for args, which start
 // with "compose": the docker CLI plugin, the standalone docker-compose,
-// podman compose or podman-compose.
+// podman compose or podman-compose. A docker or podman CLI without a
+// working compose subcommand is skipped.
 func (m *Monitor) composeCommand(args []string) (string, []string, error) {
 	for _, alt := range []struct {
 		bin    string
 		subcmd bool
 	}{{"docker", true}, {"docker-compose", false}, {"podman", true}, {"podman-compose", false}} {
-		if p := m.host.LookPath(alt.bin); p != "" {
-			if alt.subcmd {
-				return p, args, nil
-			}
+		p := m.host.LookPath(alt.bin)
+		switch {
+		case p == "":
+		case !alt.subcmd:
 			return p, args[1:], nil
+		case m.hasComposeSubcommand(p):
+			return p, args, nil
 		}
 	}
 	return "", nil, errors.New("no Compose command found on PATH: install the docker CLI with Compose, docker-compose or podman-compose")
+}
+
+// hasComposeSubcommand reports whether `bin compose version` succeeds. A
+// success is remembered per binary; a failure is checked again next time,
+// as the plugin may be installed meanwhile.
+func (m *Monitor) hasComposeSubcommand(bin string) bool {
+	m.mu.Lock()
+	ok := m.composeOK[bin]
+	m.mu.Unlock()
+	if ok {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "compose", "version")
+	cmd.Env = m.host.Environ()
+	if cmd.Run() != nil {
+		return false
+	}
+	m.mu.Lock()
+	if m.composeOK == nil {
+		m.composeOK = map[string]bool{}
+	}
+	m.composeOK[bin] = true
+	m.mu.Unlock()
+	return true
 }
 
 func (m *Monitor) runCompose(c Container, kind string) (*Job, error) {

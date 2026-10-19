@@ -92,13 +92,21 @@ func lookPathIn(name string, env []string) string {
 // SSHError is why ssh ended a connection, from its own output.
 type SSHError struct{ Message string }
 
-func (e *SSHError) Error() string { return "ssh: " + e.Message }
+// Error names ssh once: its own messages often start with "ssh: ".
+func (e *SSHError) Error() string {
+	if strings.HasPrefix(e.Message, "ssh: ") {
+		return e.Message
+	}
+	return "ssh: " + e.Message
+}
 
 // dialSSH runs `docker system dial-stdio` on the remote host, as the docker
 // CLI does for ssh:// endpoints, and uses its standard input and output as
 // the connection. Prompts are disabled: keys come from the agent or config.
+// Keepalives end a connection whose link died (after sleep or a network
+// change) within 45 seconds, so the event stream reconnects.
 func dialSSH(ep Endpoint, bin string, env []string) (net.Conn, error) {
-	args := []string{"-o", "ConnectTimeout=15", "-o", "BatchMode=yes", "-T"}
+	args := []string{"-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "BatchMode=yes", "-T"}
 	if ep.SSHUser != "" {
 		args = append(args, "-l", ep.SSHUser)
 	}
@@ -132,6 +140,9 @@ func dialSSH(ep Endpoint, bin string, env []string) (net.Conn, error) {
 	c.cmd = cmd
 	go func() {
 		_ = cmd.Wait()
+		c.mu.Lock()
+		c.reaped = true
+		c.mu.Unlock()
 		close(c.exited)
 	}()
 	return c, nil
@@ -147,6 +158,9 @@ type sshConn struct {
 	exited  chan struct{}
 	gotData bool
 	once    sync.Once
+
+	mu     sync.Mutex
+	reaped bool // ssh was waited for, so its pid and group may be reused
 }
 
 func (c *sshConn) Read(p []byte) (int, error) {
@@ -172,7 +186,9 @@ func (c *sshConn) Close() error {
 	c.once.Do(func() {
 		c.in.Close()
 		c.out.Close()
-		if c.cmd.Process != nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.cmd.Process != nil && !c.reaped {
 			_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGTERM)
 		}
 	})

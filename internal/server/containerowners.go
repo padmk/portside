@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,6 +66,32 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 			c.Server, c.SharedWith = names[0], slices.Clone(names[1:])
 		}
 	}
+}
+
+// publishedBy reports whether a running container publishing port belongs
+// to server, by the same ownership rules as the dashboard. A container that
+// no server owns, such as one from a compose file outside every server's
+// directory, also counts, as its project cannot be matched to a server.
+func (s *Server) publishedBy(server string, port int) bool {
+	if s.opt.Docker == nil {
+		return false
+	}
+	containers := s.opt.Docker.Publishing(port)
+	attachContainers(containers, s.sup.Definitions())
+	unowned := ""
+	for _, c := range containers {
+		if slices.Contains(c.Servers(), server) {
+			return true
+		}
+		if c.Server == "" {
+			unowned = c.Name
+		}
+	}
+	if unowned != "" {
+		log.Printf("%s: port %d is published by container %s, which no server's project matches; treating it as this server's", server, port, unowned)
+		return true
+	}
+	return false
 }
 
 // closestFirst orders servers sharing a project so that those whose

@@ -146,7 +146,6 @@ func Run(cfgPath string) error {
 	sup := supervisor.New(cfg, stateDir)
 	dock := docker.NewMonitor(sup, supervisor.SampleInterval, func() string { return sup.Config().DockerStart })
 	dock.UseStateDir(stateDir)
-	sup.SetPublishedPorts(dock.PublishesPort)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

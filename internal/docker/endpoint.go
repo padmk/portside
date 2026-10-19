@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -41,6 +42,18 @@ type Endpoint struct {
 	// SSH settings for ssh://user@host:port.
 	SSHUser string `json:"-"`
 	SSHPort string `json:"-"`
+
+	// defaultPort marks a tcp:// host written without a port.
+	defaultPort bool
+}
+
+// useTLS turns on TLS for a tcp:// endpoint, which then defaults to port 2376.
+func (ep *Endpoint) useTLS(verify bool, certDir string) {
+	ep.TLS, ep.TLSVerify, ep.CertDir = true, verify, certDir
+	if ep.defaultPort {
+		host, _, _ := net.SplitHostPort(ep.Address)
+		ep.Address = net.JoinHostPort(host, "2376")
+	}
 }
 
 // Resolve finds the active engine endpoint the way the docker CLI does:
@@ -59,12 +72,11 @@ func Resolve(getenv func(string) string) (Endpoint, error) {
 			return ep, err
 		}
 		if ep.Network == "tcp" && (getenv("DOCKER_TLS_VERIFY") != "" || getenv("DOCKER_TLS") != "") {
-			ep.TLS = true
-			ep.TLSVerify = getenv("DOCKER_TLS_VERIFY") != ""
-			ep.CertDir = getenv("DOCKER_CERT_PATH")
-			if ep.CertDir == "" {
-				ep.CertDir = cfgDir
+			certDir := getenv("DOCKER_CERT_PATH")
+			if certDir == "" {
+				certDir = cfgDir
 			}
+			ep.useTLS(getenv("DOCKER_TLS_VERIFY") != "", certDir)
 		}
 		return ep, nil
 	}
@@ -103,7 +115,7 @@ func Resolve(getenv func(string) string) (Endpoint, error) {
 		if ep.Network == "tcp" {
 			tlsDir := filepath.Join(cfgDir, "contexts", "tls", id, "docker")
 			if _, err := os.Stat(tlsDir); err == nil || d.SkipTLSVerify {
-				ep.TLS, ep.TLSVerify, ep.CertDir = true, !d.SkipTLSVerify, tlsDir
+				ep.useTLS(!d.SkipTLSVerify, tlsDir)
 			}
 		}
 		return ep, nil
@@ -186,10 +198,13 @@ func parseHost(h, ctx string) (Endpoint, error) {
 		return Endpoint{Network: "unix", Address: p, Host: h, Context: ctx, Target: linkTarget(p)}, nil
 	case strings.HasPrefix(h, "tcp://"):
 		addr := strings.TrimSuffix(strings.TrimPrefix(h, "tcp://"), "/")
-		if !strings.Contains(addr, ":") {
-			addr += ":2375"
+		ep := Endpoint{Network: "tcp", Address: addr, Host: h, Context: ctx}
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			// The docker CLI's default ports: 2375, or 2376 with TLS.
+			ep.Address = net.JoinHostPort(strings.Trim(addr, "[]"), "2375")
+			ep.defaultPort = true
 		}
-		return Endpoint{Network: "tcp", Address: addr, Host: h, Context: ctx}, nil
+		return ep, nil
 	case strings.HasPrefix(h, "ssh://"):
 		u, err := url.Parse(h)
 		if err != nil || u.Hostname() == "" {

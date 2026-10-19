@@ -106,9 +106,10 @@ type Supervisor struct {
 	// release frees a port this daemon holds for another purpose before a
 	// server that needs it starts.
 	release func(port int)
-	// publishedPort reports whether a running container publishes a port,
-	// for when the listener's owner is hidden (a root docker-proxy).
-	publishedPort func(port int) bool
+	// publishedPort reports whether a running container of a server's
+	// compose project publishes a port, for when the listener's owner is
+	// hidden (a root docker-proxy).
+	publishedPort func(server string, port int) bool
 	// forwarded reports a port this daemon forwards to another computer,
 	// and that computer's name.
 	forwarded func(port int) (string, bool)
@@ -166,8 +167,8 @@ func (s *Supervisor) SetPortRelease(fn func(port int)) {
 }
 
 // SetPublishedPorts registers fn, which reports whether a running container
-// publishes a port.
-func (s *Supervisor) SetPublishedPorts(fn func(port int) bool) {
+// of a server's compose project publishes a port.
+func (s *Supervisor) SetPublishedPorts(fn func(server string, port int) bool) {
 	s.mu.Lock()
 	s.publishedPort = fn
 	s.mu.Unlock()
@@ -495,7 +496,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	if sv.Port > 0 && ports.Listening(sv.Port) && !composeOwnsPort(sv.Cmd, sv.Port, published) {
+	if sv.Port > 0 && ports.Listening(sv.Port) && !composeOwnsPort(name, sv.Cmd, sv.Port, published) {
 		owner, found := ports.Owner(context.Background(), sv.Port)
 		if !opt.Takeover || !found {
 			s.mu.Lock()
@@ -1057,21 +1058,27 @@ func (s *Supervisor) IsManagedPID(pid int) (string, bool) {
 // server that is itself a compose stack. Its containers may still be up from
 // an earlier run; "docker compose up" attaches to them instead of failing.
 // When the owner is hidden, as a rootful engine's docker-proxy is from other
-// accounts, published asks the engine whether a container publishes the port.
-func composeOwnsPort(cmd string, port int, published func(port int) bool) bool {
+// accounts, published asks the engine whether a container of this server's
+// compose project publishes the port.
+func composeOwnsPort(name, cmd string, port int, published func(server string, port int) bool) bool {
 	if !IsComposeCommand(cmd) {
 		return false
 	}
 	if owner, ok := ports.Owner(context.Background(), port); ok {
 		return IsContainerRuntime(owner.Command)
 	}
-	return published != nil && published(port)
+	return published != nil && published(name, port)
 }
 
 // IsComposeCommand reports whether a server's command runs a compose stack.
 func IsComposeCommand(cmd string) bool {
 	c := strings.ToLower(cmd)
-	return strings.Contains(c, "docker compose") || strings.Contains(c, "docker-compose") || strings.Contains(c, "podman compose")
+	for _, s := range []string{"docker compose", "docker-compose", "podman compose", "podman-compose"} {
+		if strings.Contains(c, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // containerRuntimes are parts of process names that publish container ports
