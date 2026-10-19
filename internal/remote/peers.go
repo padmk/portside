@@ -317,12 +317,20 @@ func containsInt(s []int, v int) bool {
 }
 
 // findPort asks each candidate port for the daemon's hello, all at once:
-// devices without a shared daemon may drop packets instead of refusing.
+// devices without a shared daemon may drop packets instead of refusing. The
+// last port it was found on, this daemon's own and the default are
+// preferred, then the fallback ports a daemon takes when the default is
+// taken.
 func (m *Manager) findPort(ctx context.Context, tr http.RoundTripper, n tailnet.Node, cred *share.Credential) (int, *hello, string, error) {
 	m.mu.Lock()
 	prefer := m.known[n.DNSName]
 	m.mu.Unlock()
 	cands := m.ports(prefer)
+	for _, p := range app.FallbackPorts() {
+		if !containsInt(cands, p) {
+			cands = append(cands, p)
+		}
+	}
 	found := make([]*hello, len(cands))
 	epochs := make([]string, len(cands))
 	errs := make([]error, len(cands))

@@ -23,6 +23,20 @@ const (
 // Version is the build's version; the command sets it from its -ldflags value.
 var Version = "dev"
 
+// FallbackPorts are the ports, in order, that a daemon whose config sets no
+// port tries when DefaultPort is taken: 7879-7899, then 17879-17899. Both
+// ranges lie below the ephemeral ports of macOS (49152 and up) and Linux
+// (32768 and up), so a port chosen once stays free of outgoing connections.
+func FallbackPorts() []int {
+	var out []int
+	for _, base := range []int{DefaultPort, DefaultPort + 10000} {
+		for p := base + 1; p <= base+21; p++ {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Env returns the name of an environment variable in the product namespace,
 // for example Env("CONFIG") == "PORTSIDE_CONFIG".
 func Env(key string) string {

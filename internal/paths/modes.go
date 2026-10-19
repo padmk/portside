@@ -19,7 +19,7 @@ const (
 // the state directory. In a state directory chosen by the user only these,
 // the logs directory and the directory itself are tightened.
 var stateEntries = []string{
-	"auth-token", "container-stops.json", "daemon.lock", "daemon.log",
+	"auth-token", "auto-port", "container-stops.json", "daemon.lock", "daemon.log",
 	"daemon.port", "dashboard-host", "handoff.json", "last-good-config.json",
 	"remote-tokens.json", "remote.json", "share-devices.json", "share-target",
 	"state.json", "stopped",
@@ -34,7 +34,7 @@ var stateEntries = []string{
 // their modes. Parent directories such as ~/.config are left alone, and
 // symlinks are not followed.
 func Restrict(cfgPath, stateDir string) {
-	if samePath(stateDir, defaultStateDir()) {
+	if SamePath(stateDir, defaultStateDir()) {
 		restrictTree(stateDir)
 	} else {
 		restrict(stateDir)
@@ -43,7 +43,7 @@ func Restrict(cfgPath, stateDir string) {
 		}
 		restrictTree(filepath.Join(stateDir, "logs"))
 	}
-	if dir := filepath.Dir(cfgPath); samePath(dir, defaultConfigDir()) {
+	if dir := filepath.Dir(cfgPath); SamePath(dir, defaultConfigDir()) {
 		restrictTree(dir)
 	}
 	restrict(cfgPath)
@@ -53,9 +53,9 @@ func Restrict(cfgPath, stateDir string) {
 	}
 }
 
-// samePath reports whether a and b name the same location once symlinks in
+// SamePath reports whether a and b name the same location once symlinks in
 // them are resolved.
-func samePath(a, b string) bool {
+func SamePath(a, b string) bool {
 	return resolve(a) == resolve(b)
 }
 

@@ -108,7 +108,8 @@ type Config struct {
 	Root string
 	Port int
 	// PortAuto is true when the file sets no dashboard port, so the daemon
-	// may choose and save another one when the default is taken.
+	// may choose another one when the default is taken (kept in the state
+	// directory, see daemon.SavedPort).
 	PortAuto    bool
 	Shell       string
 	PathPrepend []string

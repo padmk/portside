@@ -24,7 +24,6 @@ import (
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
-	"github.com/padmk/portside/internal/ports"
 	"github.com/padmk/portside/internal/remote"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/share"
@@ -111,19 +110,14 @@ func Run(cfgPath string) error {
 	var listeners []net.Listener
 	inherited := false
 	if ho != nil {
-		listeners = inheritListeners(ho.Listeners, cfg.Port)
-		if listeners != nil {
-			n := len(listeners)
-			var err error
-			if listeners, err = completeListeners(listeners, cfg.Port); err != nil {
-				return err
-			}
-			inherited = len(listeners) == n
+		var err error
+		if listeners, inherited, err = takeOverListeners(ho, cfg); err != nil {
+			return err
 		}
 	}
 	if listeners == nil {
 		var err error
-		if listeners, err = listenConfigured(cfg, cfgPath, configErr == nil, supervisor.SavedTemporaryPorts(stateDir)); err != nil {
+		if listeners, err = listenConfigured(cfg, cfgPath, stateDir, supervisor.SavedTemporaryPorts(stateDir)); err != nil {
 			return err
 		}
 	}
@@ -216,6 +210,7 @@ func Run(cfgPath string) error {
 		ConfigPath:    cfgPath,
 		StateDir:      stateDir,
 		Port:          cfg.Port,
+		PortAuto:      cfg.PortAuto,
 		UI:            web.Assets(),
 		Token:         creds.Token,
 		DashboardHost: creds.Host,
@@ -414,160 +409,6 @@ wait:
 	_ = httpSrv.Shutdown(sctx)
 	log.Printf("bye")
 	return nil
-}
-
-// listenConfigured listens on the configured port. When the config sets no
-// port and the default is taken (by another program, or by another
-// account's daemon on the same computer), it listens on the first free port
-// of a fixed range after the default, else on any free port, and saves that
-// port in the config when the file is valid, so it stays the same from then
-// on. cfg.Port is updated; clients follow through daemon.port. A taken port
-// that the config sets is an error naming the holder where it can be seen.
-func listenConfigured(cfg *config.Config, cfgPath string, save bool, avoid func(port int) bool) ([]net.Listener, error) {
-	lns, err := listen(cfg.Port)
-	var busy *busyError
-	if err == nil || !errors.As(err, &busy) {
-		return lns, err
-	}
-	if !cfg.PortAuto {
-		return nil, fmt.Errorf("%w; %s, or change `port` in %s", err, holder(cfg.Port), paths.ShortenHome(cfgPath))
-	}
-	used := func(port int) bool {
-		if port == cfg.Port || config.Reserved[port] || (avoid != nil && avoid(port)) {
-			return true
-		}
-		for _, sv := range cfg.Servers {
-			if sv.Port == port {
-				return true
-			}
-		}
-		return false
-	}
-	taken := cfg.Port
-	port := 0
-	for p := app.DefaultPort + 1; p <= app.DefaultPort+fallbackPorts; p++ {
-		if used(p) {
-			continue
-		}
-		if lns, err = listen(p); err == nil {
-			port = p
-			break
-		}
-	}
-	for tries := 0; port == 0 && tries < 20; tries++ {
-		if lns, err = listen(0); err != nil {
-			continue
-		}
-		if p := lns[0].Addr().(*net.TCPAddr).Port; !used(p) {
-			port = p
-			break
-		}
-		closeListeners(lns)
-	}
-	if port == 0 {
-		return nil, fmt.Errorf("%w, and no other free port was found", busy)
-	}
-	cfg.Port = port
-	cfg.PortAuto = false
-	log.Printf("port %d is taken (%s); using %d", taken, holder(taken), port)
-	if !save {
-		log.Printf("config: not saving port %d while the config does not load", port)
-		return lns, nil
-	}
-	note := fmt.Sprintf("%d  # chosen because %d was taken", port, taken)
-	if err := config.SetTopLevel(cfgPath, "port", note); err != nil {
-		log.Printf("config: saving port %d: %v", port, err)
-	} else {
-		log.Printf("saved port = %d in %s", port, paths.ShortenHome(cfgPath))
-	}
-	return lns, nil
-}
-
-// fallbackPorts is how many ports after the default are tried, in order,
-// before any free port.
-const fallbackPorts = 21
-
-// busyError is a loopback address that another program listens on.
-type busyError struct {
-	addr string
-	v6   bool
-}
-
-func (e *busyError) Error() string {
-	if e.v6 {
-		return fmt.Sprintf("cannot listen on %s: another program holds it, and browsers send dashboard requests there first", e.addr)
-	}
-	return fmt.Sprintf("cannot listen on %s: another program holds it", e.addr)
-}
-
-// holder names what listens on port on loopback, or how to find it. A
-// process of another account is often invisible to lsof.
-func holder(port int) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if l, ok := ports.Owner(ctx, port); ok && l.PID > 0 {
-		if l.Command != "" {
-			return fmt.Sprintf("held by %s, pid %d", l.Command, l.PID)
-		}
-		return fmt.Sprintf("held by pid %d", l.PID)
-	}
-	return fmt.Sprintf("find the holder with `lsof -nP -iTCP:%d -sTCP:LISTEN` (a process of another account needs sudo)", port)
-}
-
-// listen binds IPv4 and IPv6 loopback; port 0 picks a free port. Both are
-// required where the system has IPv6 loopback: browsers resolve *.localhost
-// to ::1 first, so a program of another account holding [::1]:<port> would
-// get every dashboard request and its cookie. A taken address is a
-// *busyError.
-func listen(port int) ([]net.Listener, error) {
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	v4, err := net.Listen("tcp", addr)
-	if errors.Is(err, syscall.EADDRINUSE) {
-		return nil, &busyError{addr: addr}
-	} else if err != nil {
-		return nil, fmt.Errorf("cannot listen on %s: %w (change `port` in the config)", addr, err)
-	}
-	if port == 0 {
-		port = v4.Addr().(*net.TCPAddr).Port
-	}
-	return completeListeners([]net.Listener{v4}, port)
-}
-
-// completeListeners adds an IPv6 loopback listener to lns when they have
-// none and the system has IPv6 loopback. Any failure other than a missing
-// IPv6 loopback, such as another program holding the address (a
-// *busyError), is an error; lns are closed then.
-func completeListeners(lns []net.Listener, port int) ([]net.Listener, error) {
-	for _, ln := range lns {
-		if a, ok := ln.Addr().(*net.TCPAddr); ok && a.IP.Equal(net.IPv6loopback) {
-			return lns, nil
-		}
-	}
-	addr := net.JoinHostPort("::1", strconv.Itoa(port))
-	v6, err := net.Listen("tcp", addr)
-	if err == nil {
-		return append(lns, v6), nil
-	}
-	if noIPv6Loopback(err) {
-		return lns, nil
-	}
-	closeListeners(lns)
-	if errors.Is(err, syscall.EADDRINUSE) {
-		return nil, &busyError{addr: addr, v6: true}
-	}
-	return nil, fmt.Errorf("cannot listen on %s: %w (change `port` in the config)", addr, err)
-}
-
-func closeListeners(lns []net.Listener) {
-	for _, ln := range lns {
-		ln.Close()
-	}
-}
-
-// noIPv6Loopback reports whether a bind to ::1 failed because the system
-// has no IPv6 loopback, rather than because the address is taken.
-func noIPv6Loopback(err error) bool {
-	return errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.EAFNOSUPPORT) || errors.Is(err, syscall.EPROTONOSUPPORT)
 }
 
 // acquireLock guarantees a single daemon per state directory.

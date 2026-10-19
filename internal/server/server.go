@@ -39,7 +39,10 @@ type Options struct {
 	ConfigPath  string
 	StateDir    string
 	Port        int
-	UI          fs.FS // dashboard assets; nil serves a placeholder
+	// PortAuto is true when the config set no port at start, so the daemon
+	// chose Port itself (the default or a fallback port).
+	PortAuto bool
+	UI       fs.FS // dashboard assets; nil serves a placeholder
 	// Token authenticates API clients; empty disables authentication.
 	Token string
 	// DashboardHost is the dashboard's own host name, <label>.localhost:
@@ -369,7 +372,10 @@ func (s *Server) reload(rename ...string) error {
 		go s.opt.Share.Apply(context.Background())
 	}
 	if cfg.Port != s.opt.Port {
-		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("port changed to %d; restart the daemon to apply", cfg.Port))
+		// A port the daemon chose itself stays while the config sets none.
+		if !cfg.PortAuto || !s.opt.PortAuto {
+			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("port changed to %d; restart the daemon to apply", cfg.Port))
+		}
 		cfg.Port = s.opt.Port
 	}
 	if len(rename) == 2 {

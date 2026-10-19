@@ -431,8 +431,14 @@ func Sandboxed() bool {
 	return false
 }
 
-func sandboxedError() error {
-	return fmt.Errorf("%s daemon is not running, and %w (it would inherit the sandbox); start it outside: run `%s daemon start` in a normal terminal or open the %s app, then try again", app.Name, ErrSandboxed, app.ID, app.Name)
+// sandboxedError explains why no daemon is started from a sandbox. When
+// this account's daemon runs (it holds the state lock) the sandbox keeps
+// this process from reaching it.
+func sandboxedError(port int) error {
+	if DaemonRunning() {
+		return fmt.Errorf("cannot reach the %s daemon from this sandbox: it runs, but connections to 127.0.0.1:%d are blocked here; allow local network access for this command or run it outside the sandbox (%w)", app.Name, port, ErrSandboxed)
+	}
+	return fmt.Errorf("no %s daemon answers on port %d, and %w (it would inherit the sandbox); if one runs, the sandbox blocks local connections, so allow them; otherwise run `%s daemon start` in a normal terminal or open the %s app, then try again", app.Name, port, ErrSandboxed, app.ID, app.Name)
 }
 
 // DaemonRunning reports whether a daemon holds this state directory's lock.
@@ -473,6 +479,8 @@ func (c *Client) follow() {
 // another program, or another account's daemon, holds the port and no
 // daemon of this account runs, it starts one anyway: a daemon without a
 // configured port then listens on another port, which the client follows.
+// It starts none while this product of this account holds the port (a
+// daemon with another state directory), and says which one.
 func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	h, err := c.Ping(ctx)
 	if err == nil && h.Verified {
@@ -488,13 +496,18 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 		if DaemonRunning() {
 			return h, err
 		}
+		// This product of this account, such as a daemon with another state
+		// directory, keeps its port: a daemon started now would refuse it.
+		if ph := PortHolder(ctx, c.Port); ph.Ours() {
+			return h, errors.New(ph.Refusal(c.Port))
+		}
 		held = err
 	}
 	if Sandboxed() {
 		if held != nil {
-			return h, fmt.Errorf("%w; %w", held, sandboxedError())
+			return h, fmt.Errorf("%w; %w", held, sandboxedError(c.Port))
 		}
-		return h, sandboxedError()
+		return h, sandboxedError(c.Port)
 	}
 	exited, err := startDaemon()
 	if err != nil {

@@ -31,7 +31,7 @@ import (
 func cmdDaemon(e *env, args []string) error {
 	if len(args) == 0 {
 		err := daemon.Run(e.cfgPath)
-		if errors.Is(err, daemon.ErrAlreadyRunning) {
+		if errors.Is(err, daemon.ErrAlreadyRunning) || errors.Is(err, daemon.ErrPortHeld) {
 			// A clean exit, so launchd or systemd does not keep starting a second daemon.
 			fmt.Fprintf(e.errOut, "%s: %v\n", app.ID, err)
 			return nil
@@ -178,8 +178,9 @@ var restartBody = map[string]bool{"restart": true}
 // verified requests cannot prove itself, so the client sends it nothing
 // signed (or it refuses signatures as unauthenticated); when it is provably
 // this account's daemon (the process of this user listening on its port,
-// with the pid it reports), it gets SIGTERM instead, which stops it the way
-// a restart does: no stop marker, servers restored by the next daemon.
+// with the pid it reports, holding this state directory's lock), it gets
+// SIGTERM instead, which stops it the way a restart does: no stop marker,
+// servers restored by the next daemon.
 func shutdown(e *env, c *client.Client, body any) error {
 	err := c.Do(e.ctx, http.MethodPost, "/api/shutdown", body, nil)
 	var apiErr *client.APIError
@@ -191,6 +192,16 @@ func shutdown(e *env, c *client.Client, body any) error {
 		return err
 	}
 	if !daemonListens(e.ctx, c.Port, h.PID) || syscall.Kill(h.PID, 0) != nil {
+		return err
+	}
+	// A daemon of this account with another state directory is not this
+	// one: this state directory's lock must be held, and by that process
+	// where its open files can be seen.
+	ph := client.PortHolder(e.ctx, c.Port)
+	if !client.DaemonRunning() || (ph.StateDir != "" && !paths.SamePath(ph.StateDir, paths.StateDir())) {
+		if ph.Ours() {
+			return errors.New(ph.Refusal(c.Port))
+		}
 		return err
 	}
 	fmt.Fprintf(e.errOut, "note: the daemon (pid %d, %s) predates verified requests; stopping it with SIGTERM\n", h.PID, h.Version)
@@ -231,8 +242,6 @@ func daemonRestart(e *env, c *client.Client) error {
 			return err
 		}
 	}
-	// The new daemon listens where the config says now.
-	next := client.New(e.configPort())
 	if service.Owns(e.cfgPath) {
 		// A daemon started outside the service holds the lock, so a service
 		// restart alone would not replace it.
@@ -249,7 +258,8 @@ func daemonRestart(e *env, c *client.Client) error {
 		if err == nil {
 			deadline := time.Now().Add(100 * time.Second)
 			for time.Now().Before(deadline) {
-				if h, err := next.Ping(e.ctx); err == nil && (!running || h.PID != old.PID) {
+				next := e.nextClient()
+				if h, err := next.Ping(e.ctx); err == nil && h.Verified && (!running || h.PID != old.PID) {
 					fmt.Fprintf(e.out, "daemon restarted by the login service (pid %d) at %s; servers that were running are being restored\n", h.PID, next.Base)
 					return nil
 				}
@@ -269,12 +279,26 @@ func daemonRestart(e *env, c *client.Client) error {
 			return fmt.Errorf("daemon did not stop within 90s")
 		}
 	}
+	next := e.nextClient()
 	h, err := next.Ensure(e.ctx)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(e.out, "daemon restarted (pid %d) at %s; servers that were running are being restored\n", h.PID, next.Base)
 	return nil
+}
+
+// nextClient is a client for the daemon that comes up next: at the port it
+// records in daemon.port once it listens (it may have chosen another port
+// than the config names), else where the config says.
+func (e *env) nextClient() *client.Client {
+	if p := e.envPort(); p > 0 {
+		return client.New(p)
+	}
+	if p := client.LivePort(); p > 0 {
+		return client.New(p)
+	}
+	return client.New(e.configPort())
 }
 
 // upgradeInPlace asks the daemon to re-execute this binary and waits until
@@ -300,9 +324,9 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 	}
 	// On success the old daemon drops the connection as it turns into the
 	// new one, so err is usually a transport error here.
-	next := client.New(e.configPort())
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
+		next := e.nextClient()
 		h, err := next.Ping(e.ctx)
 		if err == nil && h.Verified && h.PID == old.PID && !h.StartedAt.Equal(old.StartedAt) {
 			if h.Version != app.Version {
@@ -311,7 +335,7 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 			fmt.Fprintf(e.out, "daemon upgraded in place to %s (pid %d) at %s; servers kept running\n", h.Version, h.PID, next.Base)
 			return true, nil
 		}
-		if err == nil && h.PID != old.PID {
+		if err == nil && h.Verified && h.PID != old.PID {
 			fmt.Fprintf(e.out, "daemon restarted (pid %d) at %s; servers that were running are being restored\n", h.PID, next.Base)
 			return true, nil
 		}
@@ -319,6 +343,7 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 	}
 	// The new binary did not come up. A fresh daemon recovers the servers
 	// as after a crash.
+	next := e.nextClient()
 	h, err := next.Ensure(e.ctx)
 	if err != nil {
 		return true, fmt.Errorf("the upgraded daemon did not answer and none could be started: %w; see %s", err, paths.ShortenHome(paths.DaemonLog()))
@@ -435,8 +460,16 @@ func cmdDoctor(e *env, args []string) error {
 	// while none of this account's runs: the daemon picks another port.
 	movable := cfg != nil && cfg.PortAuto && !client.DaemonRunning()
 	c := client.New(e.port())
-	if h, err := c.Ping(e.ctx); (err == nil || ports.Listening(e.port())) && movable {
-		fmt.Fprintf(e.out, "%s port %d is taken by another program or another account's daemon; the daemon will listen on another port and save it in the config\n", e.paint(dim, "•"), e.port())
+	h, err := c.Ping(e.ctx)
+	taken := (err == nil && !h.Verified) || (err != nil && ports.Listening(e.port()))
+	var ph client.Holder
+	if taken && !client.DaemonRunning() {
+		ph = client.PortHolder(e.ctx, e.port())
+	}
+	if ph.Ours() {
+		bad("%s", ph.Refusal(e.port()))
+	} else if taken && movable {
+		fmt.Fprintf(e.out, "%s port %d is taken by another program or another account's daemon; the daemon will listen on a fallback port and keep it in the state directory\n", e.paint(dim, "•"), e.port())
 	} else if err == nil && !h.Verified {
 		bad("port %d answers as %s %s (pid %d) but cannot prove it is this account's daemon; `%s daemon restart` replaces a daemon from before verified requests", e.port(), app.Name, h.Version, h.PID, app.ID)
 	} else if err == nil {

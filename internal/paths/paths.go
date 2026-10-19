@@ -5,7 +5,8 @@
 // On Linux XDG_CONFIG_HOME and XDG_STATE_HOME move them. On macOS they do not:
 // the menu bar app and launchd never see a shell's XDG variables, so honoring
 // them there would give the CLI another config, state directory, token and
-// lock than the app.
+// lock than the app. Earlier versions did honor them on macOS; MoveLegacy
+// moves what they left there.
 package paths
 
 import (
@@ -71,7 +72,7 @@ func defaultStateDir() string {
 // and state directory, as for the account's main daemon rather than an
 // isolated instance.
 func Default(cfgPath, stateDir string) bool {
-	return samePath(ExpandHome(cfgPath), DefaultConfigFile()) && samePath(stateDir, defaultStateDir())
+	return SamePath(ExpandHome(cfgPath), DefaultConfigFile()) && SamePath(stateDir, defaultStateDir())
 }
 
 // LogDir returns the directory holding one log file per server.

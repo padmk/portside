@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
@@ -101,11 +102,13 @@ func inheritLock(fd int, path string) (*os.File, error) {
 	return f, nil
 }
 
-// inheritListeners turns the handed-off sockets back into listeners when
-// they listen on port; otherwise they are closed and the caller listens anew.
-func inheritListeners(fds []int, port int) []net.Listener {
+// inheritListeners turns the handed-off sockets back into listeners and
+// returns the port they share; when any is unusable, or they differ in
+// port, all are closed and the caller listens anew.
+func inheritListeners(fds []int) ([]net.Listener, int) {
 	var out []net.Listener
 	ok := len(fds) > 0
+	port := 0
 	for _, fd := range fds {
 		syscall.CloseOnExec(fd)
 		f := os.NewFile(uintptr(fd), "listener")
@@ -115,18 +118,47 @@ func inheritListeners(fds []int, port int) []net.Listener {
 			ok = false
 			continue
 		}
-		if a, isTCP := ln.Addr().(*net.TCPAddr); !isTCP || a.Port != port {
+		a, isTCP := ln.Addr().(*net.TCPAddr)
+		if !isTCP || (port != 0 && a.Port != port) {
 			ok = false
+		} else {
+			port = a.Port
 		}
 		out = append(out, ln)
 	}
 	if !ok {
-		for _, ln := range out {
-			ln.Close()
-		}
-		return nil
+		closeListeners(out)
+		return nil, 0
 	}
-	return out
+	return out, port
+}
+
+// takeOverListeners serves on the sockets of an upgrade. A config without
+// a port keeps the inherited port. When the config now sets another port,
+// the daemon moves there if it can and otherwise keeps the inherited
+// sockets, so an upgrade never leaves the daemon without a port. cfg.Port
+// is set to the port served; inherited reports whether every socket came
+// over, so the dashboard host is kept. Nil listeners mean listening anew.
+func takeOverListeners(ho *handoff, cfg *config.Config) (lns []net.Listener, inherited bool, err error) {
+	lns, port := inheritListeners(ho.Listeners)
+	if lns == nil {
+		return nil, false, nil
+	}
+	if port != cfg.Port && !cfg.PortAuto {
+		moved, err := listen(cfg.Port)
+		if err == nil {
+			closeListeners(lns)
+			log.Printf("handoff: moved from port %d to %d", port, cfg.Port)
+			return moved, false, nil
+		}
+		log.Printf("handoff: %v; staying on port %d until the port is free and the daemon restarts", err, port)
+	}
+	cfg.Port = port
+	n := len(lns)
+	if lns, err = completeListeners(lns, port); err != nil {
+		return nil, false, err
+	}
+	return lns, len(lns) == n, nil
 }
 
 // checkBinary runs `<exe> version` and returns the version it reports, so a

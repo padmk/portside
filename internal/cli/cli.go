@@ -14,6 +14,7 @@ import (
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/daemon"
 	"github.com/padmk/portside/internal/paths"
 )
 
@@ -62,6 +63,10 @@ func (e *env) configPort() int {
 		return p
 	}
 	if cfg, err := config.Load(e.cfgPath); err == nil {
+		// A daemon whose config sets no port keeps a fallback port it chose.
+		if p := daemon.SavedPort(paths.StateDir()); cfg.PortAuto && p > 0 {
+			return p
+		}
 		return cfg.Port
 	} else {
 		if port, portErr := config.ReadPort(e.cfgPath); portErr == nil {
@@ -173,6 +178,9 @@ func init() {
 
 // Main runs the CLI and returns the process exit code.
 func Main(args []string) int {
+	for _, note := range paths.MoveLegacy() {
+		fmt.Fprintf(os.Stderr, "%s: %s\n", app.ID, note)
+	}
 	e := &env{
 		ctx:     context.Background(),
 		cfgPath: paths.ConfigFile(),

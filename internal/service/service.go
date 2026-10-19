@@ -154,7 +154,11 @@ func installLaunchd(exe, file, configPath string) error {
 // installSystemd writes the user unit. It is wanted by default.target, so
 // it also runs without a desktop (over SSH, with lingering); on a desktop it
 // is ordered after graphical-session.target, but not part of it, so ending
-// the desktop session leaves its servers running.
+// the desktop session leaves its servers running. That ordering does not
+// give it DISPLAY: the desktop has to import its session variables into the
+// user manager (most do with `systemctl --user import-environment` or
+// `dbus-update-activation-environment --systemd` at session start), and
+// importSessionEnv does so from the CLI.
 func installSystemd(exe, file, configPath string) error {
 	unit := fmt.Sprintf(`[Unit]
 Description=%s dev server manager
@@ -286,13 +290,15 @@ var sessionEnv = []string{"DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS
 
 // importSessionEnv copies the desktop session's variables that this process
 // has into the systemd user manager, so the service gets them when it
-// starts. Desktops that import them themselves make this a no-op.
+// starts. Desktops that import them themselves make this a no-op. A display
+// forwarded over SSH is left out: it ends with the SSH session.
 func importSessionEnv() {
 	var names []string
 	for _, k := range sessionEnv {
-		if os.Getenv(k) != "" {
-			names = append(names, k)
+		if os.Getenv(k) == "" || (k == "DISPLAY" && !localDisplay()) {
+			continue
 		}
+		names = append(names, k)
 	}
 	if len(names) == 0 {
 		return
@@ -300,11 +306,24 @@ func importSessionEnv() {
 	_ = exec.Command("systemctl", append([]string{"--user", "import-environment"}, names...)...).Run()
 }
 
+// localDisplay reports whether DISPLAY names this computer's own display
+// rather than one forwarded over SSH (`ssh -X` sets localhost:10.0 and the
+// like, with SSH_CONNECTION).
+func localDisplay() bool {
+	d := os.Getenv("DISPLAY")
+	if d == "" || os.Getenv("SSH_CONNECTION") != "" {
+		return false
+	}
+	host, _, _ := strings.Cut(d, ":")
+	return host == "" || strings.HasPrefix(host, "/") || host == "unix"
+}
+
 // MissingDisplay reports, on Linux, whether this process runs in a desktop
-// session (it has DISPLAY or WAYLAND_DISPLAY) while the running service's
-// daemon has neither, so it cannot show notifications or open windows.
+// session (a local DISPLAY or a WAYLAND_DISPLAY) while the running
+// service's daemon has neither, so it cannot show notifications or open
+// windows.
 func MissingDisplay() bool {
-	if runtime.GOOS != "linux" || (os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "") {
+	if runtime.GOOS != "linux" || (!localDisplay() && (os.Getenv("WAYLAND_DISPLAY") == "" || os.Getenv("SSH_CONNECTION") != "")) {
 		return false
 	}
 	out, err := exec.Command("systemctl", "--user", "show", "-p", "MainPID", "--value", app.ID+".service").Output()
