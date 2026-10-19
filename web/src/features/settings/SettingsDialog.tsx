@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
 import { Check, Keyboard, LayoutGrid, List, Monitor, Moon, Sun } from 'lucide-react'
+import { api } from '../../api/client'
+import type { AppsView } from '../../api/types'
 import { swatches } from 'virtual:theme-swatches'
 import { useT, locales, type Key } from '../../i18n'
 import { setLocale, setThemeFamily, setThemeMode, usePrefs } from '../../state/prefs'
@@ -7,7 +10,8 @@ import { FAMILIES, type ModeChoice } from '../../theme/registry'
 import { Dialog } from '../../ui/Dialog'
 import { RadioGroup } from '../../ui/RadioGroup'
 import { layoutFor, setLayout, useOverviewState } from '../overview/overviewState'
-import { useLive } from '../../state/live'
+import { useLive, useRemote } from '../../state/live'
+import { toastError } from '../../state/toasts'
 import './settings.css'
 
 const MODES: { id: ModeChoice; label: Key; icon: React.ReactNode }[] = [
@@ -22,6 +26,7 @@ export function SettingsDialog() {
   const { layoutChoice } = useOverviewState()
   const count = useLive().state?.servers.length ?? 0
   const layout = layoutFor(layoutChoice, count)
+  const local = !useRemote()
 
   return (
     <Dialog
@@ -114,7 +119,46 @@ export function SettingsDialog() {
             </RadioGroup>
           </section>
         </div>
+
+        {local && <AppPickers />}
       </div>
     </Dialog>
+  )
+}
+
+/** Which editor and terminal "Open in editor" and "Open in Terminal" use on this computer. */
+function AppPickers() {
+  const t = useT()
+  const [apps, setApps] = useState<AppsView | null>(null)
+  useEffect(() => {
+    api.apps().then(setApps, toastError)
+  }, [])
+  if (!apps) return null
+  const save = (key: 'editor' | 'terminal', value: string) => api.setApp(key, value).then(setApps, toastError)
+  const picker = (key: 'editor' | 'terminal', value: string, options: AppsView['editors'], auto: string) => {
+    const id = `set-${key}`
+    // Keep a value written by hand selectable.
+    const all = value && !options.some((o) => o.value === value) ? [{ value, label: value }, ...options] : options
+    return (
+      <section className="setting setting--app">
+        <h3>
+          <label htmlFor={id}>{t(key === 'editor' ? 'settings.editor' : 'settings.terminal')}</label>
+        </h3>
+        <select id={id} className="select" value={value} onChange={(e) => void save(key, e.target.value)}>
+          <option value="">{auto ? t('settings.automaticApp', { app: auto }) : t('settings.automatic')}</option>
+          {all.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </section>
+    )
+  }
+  return (
+    <div className="setting-row">
+      {picker('editor', apps.editor, apps.editors, apps.autoEditor)}
+      {picker('terminal', apps.terminal, apps.terminals, apps.autoTerminal)}
+    </div>
   )
 }

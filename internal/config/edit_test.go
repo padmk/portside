@@ -457,7 +457,7 @@ func TestSetTopLevelReplace(t *testing.T) {
 	if err := SetTopLevel(path, "port", "7990"); err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, path, strings.Replace(fixture, "port = 7999 # daemon port\n", "port = 7990\n", 1))
+	wantText(t, path, strings.Replace(fixture, "port = 7999 # daemon port\n", "port = 7990 # daemon port\n", 1))
 	if mustLoad(t, path).Port != 7990 {
 		t.Error("port not updated")
 	}

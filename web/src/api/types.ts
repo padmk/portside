@@ -219,6 +219,21 @@ export interface DiscoverResponse {
 
 export type OpenTarget = 'folder' | 'editor' | 'terminal' | 'config' | 'logs'
 
+export interface AppOption {
+  value: string
+  label: string
+}
+
+/** The editor and terminal settings with the apps found on this computer; '' means automatic. */
+export interface AppsView {
+  editor: string
+  terminal: string
+  editors: AppOption[]
+  terminals: AppOption[]
+  autoEditor: string
+  autoTerminal: string
+}
+
 export type BulkAction = 'start' | 'stop' | 'restart'
 
 export interface BulkResult {

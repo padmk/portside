@@ -195,7 +195,7 @@ func (s *Server) setShare(w http.ResponseWriter, r *http.Request) {
 // connections and change sharing.
 func peerDenied(p string) bool {
 	switch p {
-	case "/api/open", "/api/shutdown", "/api/upgrade", "/api/auth/code":
+	case "/api/open", "/api/apps", "/api/shutdown", "/api/upgrade", "/api/auth/code":
 		return true
 	}
 	return p == "/api/remote" || strings.HasPrefix(p, "/api/remote/") || strings.HasPrefix(p, remote.PathPrefix+"/")

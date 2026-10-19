@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -60,6 +58,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/discover", s.discover)
 	m.HandleFunc("GET /api/free-port", s.freePort)
 	m.HandleFunc("POST /api/open", s.open)
+	m.HandleFunc("GET /api/apps", s.getApps)
+	m.HandleFunc("PUT /api/apps", s.setApp)
 	m.HandleFunc("POST /api/shutdown", s.shutdown)
 	m.HandleFunc("POST /api/upgrade", s.upgrade)
 	s.containerRoutes(m)
@@ -868,146 +868,6 @@ func (s *Server) freePort(w http.ResponseWriter, r *http.Request) {
 	temporary := s.sup.TemporaryPorts()
 	p := s.sup.Config().FreePort(func(p int) bool { return temporary(p) || ports.Listening(p) })
 	writeJSON(w, http.StatusOK, map[string]int{"port": p})
-}
-
-// ── desktop integration ──────────────────────────────────────────────────
-
-type openBody struct {
-	Target string `json:"target"` // "folder", "editor", "terminal", "config", "logs"
-	Name   string `json:"name,omitempty"`
-}
-
-func (s *Server) open(w http.ResponseWriter, r *http.Request) {
-	var body openBody
-	if err := readJSON(r, &body); err != nil {
-		fail(w, http.StatusBadRequest, err)
-		return
-	}
-	cfg := s.sup.Config()
-	var target string
-	switch body.Target {
-	case "config":
-		target = s.opt.ConfigPath
-	case "logs":
-		target = filepath.Join(s.opt.StateDir, "logs")
-		if body.Name != "" {
-			target = filepath.Join(target, body.Name+".log")
-		}
-	default:
-		sv, ok := s.sup.Lookup(body.Name)
-		if !ok {
-			fail(w, http.StatusNotFound, errors.New("unknown server"))
-			return
-		}
-		target = sv.Dir
-	}
-	var err error
-	switch body.Target {
-	case "folder", "logs":
-		err = reveal(target)
-	case "editor", "config":
-		err = s.openEditor(cfg.Editor, target)
-	case "terminal":
-		err = s.openTerminal(cfg.Terminal, target)
-	default:
-		err = fmt.Errorf("unknown target %q", body.Target)
-	}
-	if err != nil {
-		fail(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-// launch starts a desktop helper and reaps it in the background so finished
-// launchers do not linger as zombies.
-func launch(c *exec.Cmd) error {
-	if err := c.Start(); err != nil {
-		return err
-	}
-	go func() { _ = c.Wait() }()
-	return nil
-}
-
-func reveal(p string) error {
-	if runtime.GOOS == "darwin" {
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return launch(exec.Command("open", "-R", p))
-		}
-		return launch(exec.Command("open", p))
-	}
-	if st, err := os.Stat(p); err == nil && !st.IsDir() {
-		p = filepath.Dir(p)
-	}
-	return launch(exec.Command("xdg-open", p))
-}
-
-// openEditor uses the configured editor command, else the first known GUI
-// editor on PATH, else the system default application.
-func (s *Server) openEditor(editor, target string) error {
-	if editor != "" {
-		parts := strings.Fields(editor)
-		return launch(exec.Command(s.sup.LookPath(parts[0]), append(parts[1:], target)...))
-	}
-	for _, cand := range []string{"cursor", "code", "zed", "subl"} {
-		if p := s.sup.LookPath(cand); p != "" {
-			return launch(exec.Command(p, target))
-		}
-	}
-	if runtime.GOOS == "darwin" {
-		if st, err := os.Stat(target); err == nil && !st.IsDir() {
-			return launch(exec.Command("open", "-t", target))
-		}
-		return launch(exec.Command("open", target))
-	}
-	return launch(exec.Command("xdg-open", target))
-}
-
-func (s *Server) openTerminal(terminal, dir string) error {
-	c, err := terminalCommand(terminal, dir, s.sup.LookPath)
-	if err != nil {
-		return err
-	}
-	c.Env = s.sup.Environ()
-	return launch(c)
-}
-
-func terminalCommand(terminal, dir string, lookup func(string) string) (*exec.Cmd, error) {
-	terminal = strings.TrimSpace(terminal)
-	if terminal != "" {
-		parts := strings.Fields(terminal)
-		p := lookup(parts[0])
-		if runtime.GOOS == "darwin" && p == "" {
-			return exec.Command("open", "-a", terminal, dir), nil
-		}
-		if p == "" {
-			return nil, fmt.Errorf("terminal command %q not found", parts[0])
-		}
-		args, placeholder := parts[1:], false
-		for i, arg := range args {
-			if strings.Contains(arg, "{DIR}") {
-				placeholder = true
-				args[i] = strings.ReplaceAll(arg, "{DIR}", dir)
-			}
-		}
-		if !placeholder {
-			args = append(args, dir)
-		}
-		c := exec.Command(p, args...)
-		c.Dir = dir
-		return c, nil
-	}
-	if runtime.GOOS == "darwin" {
-		return exec.Command("open", "-a", "Terminal", dir), nil
-	}
-	for _, t := range []string{"x-terminal-emulator", "gnome-terminal", "konsole", "kitty", "alacritty"} {
-		if p := lookup(t); p != "" {
-			c := exec.Command(p)
-			c.Dir = dir
-			return c, nil
-		}
-	}
-	return nil, errors.New("no terminal emulator found")
 }
 
 // upgrade replaces the daemon's binary in place with the one at the

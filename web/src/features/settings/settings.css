@@ -12,6 +12,10 @@
   font-size: var(--fs-sm);
   font-weight: 600;
 }
+.setting--app {
+  justify-items: stretch;
+  width: 14rem;
+}
 .setting-row {
   display: flex;
   flex-wrap: wrap;

@@ -374,6 +374,7 @@ func cmdLogs(e *env, args []string) error {
 func cmdOpen(e *env, args []string) error {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	alias := fs.Bool("alias", false, "")
+	printOnly := fs.Bool("print", false, "")
 	names, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -399,7 +400,13 @@ func cmdOpen(e *env, args []string) error {
 			}
 			if target != "" {
 				fmt.Fprintln(e.out, target)
-				return openURL(target)
+				if *printOnly {
+					return nil
+				}
+				if argv := browserCommand(runtime.GOOS, os.Getenv, target); argv != nil {
+					return exec.Command(argv[0], argv[1:]...).Start()
+				}
+				return nil
 			}
 			next = "/#/" + url.PathEscape(s.Name)
 		}
@@ -423,22 +430,21 @@ func cmdOpen(e *env, args []string) error {
 	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || derr != nil || !strings.HasSuffix(d.Hostname(), ".localhost") {
 		return fmt.Errorf("the daemon gave no usable sign-in link; restart it with `%s daemon restart`", app.ID)
 	}
-	// Print where the dashboard opens, not the link.
+	// Print where the dashboard opens; the link only where no browser
+	// here can take it.
 	fmt.Fprintln(e.out, d.Scheme+"://"+d.Host+next)
-	return openURL(link.URL)
-}
-
-// openCommand is how the desktop opens a URL or file.
-func openCommand(goos, target string) (string, []string) {
-	if goos == "darwin" {
-		return "open", []string{target}
+	var argv []string
+	if !*printOnly {
+		argv = browserCommand(runtime.GOOS, os.Getenv, link.URL)
 	}
-	return "xdg-open", []string{target}
-}
-
-func openURL(u string) error {
-	name, argv := openCommand(runtime.GOOS, u)
-	return exec.Command(name, argv...).Start()
+	if argv != nil {
+		return exec.Command(argv[0], argv[1:]...).Start()
+	}
+	fmt.Fprintf(e.out, "\nOpen this link to sign in; it works once, within two minutes, from your account:\n%s\n", link.URL)
+	if os.Getenv("SSH_CONNECTION") != "" {
+		fmt.Fprintf(e.out, "\nOver SSH, forward the port first and open the link on your own computer, where *.localhost resolves to it:\n  ssh -L %[1]s:127.0.0.1:%[1]s <this host>\n", u.Port())
+	}
+	return nil
 }
 
 func cmdPorts(e *env, args []string) error {

@@ -1,4 +1,5 @@
 import type {
+  AppsView,
   BulkAction,
   BulkResult,
   ContainerDetails,
@@ -171,6 +172,8 @@ export const api = {
 
   /** Desktop actions; a remote daemon refuses them. */
   open: (target: OpenTarget, name?: string) => on<{ ok: boolean }>('POST', '/open', { target, name }),
+  apps: () => request<AppsView>('GET', `${LOCAL}/apps`),
+  setApp: (key: 'editor' | 'terminal', value: string) => request<AppsView>('PUT', `${LOCAL}/apps`, { key, value }),
   shutdown: () => on<{ ok: boolean }>('POST', '/shutdown', {}),
 
   remote: () => request<RemoteOverview>('GET', `${LOCAL}/remote`).then(overview),

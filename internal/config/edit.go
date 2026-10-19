@@ -703,8 +703,8 @@ func SetTopLevel(path, k, literal string) error {
 		}
 		for i := 0; i < firstTable; i++ {
 			if !d.cont[i] && keyRe.MatchString(lines[i]) {
-				lines[i] = k + " = " + literal
-				return lines, nil
+				// Keeps the key's spelling and its trailing comment.
+				return patchValue(lines, []string{k}, literal), nil
 			}
 		}
 		at := firstTable

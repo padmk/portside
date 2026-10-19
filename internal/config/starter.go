@@ -148,11 +148,17 @@ root = %[2]s
 # Show a desktop notification when a server crashes.
 # notify = true
 
-# Command used by "Open in editor"; defaults to the first of cursor, code, zed, subl.
-# editor = "code"
+# Shell that runs each server's cmd as <shell> -c <cmd>.
+# shell = "bash"
 
-# App name (macOS) or command used by "Open in Terminal". A command receives
-# the directory as its last argument, or substitutes {DIR} in its arguments.
+# Editor used by "Open in editor": an app name (macOS), a command, or empty for
+# $VISUAL or $EDITOR when it is a GUI editor, else the first one installed.
+# The dashboard's Settings list the editors found.
+# editor = "Visual Studio Code"
+
+# Terminal used by "Open in Terminal": an app name (macOS) or a command. A
+# command receives the directory as its last argument, or substitutes {DIR}
+# in its arguments. Empty picks the first terminal installed.
 # terminal = "Terminal"
 
 # Command that starts the container engine; by default the engine behind the

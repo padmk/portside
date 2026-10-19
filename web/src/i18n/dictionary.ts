@@ -156,6 +156,10 @@ export const en = {
   'settings.layout': 'Overview layout',
   'settings.shortcutsHint': 'Press ? anywhere to see the shortcuts.',
   'settings.licenses': 'Open source licenses',
+  'settings.editor': 'Editor',
+  'settings.terminal': 'Terminal',
+  'settings.automatic': 'Automatic',
+  'settings.automaticApp': 'Automatic ({app})',
   'theme.neutral': 'Neutral',
 
   'shortcuts.title': 'Keyboard shortcuts',
@@ -609,6 +613,10 @@ export const pl: Record<Key, Message> = {
   'settings.layout': 'Układ przeglądu',
   'settings.shortcutsHint': 'Naciśnij ? w dowolnym miejscu, aby zobaczyć skróty.',
   'settings.licenses': 'Licencje open source',
+  'settings.editor': 'Edytor',
+  'settings.terminal': 'Terminal',
+  'settings.automatic': 'Automatycznie',
+  'settings.automaticApp': 'Automatycznie ({app})',
   'theme.neutral': 'Neutralny',
 
   'shortcuts.title': 'Skróty klawiszowe',
