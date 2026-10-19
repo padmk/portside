@@ -7,7 +7,7 @@ import { Mark } from '../../app/Mark'
 import { brand } from '../../brand'
 import { copyText } from '../../ui/hooks'
 
-const COMMANDS = [`${brand.name} scan --add`, `${brand.name} import devctl`]
+const COMMANDS = [`${brand.name} scan --add`, `${brand.name} scan ~/projects --add`]
 
 export function EmptyState() {
   const t = useT()
