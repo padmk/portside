@@ -60,7 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = false
         popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView: MenuPanel(store: store, actions: actions))
+        let panel = NSHostingController(rootView: MenuPanel(store: store, actions: actions))
+        // The popover follows the panel's size; without this it places itself
+        // for its default size and then grows upwards past the screen.
+        panel.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = panel
 
         store.onSummaryChange = { [weak self] s in
             self?.statusItem.button?.image = StatusIcon.image(for: s)
@@ -116,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if popover.isShown {
             popover.performClose(sender)
         } else {
+            if let view = popover.contentViewController?.view { popover.contentSize = view.fittingSize }
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             NSApp.activate()
