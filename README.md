@@ -298,4 +298,4 @@ A `v*` tag runs `.github/workflows/release.yml`: GoReleaser publishes the CLI ar
 
 ## License
 
-MIT
+MIT. Third-party licenses (Go modules, dashboard packages and fonts, and the color themes the palettes come from) are listed in `THIRD_PARTY_NOTICES.txt`, which ships in the release archives and in `Portside.app/Contents/Resources` and is served by the dashboard at `/licenses.txt` (Settings, "Open source licenses"). `make notices` regenerates it after a dependency change; `make check` and CI fail while it is stale.

@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --dirty 2>/dev/null || echo 0.1.0-dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PREFIX  ?= $(HOME)/.local
 
-.PHONY: build ui go install dev-daemon dev-open dev-ui check clean snapshot app app-install
+.PHONY: build ui go install dev-daemon dev-open dev-ui check notices clean snapshot app app-install
 
 ## build: dashboard + binary in ./bin/portside (the dashboard must exist before Go embeds it)
 build: ui
@@ -42,6 +42,11 @@ check:
 	go vet ./...
 	go test ./...
 	pnpm --dir web build
+	go run ./scripts/notices -check
+
+## notices: regenerate THIRD_PARTY_NOTICES.txt from the Go modules, web/node_modules and theme credits
+notices:
+	go run ./scripts/notices
 
 ## snapshot: local release archives in ./dist (needs goreleaser)
 snapshot:

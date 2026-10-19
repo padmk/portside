@@ -155,6 +155,7 @@ export const en = {
   'settings.language': 'Language',
   'settings.layout': 'Overview layout',
   'settings.shortcutsHint': 'Press ? anywhere to see the shortcuts.',
+  'settings.licenses': 'Open source licenses',
   'theme.neutral': 'Neutral',
 
   'shortcuts.title': 'Keyboard shortcuts',
@@ -607,6 +608,7 @@ export const pl: Record<Key, Message> = {
   'settings.language': 'Język',
   'settings.layout': 'Układ przeglądu',
   'settings.shortcutsHint': 'Naciśnij ? w dowolnym miejscu, aby zobaczyć skróty.',
+  'settings.licenses': 'Licencje open source',
   'theme.neutral': 'Neutralny',
 
   'shortcuts.title': 'Skróty klawiszowe',

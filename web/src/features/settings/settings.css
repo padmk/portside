@@ -145,3 +145,15 @@
   color: var(--text-3);
   font-size: var(--fs-xs);
 }
+
+.foot-link {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 2px;
+}
+.foot-link:hover {
+  color: var(--text);
+  text-decoration-color: currentColor;
+}

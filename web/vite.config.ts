@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { loadTheme, resolveColor, over, toHex } from './scripts/theme-css.ts'
@@ -43,10 +44,29 @@ function themeSwatches(): Plugin {
   }
 }
 
+const NOTICES = new URL('../THIRD_PARTY_NOTICES.txt', import.meta.url)
+
+/** Serves the repository's third-party notices as /licenses.txt, in the build and the dev server. */
+function licenses(): Plugin {
+  return {
+    name: 'licenses',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'licenses.txt', source: readFileSync(NOTICES, 'utf8') })
+    },
+    configureServer(server) {
+      server.middlewares.use('/licenses.txt', (_req, res) => {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+        res.end(readFileSync(NOTICES, 'utf8'))
+      })
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
     react(),
     themeSwatches(),
+    licenses(),
     {
       name: 'brand-html',
       transformIndexHtml: (html: string) =>

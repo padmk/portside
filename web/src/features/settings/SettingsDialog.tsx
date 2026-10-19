@@ -32,6 +32,9 @@ export function SettingsDialog() {
         <>
           <span className="foot-note">{t('settings.shortcutsHint')}</span>
           <span className="foot-spacer" />
+          <a className="foot-link" href="/licenses.txt" target="_blank" rel="noreferrer">
+            {t('settings.licenses')}
+          </a>
           <button type="button" className="btn" onClick={() => openDialog({ kind: 'shortcuts' })}>
             <Keyboard size={16} aria-hidden="true" />
             {t('menu.shortcuts')}

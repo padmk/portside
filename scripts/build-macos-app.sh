@@ -43,7 +43,7 @@ fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Portside"
 cp "$OUT/tmp/portside-arm64" "$APP/Contents/Helpers/portside"
-cp macos/Resources/AppIcon.icns macos/Resources/AppIconDark.png "$APP/Contents/Resources/"
+cp macos/Resources/AppIcon.icns macos/Resources/AppIconDark.png LICENSE THIRD_PARTY_NOTICES.txt "$APP/Contents/Resources/"
 sed -e "s/__VERSION__/${VERSION%%-*}/" -e "s/__BUILD__/$BUILD/" -e "s/__BUNDLE_ID__/$BUNDLE_ID/" macos/Resources/Info.plist > "$APP/Contents/Info.plist"
 
 echo "==> sign"
