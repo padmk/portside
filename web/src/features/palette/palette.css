@@ -8,9 +8,6 @@
   flex-direction: column;
   padding: 0;
 }
-.palette .dialog-body {
-  height: auto;
-}
 .palette-input {
   display: flex;
   align-items: center;
