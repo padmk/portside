@@ -1,18 +1,24 @@
 import { Check, Copy, FolderSearch, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useT } from '../../i18n'
-import { useRemote } from '../../state/live'
+import { useLive } from '../../state/live'
 import { openAddServer } from '../../state/ui'
 import { Mark } from '../../app/Mark'
 import { brand } from '../../brand'
 import { copyText } from '../../ui/hooks'
 
-const COMMANDS = [`${brand.name} scan --add`, `${brand.name} scan ~/projects --add`]
+/** Scanning the current folder, and the configured projects folder unless that is the home folder. */
+function commands(root: string | undefined): string[] {
+  const out = [`${brand.name} scan --add`]
+  if (root && root !== '~') out.push(`${brand.name} scan ${/\s/.test(root) ? JSON.stringify(root) : root} --add`)
+  return out
+}
 
 export function EmptyState() {
   const t = useT()
+  const { state, remote } = useLive()
   // The command line acts on this computer, not on a connected one.
-  const local = !useRemote()
+  const local = !remote
   return (
     <div className="empty">
       <Mark className="empty-mark" />
@@ -31,7 +37,7 @@ export function EmptyState() {
       {local && (
         <div className="empty-cli">
           <p>{t('empty.cli')}</p>
-          {COMMANDS.map((c) => (
+          {commands(state?.config.root).map((c) => (
             <CommandLine key={c} command={c} />
           ))}
         </div>
