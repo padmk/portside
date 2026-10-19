@@ -19,9 +19,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/service"
+	"github.com/padmk/portside/internal/signing"
 )
 
 // Client is an HTTP client bound to the daemon's port.
@@ -118,9 +121,11 @@ func (c *Client) On(ctx context.Context, name string) (*Client, *Connection, err
 	return &on, cn, nil
 }
 
-// tokenFile mirrors server.TokenPath; the client reads it on every request so
+// tokenFile and hostFile mirror server.TokenPath and
+// server.DashboardHostPath. The client reads the token on every request, so
 // a daemon started after the client still works.
 func tokenFile() string { return filepath.Join(paths.StateDir(), "auth-token") }
+func hostFile() string  { return filepath.Join(paths.StateDir(), "dashboard-host") }
 
 // Token returns the daemon's API token, or "" if the daemon never ran.
 func (c *Client) Token() string {
@@ -130,13 +135,39 @@ func (c *Client) Token() string {
 	return c.token
 }
 
-// Header returns the headers that authenticate a request, for WebSocket dials.
-func (c *Client) Header() http.Header {
-	h := http.Header{}
+// sign authenticates a request to the daemon: a signature with the token
+// over the request, never the token itself, so a program posing as the
+// daemon on its port learns nothing it could reuse. uri is the request URI
+// as sent on the wire.
+func (c *Client) sign(h http.Header, method, uri string, body []byte) {
 	if t := c.Token(); t != "" {
-		h.Set("Authorization", "Bearer "+t)
+		signing.Sign(h, t, method, uri, body, "")
 	}
-	return h
+}
+
+// DialWebSocket opens a signed WebSocket to an API path, routed as Path does.
+func (c *Client) DialWebSocket(ctx context.Context, p string) (*websocket.Conn, error) {
+	raw := c.WebSocketURL(p)
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	h := http.Header{}
+	c.sign(h, http.MethodGet, u.RequestURI(), nil)
+	ws, _, err := websocket.Dial(ctx, raw, &websocket.DialOptions{HTTPHeader: h})
+	return ws, err
+}
+
+// DashboardURL returns the dashboard's address for the daemon on port; a
+// browser signs in there through `open`.
+func DashboardURL(port int) string {
+	host := "127.0.0.1"
+	if b, err := os.ReadFile(hostFile()); err == nil {
+		if h := strings.TrimSpace(string(b)); strings.HasSuffix(h, ".localhost") {
+			host = h
+		}
+	}
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // New returns a client for the daemon on port.
@@ -160,30 +191,27 @@ func (e *APIError) Error() string { return e.Msg }
 
 // Do sends a request with an optional JSON body and decodes a JSON response into out.
 func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
-	var rd io.Reader
+	var data []byte
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if data, err = json.Marshal(body); err != nil {
 			return err
 		}
-		rd = bytes.NewReader(data)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.Base+c.Path(path), rd)
+	req, err := http.NewRequestWithContext(ctx, method, c.Base+c.Path(path), bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if t := c.Token(); t != "" {
-		req.Header.Set("Authorization", "Bearer "+t)
-	}
+	c.sign(req.Header, method, req.URL.RequestURI(), data)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}

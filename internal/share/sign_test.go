@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/padmk/portside/internal/signing"
 )
 
 func testDevice(t *testing.T) (Device, Credential) {
@@ -37,8 +39,8 @@ func TestVerify(t *testing.T) {
 		r := signedRequest(cred, "GET", "/api/state", "", "e1")
 		old := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 		// Re-sign with the old date, so only the date is wrong.
-		r.Header.Set(HeaderDate, old)
-		r.Header.Set(HeaderSignature, mac(cred.Key, "GET", "/api/state", old, r.Header.Get(HeaderNonce), BodyHash(nil), "e1"))
+		r.Header.Set(signing.HeaderDate, old)
+		r.Header.Set(signing.HeaderSignature, signing.MAC(cred.Key, "GET", "/api/state", old, r.Header.Get(signing.HeaderNonce), signing.BodyHash(nil), "e1"))
 		return r
 	}
 	cases := []struct {
@@ -55,10 +57,10 @@ func TestVerify(t *testing.T) {
 		{"other key", signedRequest(other, "GET", "/api/state", "", "e1"), "/api/state", "", false},
 		{"old date", stale(), "/api/state", "", false},
 	}
-	n := &nonces{}
+	n := &signing.Verifier{}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := n.verify(c.req, dev, c.uri, []byte(c.body))
+			err := verify(n, c.req, dev, c.uri, []byte(c.body))
 			if (err == nil) != c.ok {
 				t.Errorf("verify: %v, want ok=%v", err, c.ok)
 			}
@@ -68,12 +70,12 @@ func TestVerify(t *testing.T) {
 
 func TestVerifyRefusesReplay(t *testing.T) {
 	dev, cred := testDevice(t)
-	n := &nonces{}
+	n := &signing.Verifier{}
 	r := signedRequest(cred, "GET", "/api/state", "", "e1")
-	if err := n.verify(r, dev, "/api/state", nil); err != nil {
+	if err := verify(n, r, dev, "/api/state", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := n.verify(r, dev, "/api/state", nil); err == nil {
+	if err := verify(n, r, dev, "/api/state", nil); err == nil {
 		t.Error("the same signed request verified twice")
 	}
 }
@@ -82,7 +84,7 @@ func TestSignatureCoversEpoch(t *testing.T) {
 	dev, cred := testDevice(t)
 	r := signedRequest(cred, "GET", "/api/state", "", "e1")
 	r.Header.Set(HeaderEpoch, "e2")
-	if err := (&nonces{}).verify(r, dev, "/api/state", nil); err == nil {
+	if err := verify(&signing.Verifier{}, r, dev, "/api/state", nil); err == nil {
 		t.Error("a request signed for one epoch verified with another")
 	}
 }

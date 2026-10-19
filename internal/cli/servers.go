@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coder/websocket"
-
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
@@ -64,7 +62,7 @@ func cmdStatus(e *env, args []string) error {
 		return nil
 	}
 	if len(st.Servers) == 0 {
-		fmt.Fprintf(e.out, "No servers yet. Add one with `portside add`, find some with `portside scan`,\nor open the dashboard: http://127.0.0.1:%d\n", st.Daemon.Port)
+		fmt.Fprintf(e.out, "No servers yet. Add one with `portside add`, find some with `portside scan`,\nor open the dashboard with `portside open`.\n")
 		return nil
 	}
 	nameW := 4
@@ -121,7 +119,7 @@ func cmdStatus(e *env, args []string) error {
 			e.statusDot(s), nameW, s.Name, e.statusWord(s), port, usage, e.paint(dim, note))
 	}
 	if e.conn == nil {
-		fmt.Fprintf(e.out, "\n%s http://127.0.0.1:%d\n", e.paint(dim, "dashboard"), st.Daemon.Port)
+		fmt.Fprintf(e.out, "\n%s %s\n", e.paint(dim, "dashboard"), client.DashboardURL(st.Daemon.Port))
 	}
 	return nil
 }
@@ -348,8 +346,7 @@ func cmdLogs(e *env, args []string) error {
 	}
 	// Follow: scrollback and live output come over one subscription, so
 	// nothing printed in between is lost. The first message is the scrollback.
-	ws, _, err := websocket.Dial(e.ctx, c.WebSocketURL("/api/servers/"+url.PathEscape(name)+"/terminal?always=1&readonly=1"),
-		&websocket.DialOptions{HTTPHeader: c.Header()})
+	ws, err := c.DialWebSocket(e.ctx, "/api/servers/"+url.PathEscape(name)+"/terminal?always=1&readonly=1")
 	if err != nil {
 		return err
 	}
@@ -416,7 +413,12 @@ func cmdOpen(e *env, args []string) error {
 	if err := c.Do(e.ctx, http.MethodPost, "/api/auth/code", map[string]string{"next": next}, &link); err != nil {
 		return err
 	}
-	fmt.Fprintln(e.out, c.Base+next)
+	// Print where the dashboard opens, not the one-time link.
+	shown := c.Base + next
+	if u, err := url.Parse(link.URL); err == nil {
+		shown = u.Scheme + "://" + u.Host + next
+	}
+	fmt.Fprintln(e.out, shown)
 	return openURL(link.URL)
 }
 

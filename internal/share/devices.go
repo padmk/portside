@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/padmk/portside/internal/signing"
 )
 
 // Pairing: Tailscale proves which device a request comes from, not which
@@ -31,13 +33,6 @@ type Device struct {
 	Instance string `json:"instance,omitempty"`
 	// Key is the device's signing key, hex encoded; never sent to clients.
 	Key string `json:"key,omitempty"`
-}
-
-// validKey reports whether k is a full 32-byte hex key; a record without one
-// must never verify a signature.
-func validKey(k string) bool {
-	b, err := hex.DecodeString(k)
-	return err == nil && len(b) == 32
 }
 
 // Code is a pairing code shown to the user.
@@ -213,7 +208,7 @@ func (d *devices) Lookup(id string) (Device, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, dev := range d.list {
-		if dev.ID == id && id != "" && validKey(dev.Key) {
+		if dev.ID == id && id != "" && signing.ValidKey(dev.Key) {
 			return dev, true
 		}
 	}

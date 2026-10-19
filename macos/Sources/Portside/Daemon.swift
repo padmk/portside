@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // JSON shapes from the daemon (see internal/server/routes.go and
@@ -218,17 +219,18 @@ struct APIClient {
     let base: URL
     let token: String?
 
+    /// Signs a request whose method, URL and body are final.
     func authorize(_ req: inout URLRequest) {
-        if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        RequestSigner.sign(&req, token: token)
     }
 
     /// A one-time link that signs a browser (or the dashboard window) in.
     func signInURL(next: String) async throws -> URL {
         var req = URLRequest(url: base.appendingPathComponent("api/auth/code"))
         req.httpMethod = "POST"
-        authorize(&req)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["next": next])
+        authorize(&req)
         let (data, _) = try await URLSession.shared.data(for: req)
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let s = obj["url"] as? String, let url = URL(string: s) else {
@@ -242,16 +244,57 @@ struct APIClient {
         var req = URLRequest(url: base.appendingPathComponent(path))
         req.httpMethod = "POST"
         req.timeoutInterval = 120
-        authorize(&req)
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
+        authorize(&req)
         let (data, resp) = try await URLSession.shared.data(for: req)
         if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
             let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw DaemonError.failed(msg ?? "Request failed (\(http.statusCode))")
         }
         return data
+    }
+}
+
+/// Signs requests to the daemon as internal/signing does: an HMAC-SHA256,
+/// keyed by the API token (hex), over the method, the request URI as sent,
+/// the Unix time, a random nonce, the body hash and an empty epoch. The
+/// token itself is never sent, so a program posing as the daemon on its
+/// port learns nothing it could reuse.
+enum RequestSigner {
+    private static func header(_ name: String) -> String { "X-\(Brand.name)-\(name)" }
+
+    static func sign(_ req: inout URLRequest, token: String?) {
+        guard let token, let key = hexData(token), key.count == 32, let url = req.url,
+              let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        var uri = comps.percentEncodedPath.isEmpty ? "/" : comps.percentEncodedPath
+        if let q = comps.percentEncodedQuery { uri += "?" + q }
+        let date = String(Int(Date().timeIntervalSince1970))
+        var nonceBytes = [UInt8](repeating: 0, count: 16)
+        guard SecRandomCopyBytes(kSecRandomDefault, nonceBytes.count, &nonceBytes) == errSecSuccess else { return }
+        let nonce = hex(Data(nonceBytes))
+        let bodyHash = hex(Data(SHA256.hash(data: req.httpBody ?? Data())))
+        let message = [req.httpMethod ?? "GET", uri, date, nonce, bodyHash, ""].joined(separator: "\n")
+        let mac = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: key))
+        req.setValue(date, forHTTPHeaderField: header("Date"))
+        req.setValue(nonce, forHTTPHeaderField: header("Nonce"))
+        req.setValue(hex(Data(mac)), forHTTPHeaderField: header("Signature"))
+    }
+
+    private static func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
+
+    private static func hexData(_ s: String) -> Data? {
+        let chars = Array(s.utf8)
+        guard chars.count % 2 == 0 else { return nil }
+        var out = Data(capacity: chars.count / 2)
+        var i = 0
+        while i < chars.count {
+            guard let b = UInt8(String(decoding: chars[i..<i + 2], as: UTF8.self), radix: 16) else { return nil }
+            out.append(b)
+            i += 2
+        }
+        return out
     }
 }

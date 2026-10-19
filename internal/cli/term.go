@@ -59,8 +59,7 @@ func cmdAttach(e *env, args []string) error {
 	name := names[0]
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
-	ws, _, err := websocket.Dial(ctx, c.WebSocketURL("/api/servers/"+url.PathEscape(name)+"/terminal"),
-		&websocket.DialOptions{HTTPHeader: c.Header()})
+	ws, err := c.DialWebSocket(ctx, "/api/servers/"+url.PathEscape(name)+"/terminal")
 	if err != nil {
 		return err
 	}

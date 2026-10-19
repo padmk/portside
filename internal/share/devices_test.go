@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/padmk/portside/internal/signing"
 )
 
 var codeFormat = regexp.MustCompile(`^[` + codeAlphabet + `]{4}-[` + codeAlphabet + `]{4}$`)
@@ -37,7 +39,7 @@ func TestPairOnceWithNormalizedCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pairing with %q: %v", typed, err)
 	}
-	if !validKey(key) || id == "" {
+	if !signing.ValidKey(key) || id == "" {
 		t.Fatalf("id %q, key %q", id, key)
 	}
 	if _, _, err := d.Pair(code, mbp); !errors.Is(err, ErrPairing) {

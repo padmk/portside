@@ -302,8 +302,8 @@ func usage(w io.Writer) {
 		fmt.Fprintf(w, "  %-10s %s\n", c.names[0], c.summary)
 	}
 	fmt.Fprintf(w, "\n--on COMPUTER runs %s on the connected computer.\n", strings.Join(remoteCommands(), ", "))
-	fmt.Fprintf(w, "\nConfig: %s\nDashboard: http://127.0.0.1:%d\nRun `%s help <command>` for arguments.\n",
-		paths.ShortenHome(paths.ConfigFile()), app.DefaultPort, app.ID)
+	fmt.Fprintf(w, "\nConfig: %s\nDashboard: `%s open`\nRun `%s help <command>` for arguments.\n",
+		paths.ShortenHome(paths.ConfigFile()), app.ID, app.ID)
 }
 
 // remoteCommands names the commands that take --on.

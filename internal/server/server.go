@@ -26,6 +26,7 @@ import (
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/remote"
 	"github.com/padmk/portside/internal/share"
+	"github.com/padmk/portside/internal/signing"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
@@ -40,6 +41,9 @@ type Options struct {
 	UI          fs.FS // dashboard assets; nil serves a placeholder
 	// Token authenticates API clients; empty disables authentication.
 	Token string
+	// DashboardHost is the dashboard's own host name, <label>.localhost:
+	// the only host whose requests may authenticate with the session cookie.
+	DashboardHost string
 	// Shutdown is called when a client asks the daemon to exit; restart is
 	// true when the client starts a daemon again right after.
 	Shutdown func(restart bool)
@@ -55,25 +59,35 @@ type Options struct {
 
 // Server is the daemon's HTTP surface.
 type Server struct {
-	opt        Options
-	sup        *supervisor.Supervisor
-	started    time.Time
-	editMu     sync.Mutex // serialises config file edits
-	cfgMu      sync.Mutex
-	cfgErr     string
-	cfgMod     time.Time
-	cfgRev     string
-	devOrigins map[string]bool
-	shareWant  bool // the share setting last handed to Options.Share
-	mux        *http.ServeMux
-	codes      codes
+	opt           Options
+	sup           *supervisor.Supervisor
+	started       time.Time
+	editMu        sync.Mutex // serialises config file edits
+	cfgMu         sync.Mutex
+	cfgErr        string
+	cfgMod        time.Time
+	cfgRev        string
+	devOrigins    map[string]bool
+	shareWant     bool // the share setting last handed to Options.Share
+	mux           *http.ServeMux
+	codes         codes
+	sessionCookie string // the dashboard cookie's value
+	signatures    signing.Verifier
 }
 
 // New builds the HTTP server.
 func New(opt Options) *Server {
 	s := &Server{opt: opt, sup: opt.Supervisor, cfgErr: opt.ConfigError, started: time.Now(), devOrigins: map[string]bool{}}
+	if opt.Token != "" {
+		s.sessionCookie = sessionValue(opt.Token)
+	}
+	// Extra origins allowed to write, for the Vite dev server: full origins,
+	// or a bare port for the dashboard host at that port.
 	for _, o := range strings.Split(os.Getenv(app.Env("DEV_ORIGIN")), ",") {
 		if o = strings.TrimSpace(o); o != "" {
+			if p, err := strconv.Atoi(o); err == nil && opt.DashboardHost != "" {
+				o = s.dashboardOrigin(p)
+			}
 			s.devOrigins[strings.TrimRight(o, "/")] = true
 		}
 	}
@@ -90,15 +104,18 @@ func New(opt Options) *Server {
 }
 
 // Handler returns the root handler: it routes by Host between the proxy and
-// the dashboard, and rejects unknown hosts to defeat DNS rebinding.
+// the dashboard, and rejects unknown hosts to defeat DNS rebinding. The
+// dashboard itself is served only on its own host; loopback addresses
+// serve the API to signed clients and a page on how to open the dashboard.
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := hostname(r.Host)
-		if sub, ok := strings.CutSuffix(host, ".localhost"); ok && sub != app.ID && sub != "" {
+		dashboard := s.opt.DashboardHost != "" && host == s.opt.DashboardHost
+		if sub, ok := strings.CutSuffix(host, ".localhost"); ok && !dashboard && sub != app.ID && sub != "" {
 			s.route(w, r, sub)
 			return
 		}
-		if !s.dashboardHost(host) {
+		if !s.allowedHost(host) {
 			http.Error(w, "host not allowed", http.StatusMisdirectedRequest)
 			return
 		}
@@ -110,9 +127,18 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		if !public(r) && !s.authorized(r) {
-			fail(w, http.StatusUnauthorized, errUnauthorized)
-			return
+		if !dashboard && s.opt.DashboardHost != "" {
+			expireLegacyCookie(w, r)
+			if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/auth" {
+				s.signInPage(w, http.StatusOK, app.Name+" is running")
+				return
+			}
+		}
+		if !public(r) {
+			if err := s.authenticate(r); err != nil {
+				fail(w, http.StatusUnauthorized, err)
+				return
+			}
 		}
 		s.mux.ServeHTTP(w, r)
 	})
@@ -126,12 +152,14 @@ func hostname(hostport string) string {
 	return strings.ToLower(strings.Trim(h, "[]"))
 }
 
-func (s *Server) dashboardHost(h string) bool {
+// allowedHost reports whether h names this daemon rather than a server:
+// the dashboard host or a loopback name.
+func (s *Server) allowedHost(h string) bool {
 	switch h {
 	case "127.0.0.1", "localhost", "::1", app.ID + ".localhost":
 		return true
 	}
-	return false
+	return s.opt.DashboardHost != "" && h == s.opt.DashboardHost
 }
 
 func (s *Server) originAllowed(r *http.Request) bool {
@@ -152,7 +180,7 @@ func (s *Server) originAllowed(r *http.Request) bool {
 	if port == "" {
 		port = "80"
 	}
-	return s.dashboardHost(hostname(u.Host)) && port == strconv.Itoa(s.opt.Port)
+	return s.allowedHost(hostname(u.Host)) && port == strconv.Itoa(s.opt.Port)
 }
 
 func isWebSocket(r *http.Request) bool {

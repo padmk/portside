@@ -27,11 +27,12 @@ dev-daemon: go
 	@mkdir -p $(DEV_DIR)
 	@[ -f $(DEV_DIR)/portside.toml ] || printf 'root = "~/dev"\nport = 7980\nrestore = false\n' > $(DEV_DIR)/portside.toml
 	PORTSIDE_CONFIG=$(DEV_DIR)/portside.toml PORTSIDE_STATE_DIR=$(DEV_DIR)/state \
-	PORTSIDE_DEV_ORIGIN=http://localhost:5173,http://127.0.0.1:5173 ./bin/portside daemon
+	PORTSIDE_DEV_ORIGIN=5173 ./bin/portside daemon
 
-## dev-open: sign the browser in to the dev daemon through Vite
+## dev-open: sign the browser in to the dev daemon; the session also works for Vite at the same host
 dev-open:
 	PORTSIDE_CONFIG=$(DEV_DIR)/portside.toml PORTSIDE_STATE_DIR=$(DEV_DIR)/state ./bin/portside open
+	@echo "Vite: http://$$(cat $(DEV_DIR)/state/dashboard-host):5173"
 
 ## dev-ui: Vite with hot reload, proxying /api to the daemon
 dev-ui:

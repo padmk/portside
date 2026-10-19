@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/padmk/portside/internal/app"
@@ -50,7 +51,7 @@ func cmdDaemon(e *env, args []string) error {
 			fmt.Fprintln(e.out, "daemon is not running")
 			return nil
 		}
-		if err := c.Do(e.ctx, http.MethodPost, "/api/shutdown", nil, nil); err != nil {
+		if err := shutdown(e, c, nil); err != nil {
 			return err
 		}
 		if !waitGone(c, e, 90*time.Second) {
@@ -96,7 +97,7 @@ func cmdService(e *env, args []string) error {
 		c := client.New(e.port())
 		if _, err := c.Ping(e.ctx); err == nil {
 			// Hand over from a manually started daemon; restore brings servers back.
-			_ = c.Do(e.ctx, http.MethodPost, "/api/shutdown", restartBody, nil)
+			_ = shutdown(e, c, restartBody)
 			waitGone(c, e, 90*time.Second)
 		}
 		if err := service.Install(e.cfgPath); err != nil {
@@ -140,6 +141,28 @@ func cmdService(e *env, args []string) error {
 // not recorded as deliberate.
 var restartBody = map[string]bool{"restart": true}
 
+// shutdown asks the daemon to exit through the API. A daemon from before
+// signed requests refuses them as unauthenticated; when it is provably this
+// account's daemon (the process of this user listening on its port, with
+// the pid it reports), it gets SIGTERM instead, which stops it the way a
+// restart does: no stop marker, servers restored by the next daemon.
+func shutdown(e *env, c *client.Client, body any) error {
+	err := c.Do(e.ctx, http.MethodPost, "/api/shutdown", body, nil)
+	var apiErr *client.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+		return err
+	}
+	h, pingErr := c.Ping(e.ctx)
+	if pingErr != nil || h.PID <= 0 {
+		return err
+	}
+	if l, ok := ports.Owner(e.ctx, c.Port); !ok || l.PID != h.PID || syscall.Kill(h.PID, 0) != nil {
+		return err
+	}
+	fmt.Fprintf(e.errOut, "note: the daemon (pid %d, %s) predates signed requests; stopping it with SIGTERM\n", h.PID, h.Version)
+	return syscall.Kill(h.PID, syscall.SIGTERM)
+}
+
 // daemonRestart replaces a running daemon with this binary in place,
 // keeping its servers running. A daemon too old for that, or none at all,
 // is stopped and started again, through the login service when it runs
@@ -158,7 +181,7 @@ func daemonRestart(e *env, c *client.Client) error {
 		// A daemon started outside the service holds the lock, so a service
 		// restart alone would not replace it.
 		if running && !service.Query().Running {
-			if err := c.Do(e.ctx, http.MethodPost, "/api/shutdown", restartBody, nil); err != nil {
+			if err := shutdown(e, c, restartBody); err != nil {
 				return err
 			}
 			if !waitGone(c, e, 90*time.Second) {
@@ -183,7 +206,7 @@ func daemonRestart(e *env, c *client.Client) error {
 		running = pingErr == nil
 	}
 	if running {
-		if err := c.Do(e.ctx, http.MethodPost, "/api/shutdown", restartBody, nil); err != nil {
+		if err := shutdown(e, c, restartBody); err != nil {
 			return err
 		}
 		if !waitGone(c, e, 90*time.Second) {
@@ -209,7 +232,9 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 	err = c.Do(e.ctx, http.MethodPost, "/api/upgrade", map[string]string{"exe": exe}, nil)
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) {
-		if apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusNotImplemented {
+		// Not found or not implemented: a daemon without in-place upgrades.
+		// Unauthorized: one from before signed requests.
+		if apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusNotImplemented || apiErr.Status == http.StatusUnauthorized {
 			return false, nil
 		}
 		return true, fmt.Errorf("the daemon keeps running %s: %s", old.Version, apiErr.Msg)

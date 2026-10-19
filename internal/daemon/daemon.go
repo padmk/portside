@@ -100,9 +100,9 @@ func Run(cfgPath string) error {
 		log.Printf("config: %s", w)
 	}
 
-	token, err := server.LoadOrCreateToken(stateDir)
+	creds, err := server.LoadCredentials(stateDir)
 	if err != nil {
-		return fmt.Errorf("auth token: %w", err)
+		return fmt.Errorf("credentials: %w", err)
 	}
 	sup := supervisor.New(cfg, stateDir)
 	dock := docker.NewMonitor(sup, supervisor.SampleInterval, func() string { return sup.Config().DockerStart })
@@ -171,18 +171,19 @@ func Run(cfgPath string) error {
 	}
 
 	srv := server.New(server.Options{
-		Supervisor:  sup,
-		ConfigError: errorText(configErr),
-		Docker:      dock,
-		ConfigPath:  cfgPath,
-		StateDir:    stateDir,
-		Port:        cfg.Port,
-		UI:          web.Assets(),
-		Token:       token,
-		Shutdown:    requestShutdown,
-		Upgrade:     upgrade,
-		Remote:      rem,
-		Share:       sh,
+		Supervisor:    sup,
+		ConfigError:   errorText(configErr),
+		Docker:        dock,
+		ConfigPath:    cfgPath,
+		StateDir:      stateDir,
+		Port:          cfg.Port,
+		UI:            web.Assets(),
+		Token:         creds.Token,
+		DashboardHost: creds.Host,
+		Shutdown:      requestShutdown,
+		Upgrade:       upgrade,
+		Remote:        rem,
+		Share:         sh,
 	})
 	sh.SetHandler(srv.PeerHandler())
 

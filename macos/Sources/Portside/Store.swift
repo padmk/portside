@@ -220,7 +220,7 @@ final class Store {
         comps.path = "/api/events"
         comps.queryItems = [URLQueryItem(name: "notifier", value: "1")]
         var req = URLRequest(url: comps.url!)
-        if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        RequestSigner.sign(&req, token: token)
         let ws = URLSession.shared.webSocketTask(with: req)
         ws.maximumMessageSize = 32 << 20
         task = ws

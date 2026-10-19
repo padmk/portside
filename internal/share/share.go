@@ -40,11 +40,9 @@ import (
 	"time"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/signing"
 	"github.com/padmk/portside/internal/tailnet"
 )
-
-// maxBody bounds a signed request body, which is read whole to be hashed.
-const maxBody = 8 << 20
 
 // Paths that work for an owned device without a signature.
 const (
@@ -68,7 +66,7 @@ type Manager struct {
 	record string
 	ts     *tailnet.Cache
 	devs   *devices
-	nonces nonces
+	nonces signing.Verifier
 
 	applying chan struct{} // held while Apply, Close or Revoke runs
 
@@ -450,7 +448,7 @@ func (m *Manager) listen() (string, error) {
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return base },
 	}
-	m.target, m.secret, m.epoch = target, secret, randomHex(16)
+	m.target, m.secret, m.epoch = target, secret, signing.RandomHex(16)
 	go func(srv *http.Server) {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("share: %v", err)
@@ -576,14 +574,14 @@ func (m *Manager) guard() http.Handler {
 			if dev, ok := m.devs.Lookup(id); ok && strings.EqualFold(dev.DNSName, node.DNSName) {
 				var body []byte
 				if r.Body != nil {
-					body, err = io.ReadAll(io.LimitReader(r.Body, maxBody+1))
-					if err != nil || len(body) > maxBody {
+					body, err = io.ReadAll(io.LimitReader(r.Body, signing.MaxBody+1))
+					if err != nil || len(body) > signing.MaxBody {
 						refuse("request body too large")
 						return
 					}
 					r.Body = io.NopCloser(bytes.NewReader(body))
 				}
-				if err := m.nonces.verify(r, dev, uri, body); err != nil {
+				if err := verify(&m.nonces, r, dev, uri, body); err != nil {
 					writeJSONError(w, http.StatusForbidden, "signature", err.Error())
 					return
 				}

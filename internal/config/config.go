@@ -32,10 +32,18 @@ var Reserved = map[int]bool{
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 var projectRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
+// dashboardLabelRe matches the label of the dashboard's own host,
+// <label>.localhost, which the daemon picks at random once per state
+// directory. No server may be called that, so the proxy never shadows it.
+var dashboardLabelRe = regexp.MustCompile(`^d-[0-9a-f]{24}$`)
+
+// IsDashboardLabel reports whether label has the form of a dashboard host label.
+func IsDashboardLabel(label string) bool { return dashboardLabelRe.MatchString(label) }
+
 // ValidName reports whether name can be used as a server name. Names double as
 // DNS labels for the <name>.localhost proxy, hence the strict alphabet.
 func ValidName(name string) error {
-	if name == app.ID {
+	if name == app.ID || IsDashboardLabel(name) {
 		return fmt.Errorf("name %q is reserved for the dashboard", name)
 	}
 	if !nameRe.MatchString(name) {

@@ -99,7 +99,7 @@ func containerLogs(e *env, c *client.Client, name string, q url.Values, follow b
 	if !follow {
 		return c.Do(e.ctx, http.MethodGet, path+"?"+q.Encode(), nil, e.out)
 	}
-	ws, _, err := websocket.Dial(e.ctx, c.WebSocketURL(path+"?"+q.Encode()), &websocket.DialOptions{HTTPHeader: c.Header()})
+	ws, err := c.DialWebSocket(e.ctx, path+"?"+q.Encode())
 	if err != nil {
 		return err
 	}

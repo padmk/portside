@@ -7,6 +7,9 @@ import WebKit
 final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     private let webView: WKWebView
     private var base: URL?
+    /// The dashboard's own host (<label>.localhost), from its sign-in link;
+    /// its session cookie is valid there only.
+    private var dashboardHost: String?
     /// The daemon whose dashboard is loaded; nil while the waiting page shows.
     private var loadedBase: URL?
     var onClose: (() -> Void)?
@@ -65,6 +68,7 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
             do {
                 let url = try await api.signInURL(next: server.map { "/#/" + $0 } ?? "/")
                 self.base = api.base
+                self.dashboardHost = url.host
                 self.loadedBase = api.base
                 self.webView.load(URLRequest(url: url))
             } catch {
@@ -159,7 +163,7 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
     }
 
     private func isDashboard(_ url: URL) -> Bool {
-        guard let base, url.port == base.port else { return false }
-        return url.host == "127.0.0.1" || url.host == "localhost"
+        guard let base, let dashboardHost, url.port == base.port else { return false }
+        return url.host == dashboardHost
     }
 }
