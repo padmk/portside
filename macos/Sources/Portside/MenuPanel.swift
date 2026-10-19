@@ -233,7 +233,7 @@ struct MenuPanel: View {
     // MARK: banners
 
     @ViewBuilder private var banners: some View {
-        if case .offline(let msg) = store.connection, !store.daemonStopped, store.configError == nil {
+        if case .offline(let msg) = store.connection, !store.daemonStopped, !store.daemonRefused, store.configError == nil {
             banner(icon: "bolt.horizontal.circle", text: L.t("Starting the daemon... ", "Uruchamianie demona... ") + msg, tint: .orange)
         }
         if let remote = store.remote {
@@ -247,6 +247,13 @@ struct MenuPanel: View {
         if let err = store.configError {
             banner(icon: "exclamationmark.triangle", text: L.t("Config error: ", "Błąd konfiguracji: ") + err, tint: .red,
                    button: (L.t("Edit", "Edytuj"), { store.open("config") }))
+        }
+        if store.daemonRefused {
+            let running = store.daemonVersion.map { " (\($0))" } ?? ""
+            banner(icon: "arrow.triangle.2.circlepath",
+                   text: L.t("The daemon\(running) does not accept this app's requests. Restarting replaces a daemon older than this app.",
+                             "Demon\(running) nie przyjmuje żądań tej aplikacji. Ponowne uruchomienie zastąpi demona starszego niż ta aplikacja."), tint: .blue,
+                   button: (L.t("Restart", "Uruchom ponownie"), { store.restartDaemon() }))
         }
         if store.connection == .connected, store.versionDiffers, let running = store.daemonVersion {
             banner(icon: "arrow.triangle.2.circlepath",

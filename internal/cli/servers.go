@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
@@ -406,27 +407,38 @@ func cmdOpen(e *env, args []string) error {
 			return fmt.Errorf("unknown server %q", names[0])
 		}
 	}
-	// The dashboard needs a session: exchange the token for a one-time link.
+	// The dashboard needs a session: exchange the token for a single-use
+	// link. The link shows in the opener's arguments, so it is on
+	// 127.0.0.1 and does not name the dashboard host; the daemon forwards
+	// and redeems it only on a connection from this account, and only once.
 	var link struct {
-		URL string `json:"url"`
+		URL       string `json:"url"`
+		Dashboard string `json:"dashboard"`
 	}
-	if err := c.Do(e.ctx, http.MethodPost, "/api/auth/code", map[string]string{"next": next}, &link); err != nil {
+	if err := c.Do(e.ctx, http.MethodPost, "/api/auth/code", map[string]any{"next": next}, &link); err != nil {
 		return err
 	}
-	// Print where the dashboard opens, not the one-time link.
-	shown := c.Base + next
-	if u, err := url.Parse(link.URL); err == nil {
-		shown = u.Scheme + "://" + u.Host + next
+	u, err := url.Parse(link.URL)
+	d, derr := url.Parse(link.Dashboard)
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || derr != nil || !strings.HasSuffix(d.Hostname(), ".localhost") {
+		return fmt.Errorf("the daemon gave no usable sign-in link; restart it with `%s daemon restart`", app.ID)
 	}
-	fmt.Fprintln(e.out, shown)
+	// Print where the dashboard opens, not the link.
+	fmt.Fprintln(e.out, d.Scheme+"://"+d.Host+next)
 	return openURL(link.URL)
 }
 
-func openURL(u string) error {
-	if runtime.GOOS == "darwin" {
-		return exec.Command("open", u).Start()
+// openCommand is how the desktop opens a URL or file.
+func openCommand(goos, target string) (string, []string) {
+	if goos == "darwin" {
+		return "open", []string{target}
 	}
-	return exec.Command("xdg-open", u).Start()
+	return "xdg-open", []string{target}
+}
+
+func openURL(u string) error {
+	name, argv := openCommand(runtime.GOOS, u)
+	return exec.Command(name, argv...).Start()
 }
 
 func cmdPorts(e *env, args []string) error {

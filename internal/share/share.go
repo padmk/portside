@@ -448,7 +448,7 @@ func (m *Manager) listen() (string, error) {
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return base },
 	}
-	m.target, m.secret, m.epoch = target, secret, signing.RandomHex(16)
+	m.target, m.secret, m.epoch = target, secret, signing.NewEpoch()
 	go func(srv *http.Server) {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("share: %v", err)
@@ -587,15 +587,12 @@ func (m *Manager) guard() http.Handler {
 				}
 				// Outside hello, a request must be meant for this listener;
 				// hello is how a device learns the current epoch.
-				if !open && subtle.ConstantTimeCompare([]byte(r.Header.Get(HeaderEpoch)), []byte(epoch)) != 1 {
+				if !open && signing.CheckEpoch(r.Header, epoch) != nil {
 					writeJSONError(w, http.StatusForbidden, "epoch", "the shared computer restarted sharing; reconnecting")
 					return
 				}
 				peer.Device = &dev
-				if ch := r.Header.Get(HeaderChallenge); ch != "" {
-					w.Header().Set(HeaderEpoch, epoch)
-					w.Header().Set(HeaderProof, proof(dev.Key, ch, epoch))
-				}
+				signing.Prove(w.Header(), r.Header, dev.Key, epoch)
 				ctx, cancel := context.WithCancel(r.Context())
 				defer cancel()
 				defer context.AfterFunc(m.deviceCtx(dev.ID), cancel)()

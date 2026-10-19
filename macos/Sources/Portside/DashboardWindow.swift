@@ -7,11 +7,20 @@ import WebKit
 final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     private let webView: WKWebView
     private var base: URL?
-    /// The dashboard's own host (<label>.localhost), from its sign-in link;
-    /// its session cookie is valid there only.
+    /// The dashboard's own host (<label>.localhost), named with its sign-in
+    /// link; its session cookie is valid there only.
     private var dashboardHost: String?
+    /// The sign-in link being opened, on 127.0.0.1; the daemon forwards it
+    /// to the dashboard host.
+    private var signInLink: URL?
     /// The daemon whose dashboard is loaded; nil while the waiting page shows.
     private var loadedBase: URL?
+    /// The client of that daemon, for signing in again.
+    private var api: APIClient?
+    private var lastSignIn = Date.distantPast
+    /// Sign-ins in a row that ended on the daemon's sign-in page again.
+    private var signInFailures = 0
+    private var signInRetry: DispatchWorkItem?
     var onClose: (() -> Void)?
     /// Asked to load the dashboard again after a failed load.
     var onRetry: (() -> Void)?
@@ -66,19 +75,92 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         }
         Task { @MainActor in
             do {
-                let url = try await api.signInURL(next: server.map { "/#/" + $0 } ?? "/")
-                self.base = api.base
-                self.dashboardHost = url.host
-                self.loadedBase = api.base
-                self.webView.load(URLRequest(url: url))
+                self.open(try await api.signInLink(next: server.map { "/#/" + $0 } ?? "/"), api: api)
             } catch {
                 self.retryLater()
             }
         }
     }
 
+    private func open(_ link: APIClient.SignInLink, api: APIClient) {
+        cancelSignInRetry()
+        self.api = api
+        base = api.base
+        dashboardHost = link.dashboardHost
+        signInLink = link.url
+        loadedBase = api.base
+        webView.load(URLRequest(url: link.url))
+    }
+
+    /// After the daemon restarted: a cold start gives the dashboard a new
+    /// host, so the window signs in there again, on the route it shows. A
+    /// hidden window signs in when it opens next.
+    func daemonRestarted(api: APIClient) {
+        guard loadedBase == api.base, let dashboardHost else { return }
+        guard window?.isVisible == true else {
+            loadedBase = nil
+            return
+        }
+        Task { @MainActor in
+            guard let link = try? await api.signInLink(next: self.shownRoute()) else { return }
+            if link.dashboardHost != dashboardHost { self.open(link, api: api) }
+        }
+    }
+
+    /// The route the dashboard shows, as a sign-in link's `next`.
+    private func shownRoute() -> String {
+        guard let f = webView.url?.fragment, f.hasPrefix("/") else { return "/" }
+        return "/#" + f
+    }
+
+    /// The daemon answered with its page on how to open the dashboard, as
+    /// for a dashboard host from before a cold start: get a new link. When
+    /// sign-ins keep ending there, the window says so and tries again after
+    /// a wait that doubles from 20 seconds up to 5 minutes.
+    private func signInAgain() {
+        guard api != nil, signInRetry == nil else { return }
+        let wait = signInFailures == 0 ? 0 : min(20 * pow(2, Double(signInFailures - 1)), 300)
+        let left = wait - Date().timeIntervalSince(lastSignIn)
+        guard left > 0 else { return signInNow() }
+        webView.loadHTMLString(page(signInFailedBody(retryIn: left)), baseURL: nil)
+        let retry = DispatchWorkItem { [weak self] in
+            self?.signInRetry = nil
+            self?.signInNow()
+        }
+        signInRetry = retry
+        DispatchQueue.main.asyncAfter(deadline: .now() + left, execute: retry)
+    }
+
+    private func signInNow() {
+        cancelSignInRetry()
+        guard let api, loadedBase == api.base else { return }
+        lastSignIn = Date()
+        signInFailures += 1
+        Task { @MainActor in
+            guard let link = try? await api.signInLink(next: "/") else {
+                self.signInAgain()
+                return
+            }
+            self.open(link, api: api)
+        }
+    }
+
+    private func cancelSignInRetry() {
+        signInRetry?.cancel()
+        signInRetry = nil
+    }
+
+    private func signInFailedBody(retryIn seconds: TimeInterval) -> String {
+        let s = Int(seconds.rounded(.up))
+        let when = s >= 60 ? L.t("\((s + 59) / 60) min", "\((s + 59) / 60) min") : L.t("\(s) s", "\(s) s")
+        return "<p>\(L.t("The dashboard could not sign in.", "Nie udało się zalogować do panelu."))</p>"
+            + "<p class=note>\(L.t("Trying again in \(when).", "Ponowna próba za \(when)."))</p>"
+            + "<a class=button href=\"\(Self.actionScheme):\(Self.signInAction)\">\(L.t("Try Again", "Spróbuj ponownie"))</a>"
+    }
+
     /// Shows what keeps the dashboard from loading, with the action that helps.
     func showStatus(_ status: Store.DaemonStatus) {
+        cancelSignInRetry()
         loadedBase = nil
         webView.loadHTMLString(statusPage(status), baseURL: nil)
     }
@@ -111,7 +193,11 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         case .connecting, .connected:
             body = "<p>\(L.t("Waiting for the daemon...", "Czekam na demona..."))</p>"
         }
-        return """
+        return page(body)
+    }
+
+    private func page(_ body: String) -> String {
+        """
         <html><head><meta name="color-scheme" content="light dark"><style>
         body{font:14px -apple-system;display:grid;place-items:center;height:100vh;margin:0;color:#888;background:transparent;text-align:center}
         main{max-width:560px;padding:24px}
@@ -123,6 +209,8 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
     }
 
     static let actionScheme = "app-action"
+    /// The window's own action: sign in again now.
+    private static let signInAction = "sign-in"
 
     func windowWillClose(_ notification: Notification) { onClose?() }
 
@@ -130,14 +218,27 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { return decisionHandler(.allow) }
         if url.scheme == Self.actionScheme {
-            onAction?(url.absoluteString.dropFirst(Self.actionScheme.count + 1).description)
+            let name = url.absoluteString.dropFirst(Self.actionScheme.count + 1).description
+            if name == Self.signInAction { signInNow() } else { onAction?(name) }
             return decisionHandler(.cancel)
         }
-        if url.scheme == "about" || isDashboard(url) {
+        // The sign-in link itself is on 127.0.0.1; the daemon forwards it.
+        if url.scheme == "about" || isDashboard(url) || (signInLink != nil && url == signInLink) {
             return decisionHandler(.allow)
         }
         NSWorkspace.shared.open(url)
         decisionHandler(.cancel)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
+        if response.isForMainFrame, loadedBase != nil, let http = response.response as? HTTPURLResponse {
+            if http.value(forHTTPHeaderField: RequestSigner.header("Sign-In")) != nil {
+                signInAgain()
+            } else if let url = http.url, isDashboard(url), http.statusCode < 400 {
+                signInFailures = 0
+            }
+        }
+        decisionHandler(.allow)
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {

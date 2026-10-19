@@ -69,6 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         store.onCrash = { [weak self] v in self?.notifier.crashed(v) }
         store.onContainerIssue = { [weak self] server, containers in self?.notifier.containerIssue(server, containers) }
         store.onStatusChange = { [weak self] _ in self?.refreshDashboard() }
+        store.onDaemonRestart = { [weak self] in
+            guard let self, let api = self.store.api else { return }
+            self.dashboard?.daemonRestarted(api: api)
+        }
         store.start()
 
         // `--render-panel=PATH` draws the panel offscreen to a PNG once data

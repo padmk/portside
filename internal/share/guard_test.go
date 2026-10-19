@@ -20,7 +20,7 @@ const (
 	owner    = "me@example.com"
 	host     = "devbox.t.ts.net:7878"
 	secret   = "s3cret"
-	epoch    = "epoch1"
+	epoch    = "0123456789abcdef0123456789abcdef"
 )
 
 func testStatus() *tailnet.Status {

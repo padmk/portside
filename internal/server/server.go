@@ -4,6 +4,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -73,13 +74,16 @@ type Server struct {
 	codes         codes
 	sessionCookie string // the dashboard cookie's value
 	signatures    signing.Verifier
+	epoch         string        // random per daemon start; signatures must name it
+	connOwner     connOwnerFunc // nil: ports.ConnectionOwner
 }
 
 // New builds the HTTP server.
 func New(opt Options) *Server {
-	s := &Server{opt: opt, sup: opt.Supervisor, cfgErr: opt.ConfigError, started: time.Now(), devOrigins: map[string]bool{}}
+	s := &Server{opt: opt, sup: opt.Supervisor, cfgErr: opt.ConfigError, started: time.Now(), devOrigins: map[string]bool{},
+		epoch: signing.NewEpoch()}
 	if opt.Token != "" {
-		s.sessionCookie = sessionValue(opt.Token)
+		s.sessionCookie = sessionValue(opt.Token, opt.DashboardHost)
 	}
 	// Extra origins allowed to write, for the Vite dev server: full origins,
 	// or a bare port for the dashboard host at that port.
@@ -112,6 +116,10 @@ func (s *Server) Handler() http.Handler {
 		host := hostname(r.Host)
 		dashboard := s.opt.DashboardHost != "" && host == s.opt.DashboardHost
 		if sub, ok := strings.CutSuffix(host, ".localhost"); ok && !dashboard && sub != app.ID && sub != "" {
+			if config.IsDashboardLabel(sub) {
+				s.staleDashboard(w, r)
+				return
+			}
 			s.route(w, r, sub)
 			return
 		}
@@ -139,9 +147,59 @@ func (s *Server) Handler() http.Handler {
 				fail(w, http.StatusUnauthorized, err)
 				return
 			}
+		} else if r.URL.Path != "/api/health" {
+			s.mux.ServeHTTP(w, r)
+			return
 		}
-		s.mux.ServeHTTP(w, r)
+		// Authenticated replies and the handshake (a client checks the proof
+		// of /api/health before it signs) answer the client's challenge.
+		s.proved(w, r)
 	})
+}
+
+// proved serves r and proves the reply when the request carries a
+// challenge: a whole reply with its status and body, a WebSocket upgrade
+// (which has no body to prove) with the short proof.
+func (s *Server) proved(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get(signing.HeaderChallenge) == "" || r.Method == http.MethodHead {
+		s.mux.ServeHTTP(w, r)
+		return
+	}
+	if isWebSocket(r) {
+		signing.Prove(w.Header(), r.Header, s.opt.Token, s.epoch)
+		s.mux.ServeHTTP(w, r)
+		return
+	}
+	buf := &replyBuffer{ResponseWriter: w}
+	s.mux.ServeHTTP(buf, r)
+	if buf.status == 0 {
+		buf.status = http.StatusOK
+	}
+	signing.ProveReply(w.Header(), r.Header, s.opt.Token, s.epoch, buf.status, buf.body.Bytes())
+	w.WriteHeader(buf.status)
+	_, _ = w.Write(buf.body.Bytes())
+}
+
+// replyBuffer holds a reply back until it is complete, so its proof can
+// cover the body. It does not flush: replies proved this way are not
+// streams (those are WebSockets).
+type replyBuffer struct {
+	http.ResponseWriter
+	status int
+	body   bytes.Buffer
+}
+
+func (b *replyBuffer) WriteHeader(code int) {
+	if b.status == 0 && code >= 200 {
+		b.status = code
+	}
+}
+
+func (b *replyBuffer) Write(p []byte) (int, error) {
+	if b.status == 0 {
+		b.status = http.StatusOK
+	}
+	return b.body.Write(p)
 }
 
 func hostname(hostport string) string {

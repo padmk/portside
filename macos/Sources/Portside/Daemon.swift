@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 // JSON shapes from the daemon (see internal/server/routes.go and
@@ -117,6 +116,8 @@ struct Server: Decodable, Identifiable, Hashable {
 /// What `daemon info` reports (see internal/cli/daemoncmds.go).
 struct DaemonInfo: Decodable {
     let running: Bool?
+    /// False when the daemon answering cannot prove it holds the token (one from before verified requests).
+    let verified: Bool?
     let url: String?
     let version: String?
     let config: String?
@@ -138,11 +139,28 @@ struct DaemonInfo: Decodable {
 enum DaemonError: LocalizedError {
     case helperMissing
     case failed(String)
+    /// What answers on the daemon's port cannot prove it holds this account's token.
+    case unverified
+    /// The daemon refused this app's signed requests.
+    case refused
 
     var errorDescription: String? {
         switch self {
         case .helperMissing: return "The bundled command-line tool is missing from the app."
         case .failed(let msg): return msg
+        case .unverified:
+            return L.t("What answers on the daemon's port cannot prove it is your daemon.",
+                       "To, co odpowiada na porcie demona, nie potrafi udowodnić, że jest Twoim demonem.")
+        case .refused:
+            return L.t("The daemon does not accept this app's requests.", "Demon nie przyjmuje żądań tej aplikacji.")
+        }
+    }
+
+    /// The daemon answers but this app cannot talk to it; a restart replaces a daemon too old for this app.
+    var needsRestart: Bool {
+        switch self {
+        case .unverified, .refused: return true
+        default: return false
         }
     }
 }
@@ -219,82 +237,73 @@ struct APIClient {
     let base: URL
     let token: String?
 
-    /// Signs a request whose method, URL and body are final.
-    func authorize(_ req: inout URLRequest) {
-        RequestSigner.sign(&req, token: token)
+    /// Sends a signed request to a daemon that proved itself and checks the
+    /// proof on its reply. A request refused for an old epoch (the daemon
+    /// restarted) is sent once more after a new handshake. A refusal comes
+    /// back as the reply; a daemon that cannot prove itself throws.
+    func send(_ make: () throws -> URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var retried = false
+        while true {
+            let epoch = try await DaemonHandshake.shared.epoch(base: base, token: token)
+            var req = try make()
+            guard let challenge = RequestSigner.sign(&req, token: token, epoch: epoch) else { throw DaemonError.unverified }
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse else { throw DaemonError.failed("No reply from the daemon") }
+            if http.statusCode == 401 {
+                if !retried, await DaemonHandshake.shared.renewed(base: base, token: token, after: epoch) {
+                    retried = true
+                    continue
+                }
+                return (data, http)
+            }
+            guard RequestSigner.provenReply(http, body: data, token: token, challenge: challenge) != nil else {
+                await DaemonHandshake.shared.forget(base)
+                throw DaemonError.unverified
+            }
+            return (data, http)
+        }
     }
 
-    /// A one-time link that signs a browser (or the dashboard window) in.
-    func signInURL(next: String) async throws -> URL {
-        var req = URLRequest(url: base.appendingPathComponent("api/auth/code"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["next": next])
-        authorize(&req)
-        let (data, _) = try await URLSession.shared.data(for: req)
-        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let s = obj["url"] as? String, let url = URL(string: s) else {
+    /// A single-use link that signs a browser (or the dashboard window) in.
+    /// The link is on 127.0.0.1; the daemon forwards it to the dashboard's
+    /// own host (<label>.localhost), which the reply names separately.
+    struct SignInLink {
+        let url: URL
+        let dashboardHost: String
+    }
+
+    func signInLink(next: String) async throws -> SignInLink {
+        let (data, http) = try await send {
+            var req = URLRequest(url: base.appendingPathComponent("api/auth/code"))
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["next": next])
+            return req
+        }
+        guard http.statusCode == 200, let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let s = obj["url"] as? String, let url = URL(string: s), url.host == "127.0.0.1",
+              let d = obj["dashboard"] as? String, let host = URL(string: d)?.host, host.hasSuffix(".localhost") else {
             throw DaemonError.failed("Could not create a sign-in link")
         }
-        return url
+        return SignInLink(url: url, dashboardHost: host)
     }
 
     @discardableResult
     func post(_ path: String, body: [String: Any]? = nil) async throws -> Data {
-        var req = URLRequest(url: base.appendingPathComponent(path))
-        req.httpMethod = "POST"
-        req.timeoutInterval = 120
-        if let body {
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, http) = try await send {
+            var req = URLRequest(url: base.appendingPathComponent(path))
+            req.httpMethod = "POST"
+            req.timeoutInterval = 120
+            if let body {
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            }
+            return req
         }
-        authorize(&req)
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
+        if http.statusCode >= 400 {
             let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw DaemonError.failed(msg ?? "Request failed (\(http.statusCode))")
         }
         return data
-    }
-}
-
-/// Signs requests to the daemon as internal/signing does: an HMAC-SHA256,
-/// keyed by the API token (hex), over the method, the request URI as sent,
-/// the Unix time, a random nonce, the body hash and an empty epoch. The
-/// token itself is never sent, so a program posing as the daemon on its
-/// port learns nothing it could reuse.
-enum RequestSigner {
-    private static func header(_ name: String) -> String { "X-\(Brand.name)-\(name)" }
-
-    static func sign(_ req: inout URLRequest, token: String?) {
-        guard let token, let key = hexData(token), key.count == 32, let url = req.url,
-              let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        var uri = comps.percentEncodedPath.isEmpty ? "/" : comps.percentEncodedPath
-        if let q = comps.percentEncodedQuery { uri += "?" + q }
-        let date = String(Int(Date().timeIntervalSince1970))
-        var nonceBytes = [UInt8](repeating: 0, count: 16)
-        guard SecRandomCopyBytes(kSecRandomDefault, nonceBytes.count, &nonceBytes) == errSecSuccess else { return }
-        let nonce = hex(Data(nonceBytes))
-        let bodyHash = hex(Data(SHA256.hash(data: req.httpBody ?? Data())))
-        let message = [req.httpMethod ?? "GET", uri, date, nonce, bodyHash, ""].joined(separator: "\n")
-        let mac = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: key))
-        req.setValue(date, forHTTPHeaderField: header("Date"))
-        req.setValue(nonce, forHTTPHeaderField: header("Nonce"))
-        req.setValue(hex(Data(mac)), forHTTPHeaderField: header("Signature"))
-    }
-
-    private static func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
-
-    private static func hexData(_ s: String) -> Data? {
-        let chars = Array(s.utf8)
-        guard chars.count % 2 == 0 else { return nil }
-        var out = Data(capacity: chars.count / 2)
-        var i = 0
-        while i < chars.count {
-            guard let b = UInt8(String(decoding: chars[i..<i + 2], as: UTF8.self), radix: 16) else { return nil }
-            out.append(b)
-            i += 2
-        }
-        return out
     }
 }

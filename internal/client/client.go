@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,13 +30,20 @@ import (
 
 // Client is an HTTP client bound to the daemon's port.
 type Client struct {
-	Port  int
-	Base  string
-	http  *http.Client
-	token string
+	Port int
+	Base string
+	http *http.Client
 	// peer is the DNS name of the connected computer that API requests go
 	// to, through this daemon; empty for this computer.
 	peer string
+	// proved holds the epoch the daemon last proved, shared by the copies
+	// On makes.
+	proved *proved
+}
+
+type proved struct {
+	mu    sync.Mutex
+	epoch string
 }
 
 // Path returns where the daemon serves an API path: the path itself, or
@@ -129,20 +137,111 @@ func hostFile() string  { return filepath.Join(paths.StateDir(), "dashboard-host
 
 // Token returns the daemon's API token, or "" if the daemon never ran.
 func (c *Client) Token() string {
-	if b, err := os.ReadFile(tokenFile()); err == nil {
-		c.token = strings.TrimSpace(string(b))
+	b, err := os.ReadFile(tokenFile())
+	if err != nil {
+		return ""
 	}
-	return c.token
+	return strings.TrimSpace(string(b))
 }
 
-// sign authenticates a request to the daemon: a signature with the token
-// over the request, never the token itself, so a program posing as the
-// daemon on its port learns nothing it could reuse. uri is the request URI
-// as sent on the wire.
-func (c *Client) sign(h http.Header, method, uri string, body []byte) {
-	if t := c.Token(); t != "" {
-		signing.Sign(h, t, method, uri, body, "")
+// ErrUnverified means that what answers on the daemon's port could not prove
+// it holds this account's token, so nothing signed is sent to it: another
+// program holds the port, or a daemon from before verified requests.
+var ErrUnverified = errors.New("cannot prove it is this account's daemon")
+
+// Unverified is the error for a daemon that did not prove itself.
+func (c *Client) Unverified() error {
+	return fmt.Errorf("refusing to talk to port %d: what answers there %w (another program holds the port, or a daemon from before verified requests runs; `%s daemon restart` replaces an old daemon)", c.Port, ErrUnverified, app.ID)
+}
+
+// refused is the message for a request refused without a proof: the
+// daemon's own refusals of a signature carry none, and neither does a
+// reply from a program that is not the daemon.
+func (c *Client) refused() string {
+	return fmt.Sprintf("the daemon on port %d refused this request's signature (`%s daemon restart` starts it afresh)", c.Port, app.ID)
+}
+
+func (c *Client) epoch() string {
+	c.proved.mu.Lock()
+	defer c.proved.mu.Unlock()
+	return c.proved.epoch
+}
+
+func (c *Client) setEpoch(e string) {
+	c.proved.mu.Lock()
+	c.proved.epoch = e
+	c.proved.mu.Unlock()
+}
+
+// hello asks this computer's daemon for its identity with a fresh challenge
+// and checks the proof that it holds the token. The proven epoch is kept
+// for signing.
+func (c *Client) hello(ctx context.Context) (Health, error) {
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	var h Health
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/api/health", nil)
+	if err != nil {
+		return h, err
 	}
+	challenge := signing.Challenge(req.Header)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return h, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return h, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return h, &APIError{Status: resp.StatusCode, Msg: fmt.Sprintf("GET /api/health: %s", resp.Status), Body: data}
+	}
+	if err := json.Unmarshal(data, &h); err != nil || h.App != app.ID {
+		return h, fmt.Errorf("port %d is used by another program, not %s", c.Port, app.Name)
+	}
+	epoch, ok := signing.ProvenReply(c.Token(), challenge, resp.Header, resp.StatusCode, data)
+	if !ok {
+		c.setEpoch("")
+		return h, nil
+	}
+	h.Verified = true
+	c.setEpoch(epoch)
+	return h, nil
+}
+
+// proven returns the epoch to sign for, after a handshake when none is
+// known. It fails without sending anything signed when the daemon cannot
+// prove itself.
+func (c *Client) proven(ctx context.Context) (string, error) {
+	if e := c.epoch(); e != "" {
+		return e, nil
+	}
+	h, err := c.hello(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !h.Verified {
+		return "", c.Unverified()
+	}
+	return c.epoch(), nil
+}
+
+// renewed repeats the handshake after the daemon refused a request signed
+// for epoch, and reports whether it proved a new epoch (it restarted), so
+// the request is worth sending again.
+func (c *Client) renewed(ctx context.Context, epoch string) bool {
+	c.setEpoch("")
+	h, err := c.hello(ctx)
+	return err == nil && h.Verified && c.epoch() != epoch
+}
+
+// signed adds the signature and a fresh challenge for a request to h and
+// returns the challenge. uri is the request URI as sent on the wire. The
+// token itself is never sent.
+func (c *Client) signed(h http.Header, method, uri string, body []byte, epoch string) string {
+	signing.Sign(h, c.Token(), method, uri, body, epoch)
+	return signing.Challenge(h)
 }
 
 // DialWebSocket opens a signed WebSocket to an API path, routed as Path does.
@@ -152,10 +251,27 @@ func (c *Client) DialWebSocket(ctx context.Context, p string) (*websocket.Conn, 
 	if err != nil {
 		return nil, err
 	}
-	h := http.Header{}
-	c.sign(h, http.MethodGet, u.RequestURI(), nil)
-	ws, _, err := websocket.Dial(ctx, raw, &websocket.DialOptions{HTTPHeader: h})
-	return ws, err
+	for retried := false; ; retried = true {
+		epoch, err := c.proven(ctx)
+		if err != nil {
+			return nil, err
+		}
+		h := http.Header{}
+		challenge := c.signed(h, http.MethodGet, u.RequestURI(), nil, epoch)
+		ws, resp, err := websocket.Dial(ctx, raw, &websocket.DialOptions{HTTPHeader: h})
+		if err != nil {
+			if resp != nil && resp.StatusCode == http.StatusUnauthorized && !retried && c.renewed(ctx, epoch) {
+				continue
+			}
+			return nil, err
+		}
+		if _, ok := signing.Proven(c.Token(), challenge, resp.Header); !ok {
+			ws.CloseNow()
+			c.setEpoch("")
+			return nil, c.Unverified()
+		}
+		return ws, nil
+	}
 }
 
 // DashboardURL returns the dashboard's address for the daemon on port; a
@@ -170,12 +286,18 @@ func DashboardURL(port int) string {
 	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
-// New returns a client for the daemon on port.
-func New(port int) *Client {
+// New returns a client for the daemon on port. It dials IPv4 loopback by
+// address, never a name that could resolve to another listener.
+func New(port int) *Client { return NewAt("127.0.0.1", port) }
+
+// NewAt returns a client for the daemon on port at the loopback address
+// host, such as "::1" for a check of the daemon's IPv6 listener.
+func NewAt(host string, port int) *Client {
 	return &Client{
-		Port: port,
-		Base: "http://127.0.0.1:" + strconv.Itoa(port),
-		http: &http.Client{Timeout: 0},
+		Port:   port,
+		Base:   "http://" + net.JoinHostPort(host, strconv.Itoa(port)),
+		http:   &http.Client{Timeout: 0},
+		proved: &proved{},
 	}
 }
 
@@ -189,32 +311,55 @@ type APIError struct {
 
 func (e *APIError) Error() string { return e.Msg }
 
-// Do sends a request with an optional JSON body and decodes a JSON response into out.
+// Do sends a signed request with an optional JSON body and decodes a JSON
+// response into out. The daemon must have proved itself first, and its
+// reply must carry a proof as well; a request refused for an old epoch is
+// sent again once after a new handshake.
 func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
-	var data []byte
+	var payload []byte
 	if body != nil {
 		var err error
-		if data, err = json.Marshal(body); err != nil {
+		if payload, err = json.Marshal(body); err != nil {
 			return err
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.Base+c.Path(path), bytes.NewReader(data))
-	if err != nil {
-		return err
+	for retried := false; ; retried = true {
+		epoch, err := c.proven(ctx)
+		if err != nil {
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.Base+c.Path(path), bytes.NewReader(payload))
+		if err != nil {
+			return err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		challenge := c.signed(req.Header, method, req.URL.RequestURI(), payload, epoch)
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return err
+		}
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return err
+		}
+		if _, ok := signing.ProvenReply(c.Token(), challenge, resp.Header, resp.StatusCode, data); !ok && resp.StatusCode == http.StatusUnauthorized {
+			if !retried && c.renewed(ctx, epoch) {
+				continue
+			}
+			// Whatever answered did not prove itself, so its words are not shown.
+			return &APIError{Status: resp.StatusCode, Msg: c.refused()}
+		} else if !ok {
+			c.setEpoch("")
+			return c.Unverified()
+		}
+		return decodeReply(resp, data, method, path, out)
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	c.sign(req.Header, method, req.URL.RequestURI(), data)
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	data, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
+}
+
+func decodeReply(resp *http.Response, data []byte, method, path string, out any) error {
 	if resp.StatusCode >= 400 {
 		var e struct {
 			Error string `json:"error"`
@@ -243,24 +388,15 @@ type Health struct {
 	PID       int       `json:"pid"`
 	Port      int       `json:"port"`
 	StartedAt time.Time `json:"startedAt"`
+	// Verified is true when it proved that it holds this account's token;
+	// only then does the client send it signed requests.
+	Verified bool `json:"-"`
 }
 
-// Ping returns the daemon's identity, or an error if none is answering.
-func (c *Client) Ping(ctx context.Context) (Health, error) {
-	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
-	defer cancel()
-	// Always this computer's daemon, also for a client made by On.
-	local := *c
-	local.peer = ""
-	var h Health
-	if err := local.Do(ctx, http.MethodGet, "/api/health", nil, &h); err != nil {
-		return h, err
-	}
-	if h.App != app.ID {
-		return h, fmt.Errorf("port %d is used by another program, not %s", c.Port, app.Name)
-	}
-	return h, nil
-}
+// Ping returns the identity of this computer's daemon (also for a client
+// made by On), or an error if none answers. It repeats the handshake, so
+// Verified tells whether what answers proved itself.
+func (c *Client) Ping(ctx context.Context) (Health, error) { return c.hello(ctx) }
 
 // LivePort returns the port recorded by a running daemon, or 0.
 func LivePort() int {
@@ -275,10 +411,15 @@ func LivePort() int {
 // ErrNotRunning means no daemon answered and none was started.
 var ErrNotRunning = errors.New("daemon is not running")
 
-// Ensure makes sure a daemon answers, starting one in the background if not.
+// Ensure makes sure a daemon answers and proves itself, starting one in the
+// background if none answers. When what answers cannot prove itself, it
+// returns its claimed identity and an error wrapping ErrUnverified.
 func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	h, err := c.Ping(ctx)
 	if err == nil {
+		if !h.Verified {
+			return h, c.Unverified()
+		}
 		return h, nil
 	}
 	var apiErr *APIError
@@ -294,6 +435,9 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	for time.Now().Before(deadline) {
 		time.Sleep(150 * time.Millisecond)
 		if h, err = c.Ping(ctx); err == nil {
+			if !h.Verified {
+				return h, c.Unverified()
+			}
 			return h, nil
 		}
 		select {

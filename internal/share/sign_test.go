@@ -94,13 +94,13 @@ func TestProof(t *testing.T) {
 	h := http.Header{}
 	ch := Challenge(h)
 	reply := http.Header{}
-	reply.Set(HeaderEpoch, "e1")
-	reply.Set(HeaderProof, proof(dev.Key, ch, "e1"))
-	if epoch, ok := cred.Proven(ch, reply); !ok || epoch != "e1" {
+	e1 := signing.NewEpoch()
+	signing.Prove(reply, h, dev.Key, e1)
+	if epoch, ok := cred.Proven(ch, reply); !ok || epoch != e1 {
 		t.Errorf("Proven = %q, %v", epoch, ok)
 	}
 	forged := reply.Clone()
-	forged.Set(HeaderEpoch, "e2") // a proof cannot be moved to another epoch
+	forged.Set(HeaderEpoch, signing.NewEpoch()) // a proof cannot be moved to another epoch
 	if _, ok := cred.Proven(ch, forged); ok {
 		t.Error("proof accepted for another epoch")
 	}

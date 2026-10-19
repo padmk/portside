@@ -179,6 +179,63 @@ func Cwds(ctx context.Context, pids []int) map[int]string {
 	return res
 }
 
+// IPv6Loopback reports whether the system has IPv6 loopback.
+func IPv6Loopback() bool {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+// LoopbackListeners returns the pid listening on port at each loopback
+// address ("127.0.0.1", "::1"), where lsof or ss can see it.
+func LoopbackListeners(ctx context.Context, port int) map[string]int {
+	res := map[string]int{}
+	add := func(addr string, pid int) {
+		host, p, err := net.SplitHostPort(addr)
+		if err != nil || p != strconv.Itoa(port) || pid <= 0 {
+			return
+		}
+		if host == "127.0.0.1" || host == "::1" {
+			if _, seen := res[host]; !seen {
+				res[host] = pid
+			}
+		}
+	}
+	out, err := run(ctx, "lsof", "-nP", "-w", "-iTCP:"+strconv.Itoa(port), "-sTCP:LISTEN", "-F", "pn")
+	if err != nil && len(out) == 0 {
+		out, _ = run(ctx, "ss", "-ltnpH", "sport", "=", ":"+strconv.Itoa(port))
+		for _, line := range strings.Split(string(out), "\n") {
+			f := strings.Fields(line)
+			if len(f) < 4 {
+				continue
+			}
+			if m := ssPidRe.FindStringSubmatch(line); m != nil {
+				pid, _ := strconv.Atoi(m[1])
+				add(f[3], pid)
+			}
+		}
+		return res
+	}
+	pid := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" {
+			continue
+		}
+		switch line[0] {
+		case 'p':
+			pid, _ = strconv.Atoi(line[1:])
+		case 'n':
+			add(line[1:], pid)
+		}
+	}
+	return res
+}
+
+var ssPidRe = regexp.MustCompile(`pid=(\d+)`)
+
 // Owner returns the first listener on port, if lsof or ss can see it.
 func Owner(ctx context.Context, port int) (Listener, bool) {
 	out, err := run(ctx, "lsof", "-nP", "-iTCP:"+strconv.Itoa(port), "-sTCP:LISTEN", "-F", "pc")

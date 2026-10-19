@@ -348,6 +348,10 @@ var errRevoked = errors.New("the pairing was removed on the other computer")
 // errUnverified means the other side could not prove it holds the key.
 var errUnverified = errors.New("the other computer could not prove it is the one this computer paired with")
 
+// errPeerRefused means the other side refused a relayed request without a
+// proof, as its guard does.
+var errPeerRefused = errors.New("the other computer refused the request")
+
 // dialWS opens a signed WebSocket to the remote daemon and checks that the
 // daemon proved it holds the pairing key in its reply.
 func (c *conn) dialWS(ctx context.Context, uri string) (*websocket.Conn, error) {
@@ -843,9 +847,13 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 		FlushInterval: -1,
 		ModifyResponse: func(res *http.Response) error {
 			// Every reply, WebSocket upgrades included, must come from the
-			// daemon holding the key; a refusal from the guard carries none
-			// and is passed on as it is.
-			if _, ok := c.cred.Proven(challenge, res.Header); !ok && res.StatusCode != http.StatusUnauthorized && res.StatusCode != http.StatusForbidden {
+			// daemon holding the key. A refusal from the guard carries no
+			// proof; its body is not passed on, since this daemon would
+			// prove it to its own client as if it were its reply.
+			if _, ok := c.cred.Proven(challenge, res.Header); !ok {
+				if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+					return errPeerRefused
+				}
 				return errUnverified
 			}
 			res.Header.Del(share.HeaderProof)
@@ -856,6 +864,10 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, errUnverified) {
 				writeError(w, http.StatusBadGateway, friendly(c.node.Name, err))
+				return
+			}
+			if errors.Is(err, errPeerRefused) {
+				writeError(w, http.StatusBadGateway, c.node.Name+" refused the request; pair with it again if this continues")
 				return
 			}
 			writeError(w, http.StatusBadGateway, c.node.Name+" is not reachable")

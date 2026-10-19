@@ -1,14 +1,17 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -66,6 +69,10 @@ func cmdDaemon(e *env, args []string) error {
 		h, err := c.Ping(e.ctx)
 		if err != nil {
 			fmt.Fprintf(e.out, "%s not running (%v)\n", e.paint(dim, "○"), err)
+			return silentError{3}
+		}
+		if !h.Verified {
+			fmt.Fprintf(e.out, "%s unverified  pid %d  version %s  %s: it cannot prove it is this account's daemon\n", e.paint(yellow, "●"), h.PID, h.Version, c.Base)
 			return silentError{3}
 		}
 		fmt.Fprintf(e.out, "%s running  pid %d  version %s  %s\n", e.paint(green, "●"), h.PID, h.Version, c.Base)
@@ -148,6 +155,8 @@ func stopDaemon(e *env, c *client.Client) (bool, error) {
 		return false, nil
 	}
 	if err := shutdown(e, c, nil); err != nil {
+		// Nothing stopped, so nothing may keep the daemon from running.
+		daemon.ClearStopped()
 		return true, err
 	}
 	if !waitGone(c, e, 90*time.Second) {
@@ -161,25 +170,46 @@ func stopDaemon(e *env, c *client.Client) (bool, error) {
 var restartBody = map[string]bool{"restart": true}
 
 // shutdown asks the daemon to exit through the API. A daemon from before
-// signed requests refuses them as unauthenticated; when it is provably this
-// account's daemon (the process of this user listening on its port, with
-// the pid it reports), it gets SIGTERM instead, which stops it the way a
-// restart does: no stop marker, servers restored by the next daemon.
+// verified requests cannot prove itself, so the client sends it nothing
+// signed (or it refuses signatures as unauthenticated); when it is provably
+// this account's daemon (the process of this user listening on its port,
+// with the pid it reports), it gets SIGTERM instead, which stops it the way
+// a restart does: no stop marker, servers restored by the next daemon.
 func shutdown(e *env, c *client.Client, body any) error {
 	err := c.Do(e.ctx, http.MethodPost, "/api/shutdown", body, nil)
 	var apiErr *client.APIError
-	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+	if !errors.Is(err, client.ErrUnverified) && (!errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized) {
 		return err
 	}
 	h, pingErr := c.Ping(e.ctx)
 	if pingErr != nil || h.PID <= 0 {
 		return err
 	}
-	if l, ok := ports.Owner(e.ctx, c.Port); !ok || l.PID != h.PID || syscall.Kill(h.PID, 0) != nil {
+	if !daemonListens(e.ctx, c.Port, h.PID) || syscall.Kill(h.PID, 0) != nil {
 		return err
 	}
-	fmt.Fprintf(e.errOut, "note: the daemon (pid %d, %s) predates signed requests; stopping it with SIGTERM\n", h.PID, h.Version)
+	fmt.Fprintf(e.errOut, "note: the daemon (pid %d, %s) predates verified requests; stopping it with SIGTERM\n", h.PID, h.Version)
 	return syscall.Kill(h.PID, syscall.SIGTERM)
+}
+
+// daemonListens reports whether pid, a process of this account, listens on
+// port at 127.0.0.1 and at ::1 wherever something answers there. lsof and
+// ss list only what this account may see, so a listener of another account
+// at either address counts against it.
+func daemonListens(ctx context.Context, port, pid int) bool {
+	owners := ports.LoopbackListeners(ctx, port)
+	if owners["127.0.0.1"] != pid {
+		return false
+	}
+	if owners["::1"] == pid {
+		return true
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("::1", strconv.Itoa(port)), 500*time.Millisecond)
+	if err != nil {
+		return true // nothing listens there
+	}
+	conn.Close()
+	return false
 }
 
 // daemonRestart replaces a running daemon with this binary in place,
@@ -189,7 +219,9 @@ func shutdown(e *env, c *client.Client, body any) error {
 func daemonRestart(e *env, c *client.Client) error {
 	old, pingErr := c.Ping(e.ctx)
 	running := pingErr == nil
-	if running {
+	// One that cannot prove itself gets no signed request; shutdown stops it
+	// when it is this account's daemon.
+	if running && old.Verified {
 		if done, err := upgradeInPlace(e, c, old); done || err != nil {
 			return err
 		}
@@ -249,10 +281,13 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 		return false, nil
 	}
 	err = c.Do(e.ctx, http.MethodPost, "/api/upgrade", map[string]string{"exe": exe}, nil)
+	if errors.Is(err, client.ErrUnverified) {
+		return false, nil
+	}
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) {
 		// Not found or not implemented: a daemon without in-place upgrades.
-		// Unauthorized: one from before signed requests.
+		// Unauthorized: one from before verified requests.
 		if apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusNotImplemented || apiErr.Status == http.StatusUnauthorized {
 			return false, nil
 		}
@@ -264,7 +299,7 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		h, err := next.Ping(e.ctx)
-		if err == nil && h.PID == old.PID && !h.StartedAt.Equal(old.StartedAt) {
+		if err == nil && h.Verified && h.PID == old.PID && !h.StartedAt.Equal(old.StartedAt) {
 			if h.Version != app.Version {
 				return true, fmt.Errorf("the daemon now runs version %s, not %s", h.Version, app.Version)
 			}
@@ -295,7 +330,10 @@ const (
 // daemonInfo prints where the daemon listens as JSON, starting it unless
 // --no-start is given. It is the menu bar app's contract: when no daemon
 // answers it still prints JSON with running=false and exits 3, or exits 4
-// with configError set when the config file does not load.
+// with configError set when the config file does not load. A daemon that
+// answers but cannot prove itself (one from before verified requests, or
+// another program) is reported running with verified=false and the version
+// it claims, so the app can offer a restart.
 func daemonInfo(e *env, c *client.Client, args []string) error {
 	fs := flag.NewFlagSet("daemon info", flag.ContinueOnError)
 	noStart := fs.Bool("no-start", false, "only report a running daemon")
@@ -309,9 +347,13 @@ func daemonInfo(e *env, c *client.Client, args []string) error {
 	} else {
 		h, err = c.Ensure(e.ctx)
 	}
-	if err == nil {
-		return printJSON(e, map[string]any{"running": true, "url": c.Base, "port": c.Port, "pid": h.PID, "version": h.Version,
-			"config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "tokenFile": filepath.Join(paths.StateDir(), "auth-token")})
+	if err == nil || errors.Is(err, client.ErrUnverified) {
+		out := map[string]any{"running": true, "verified": h.Verified, "url": c.Base, "port": c.Port, "pid": h.PID, "version": h.Version,
+			"config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "tokenFile": filepath.Join(paths.StateDir(), "auth-token")}
+		if !h.Verified {
+			out["error"] = c.Unverified().Error()
+		}
+		return printJSON(e, out)
 	}
 	out := map[string]any{"running": false, "stopped": daemon.Stopped(), "config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "error": err.Error()}
 	if _, statErr := os.Stat(e.cfgPath); statErr == nil {
@@ -384,8 +426,21 @@ func cmdDoctor(e *env, args []string) error {
 	}
 
 	c := client.New(e.port())
-	if h, err := c.Ping(e.ctx); err == nil {
+	if h, err := c.Ping(e.ctx); err == nil && !h.Verified {
+		bad("port %d answers as %s %s (pid %d) but cannot prove it is this account's daemon; `%s daemon restart` replaces a daemon from before verified requests", e.port(), app.Name, h.Version, h.PID, app.ID)
+	} else if err == nil {
 		ok("daemon running (pid %d, %s) at %s", h.PID, h.Version, c.Base)
+		// Browsers try ::1 first for *.localhost, so the daemon must hold it.
+		if ports.IPv6Loopback() {
+			v6 := client.NewAt("::1", e.port())
+			if h6, err := v6.Ping(e.ctx); err != nil {
+				bad("the daemon does not listen on %s; `%s daemon restart` binds it, or reports what holds it", v6.Base, app.ID)
+			} else if !h6.Verified || h6.PID != h.PID {
+				bad("%s is held by another program (claims pid %d), and browsers send dashboard requests there first; stop it (`lsof -nP -iTCP:%d -sTCP:LISTEN`) and run `%s daemon restart`", v6.Base, h6.PID, e.port(), app.ID)
+			} else {
+				ok("the daemon listens on 127.0.0.1 and ::1")
+			}
+		}
 		var st server.State
 		if err := c.Do(e.ctx, http.MethodGet, "/api/state", nil, &st); err == nil {
 			switch d := st.Docker; {

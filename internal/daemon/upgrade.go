@@ -39,6 +39,9 @@ type handoff struct {
 	Port      int                  `json:"port"`
 	Listeners []int                `json:"listeners"`
 	Servers   []supervisor.Handoff `json:"servers"`
+	// DashboardHost stays across the exec: the sockets were never released,
+	// so no other program can have served a page on it.
+	DashboardHost string `json:"dashboardHost"`
 }
 
 func handoffPath(stateDir string) string { return filepath.Join(stateDir, "handoff.json") }

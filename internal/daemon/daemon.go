@@ -44,6 +44,9 @@ func MarkStopped() error {
 	return os.WriteFile(paths.StopMarker(), []byte(time.Now().Format(time.RFC3339)+"\n"), paths.FileMode)
 }
 
+// ClearStopped removes the record of a deliberate stop.
+func ClearStopped() { _ = os.Remove(paths.StopMarker()) }
+
 // Stopped reports whether the daemon was stopped deliberately and none started since.
 func Stopped() bool {
 	_, err := os.Stat(paths.StopMarker())
@@ -79,7 +82,7 @@ func Run(cfgPath string) error {
 	// but a stop requested while the previous binary handed over wins.
 	stopDuringUpgrade := ho != nil && Stopped()
 	if !stopDuringUpgrade {
-		_ = os.Remove(paths.StopMarker())
+		ClearStopped()
 	}
 
 	if _, err := os.Stat(cfgPath); errors.Is(err, os.ErrNotExist) {
@@ -103,7 +106,39 @@ func Run(cfgPath string) error {
 		log.Printf("config: %s", w)
 	}
 
-	creds, err := server.LoadCredentials(stateDir)
+	// The sockets of an upgrade, when they all came over, else new ones.
+	var listeners []net.Listener
+	inherited := false
+	if ho != nil {
+		listeners = inheritListeners(ho.Listeners, cfg.Port)
+		if listeners != nil {
+			n := len(listeners)
+			var err error
+			if listeners, err = completeListeners(listeners, cfg.Port); err != nil {
+				return err
+			}
+			inherited = len(listeners) == n
+		}
+	}
+	if listeners == nil {
+		var err error
+		if listeners, err = listen(cfg.Port); err != nil {
+			return err
+		}
+	}
+
+	// The dashboard host is new on every cold start, so a page another
+	// program served on the old one while the port was free (a service
+	// worker, say) has no hold on it. An upgrade that kept all its sockets
+	// never released the port, so it keeps the host and its sessions; one
+	// that had to listen anew gets a new host as well.
+	keepHost := ""
+	if ho != nil && inherited {
+		keepHost = ho.DashboardHost
+	} else if ho != nil {
+		log.Printf("handoff: listening anew, so the dashboard gets a new address")
+	}
+	creds, err := server.LoadCredentials(stateDir, keepHost)
 	if err != nil {
 		return fmt.Errorf("credentials: %w", err)
 	}
@@ -190,15 +225,6 @@ func Run(cfgPath string) error {
 	})
 	sh.SetHandler(srv.PeerHandler())
 
-	var listeners []net.Listener
-	if ho != nil {
-		listeners = inheritListeners(ho.Listeners, cfg.Port)
-	}
-	if listeners == nil {
-		if listeners, err = listen(cfg.Port); err != nil {
-			return err
-		}
-	}
 	if ho != nil {
 		adopted := sup.Adopt(ho.Servers)
 		log.Printf("upgraded from %s to %s; kept %d of %d running servers", ho.Version, app.Version, len(adopted), len(ho.Servers))
@@ -210,7 +236,7 @@ func Run(cfgPath string) error {
 		log.Printf("a stop was requested during the upgrade")
 		shutdown()
 	}
-	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ConnContext: server.ConnContext}
 	// serve runs the API on lns. Closing them for an upgrade sets the
 	// returned flag first, so that is not taken for a failure.
 	serve := func(lns []net.Listener) *atomic.Bool {
@@ -308,7 +334,7 @@ func Run(cfgPath string) error {
 			return fail(err)
 		}
 		h := handoff{Nonce: nonce, PID: os.Getpid(), Version: app.Version,
-			Lock: lockFD, Port: cfg.Port, Listeners: fds, Servers: servers}
+			Lock: lockFD, Port: cfg.Port, Listeners: fds, Servers: servers, DashboardHost: creds.Host}
 		if err := writeHandoff(hoPath, h); err != nil {
 			return fail(err)
 		}
@@ -386,19 +412,55 @@ wait:
 	return nil
 }
 
-// listen binds IPv4 loopback (required) and IPv6 loopback (best effort), so
-// browsers that resolve *.localhost to ::1 reach the proxy too.
+// listen binds IPv4 and IPv6 loopback. Both are required where the system
+// has IPv6 loopback: browsers resolve *.localhost to ::1 first, so a
+// program of another account holding [::1]:<port> would get every
+// dashboard request and its cookie.
 func listen(port int) ([]net.Listener, error) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	v4, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot listen on %s: %w (change `port` in the config)", addr, err)
 	}
-	out := []net.Listener{v4}
-	if v6, err := net.Listen("tcp", net.JoinHostPort("::1", strconv.Itoa(port))); err == nil {
-		out = append(out, v6)
+	lns, err := completeListeners([]net.Listener{v4}, port)
+	if err != nil {
+		v4.Close()
+		return nil, err
 	}
-	return out, nil
+	return lns, nil
+}
+
+// completeListeners adds an IPv6 loopback listener to lns when they have
+// none and the system has IPv6 loopback. Any failure other than a missing
+// IPv6 loopback, such as another program holding the address, is an error;
+// lns are closed then.
+func completeListeners(lns []net.Listener, port int) ([]net.Listener, error) {
+	for _, ln := range lns {
+		if a, ok := ln.Addr().(*net.TCPAddr); ok && a.IP.Equal(net.IPv6loopback) {
+			return lns, nil
+		}
+	}
+	addr := net.JoinHostPort("::1", strconv.Itoa(port))
+	v6, err := net.Listen("tcp", addr)
+	if err == nil {
+		return append(lns, v6), nil
+	}
+	if noIPv6Loopback(err) {
+		return lns, nil
+	}
+	for _, ln := range lns {
+		ln.Close()
+	}
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return nil, fmt.Errorf("cannot listen on %s: another program holds it, and browsers send dashboard requests there first (find it with `lsof -nP -iTCP:%d -sTCP:LISTEN`, or change `port` in the config)", addr, port)
+	}
+	return nil, fmt.Errorf("cannot listen on %s: %w (change `port` in the config)", addr, err)
+}
+
+// noIPv6Loopback reports whether a bind to ::1 failed because the system
+// has no IPv6 loopback, rather than because the address is taken.
+func noIPv6Loopback(err error) bool {
+	return errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.EAFNOSUPPORT) || errors.Is(err, syscall.EPROTONOSUPPORT)
 }
 
 // acquireLock guarantees a single daemon per state directory.

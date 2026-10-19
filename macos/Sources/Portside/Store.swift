@@ -49,6 +49,9 @@ final class Store {
     var lastError: String?
     /// True while the daemon is stopped on purpose; the app then waits instead of starting it.
     private(set) var daemonStopped = false
+    /// True while a daemon answers but cannot prove itself to this app or
+    /// refuses its requests, such as one older than the app; a restart replaces it.
+    private(set) var daemonRefused = false
 
     /// Called once per crash the daemon gave up on.
     var onCrash: ((Server) -> Void)?
@@ -58,6 +61,12 @@ final class Store {
     var onSummaryChange: ((Summary) -> Void)?
     /// Called whenever `daemonStatus` changes.
     var onStatusChange: ((DaemonStatus) -> Void)?
+    /// Called when the events connection reaches another daemon process than
+    /// before (a restart or an upgrade): after a cold start the dashboard has
+    /// a new host, so the dashboard window signs in again.
+    var onDaemonRestart: (() -> Void)?
+    /// The epoch of the daemon the events connection last reached.
+    private var connectedEpoch: String?
 
     private var task: URLSessionWebSocketTask?
     private var loop: Task<Void, Never>?
@@ -155,6 +164,9 @@ final class Store {
                 if info.running == true, let url = info.url.flatMap(URL.init(string:)) {
                     baseURL = url
                     token = info.token
+                    // Known even when the events connection is refused, so the restart banner can show it.
+                    if let v = info.version { daemonVersion = v }
+                    if info.verified == false { throw DaemonError.unverified }
                     do {
                         try await listen(url)
                     } catch {
@@ -168,6 +180,7 @@ final class Store {
                 }
             } catch {
                 if Task.isCancelled { return }
+                daemonRefused = (error as? DaemonError)?.needsRestart ?? false
                 setOffline(error.localizedDescription, clear: false)
                 wait = delay
                 delay = min(delay * 2, 8_000_000_000)
@@ -196,6 +209,7 @@ final class Store {
         if let c = info.config { configPath = c }
         if let s = info.stateDir { stateDir = s }
         guard info.running != true else { return }
+        daemonRefused = false
         daemonStopped = info.stopped == true
         configError = info.configError
         setOffline(daemonStopped ? "stopped" : (info.configError ?? L.t("The daemon is not running.", "Demon nie działa.")), clear: true)
@@ -214,34 +228,67 @@ final class Store {
         notifyChange()
     }
 
+    /// Follows the daemon's events. The daemon proves itself before the
+    /// signed upgrade and again in its reply; an upgrade refused for an old
+    /// epoch (the daemon restarted) is tried once more after a new handshake.
     private func listen(_ base: URL) async throws {
         var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         comps.scheme = "ws"
         comps.path = "/api/events"
         comps.queryItems = [URLQueryItem(name: "notifier", value: "1")]
-        var req = URLRequest(url: comps.url!)
-        RequestSigner.sign(&req, token: token)
-        let ws = URLSession.shared.webSocketTask(with: req)
-        ws.maximumMessageSize = 32 << 20
-        task = ws
-        ws.resume()
-        defer { ws.cancel(with: .goingAway, reason: nil) }
-        while !Task.isCancelled {
-            let msg = try await ws.receive()
-            let data: Data
-            switch msg {
-            case .string(let s): data = Data(s.utf8)
-            case .data(let d): data = d
-            @unknown default: continue
+        var retried = false
+        while true {
+            let epoch = try await DaemonHandshake.shared.epoch(base: base, token: token)
+            var req = URLRequest(url: comps.url!)
+            guard let challenge = RequestSigner.sign(&req, token: token, epoch: epoch) else { throw DaemonError.unverified }
+            let ws = URLSession.shared.webSocketTask(with: req)
+            ws.maximumMessageSize = 32 << 20
+            task = ws
+            ws.resume()
+            defer { ws.cancel(with: .goingAway, reason: nil) }
+            var msg: URLSessionWebSocketTask.Message
+            do {
+                msg = try await ws.receive()
+            } catch {
+                guard (ws.response as? HTTPURLResponse)?.statusCode == 401 else { throw error }
+                if !retried, await DaemonHandshake.shared.renewed(base: base, token: token, after: epoch) {
+                    retried = true
+                    continue
+                }
+                throw DaemonError.refused
             }
-            guard let state = try? JSONDecoder().decode(DaemonState.self, from: data) else { continue }
-            apply(state)
+            guard let http = ws.response as? HTTPURLResponse,
+                  RequestSigner.proven(http, token: token, challenge: challenge) != nil else {
+                await DaemonHandshake.shared.forget(base)
+                throw DaemonError.unverified
+            }
+            // Told once the state is in, when the dashboard can be reached.
+            var restarted = connectedEpoch != nil && connectedEpoch != epoch
+            connectedEpoch = epoch
+            while true {
+                let data: Data
+                switch msg {
+                case .string(let s): data = Data(s.utf8)
+                case .data(let d): data = d
+                @unknown default: data = Data()
+                }
+                if let state = try? JSONDecoder().decode(DaemonState.self, from: data) {
+                    apply(state)
+                    if restarted {
+                        restarted = false
+                        onDaemonRestart?()
+                    }
+                }
+                if Task.isCancelled { return }
+                msg = try await ws.receive()
+            }
         }
     }
 
     private func apply(_ state: DaemonState) {
         connection = .connected
         daemonStopped = false
+        daemonRefused = false
         daemonVersion = state.daemon.version
         configError = state.config.error
         configPath = state.config.path

@@ -1,7 +1,6 @@
 package share
 
 import (
-	"crypto/hmac"
 	"errors"
 	"net/http"
 
@@ -18,8 +17,8 @@ import (
 // Header names; each is "X-<product>-<name>".
 var (
 	HeaderDevice    = signing.Header("Device")
-	HeaderChallenge = signing.Header("Challenge")
-	HeaderProof     = signing.Header("Proof")
+	HeaderChallenge = signing.HeaderChallenge
+	HeaderProof     = signing.HeaderProof
 	// HeaderEpoch names the listener a request is meant for. Each listener
 	// has a random epoch, sent with the proof, and signatures cover it, so a
 	// request sent to a listener that no longer exists is useless elsewhere.
@@ -41,23 +40,13 @@ func (c Credential) Sign(h http.Header, method, uri string, body []byte, epoch s
 }
 
 // Challenge adds a fresh challenge to h and returns it.
-func Challenge(h http.Header) string {
-	ch := signing.RandomHex(16)
-	h.Set(HeaderChallenge, ch)
-	return ch
-}
+func Challenge(h http.Header) string { return signing.Challenge(h) }
 
 // Proven reports whether a reply proves that the daemon holds c's key, and
 // returns the listener epoch the proof vouches for.
 func (c Credential) Proven(challenge string, reply http.Header) (string, bool) {
-	if !signing.ValidKey(c.Key) || challenge == "" {
-		return "", false
-	}
-	epoch := reply.Get(HeaderEpoch)
-	return epoch, hmac.Equal([]byte(proof(c.Key, challenge, epoch)), []byte(reply.Get(HeaderProof)))
+	return signing.Proven(c.Key, challenge, reply)
 }
-
-func proof(key, challenge, epoch string) string { return signing.MAC(key, "server", challenge, epoch) }
 
 // verify checks a signed request against dev's key. uri is the request URI
 // as the device sent it.
