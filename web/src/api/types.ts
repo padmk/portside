@@ -46,6 +46,8 @@ export interface ServerView {
   /** The last few plain output lines, oldest first. */
   tail?: string[]
   wanted: boolean
+  /** The tool environment the live process runs under, such as `direnv` or `mise` (`custom` for a configured `wrap`). */
+  tool?: string
   /** A crashed or exited server waits for its automatic restart. */
   restartPending?: boolean
   /** Ports the process tree listens on, when they differ from the configured port. */

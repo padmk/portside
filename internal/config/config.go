@@ -70,7 +70,9 @@ const (
 	RestartOnFailure = "on-failure"
 	RestartAlways    = "always"
 
-	// WrapNone turns off tool environment detection for a server.
+	// WrapAuto (the default) detects a server's tool environment and
+	// WrapNone turns detection off.
+	WrapAuto = "auto"
 	WrapNone = "none"
 )
 
@@ -91,7 +93,7 @@ type Server struct {
 	Icon      string // optional absolute icon path
 	Open      string // optional path appended to the URL when opening
 	// Wrap selects how the command enters the project's tool environment:
-	// "" detects direnv, devbox, mise or a Node version file, WrapNone runs
+	// "" or WrapAuto detects direnv, devbox, mise or a Node version file, WrapNone runs
 	// it as is, anything else is a command prefix.
 	Wrap    string
 	Stop    time.Duration

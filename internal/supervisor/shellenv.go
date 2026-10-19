@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,16 +32,22 @@ type shellEnv struct {
 	// row; they never mark servers stale.
 	volatile map[string]bool
 	probed   bool
+	probing  bool // the second read runs; volatile keys are not known yet
 	fetched  time.Time
 	read     ShellRead
 }
 
 const envMarker = "__ENV_BEGIN__"
 
-// cached returns the last environment read and its volatile keys.
+// cached returns the last environment read and its volatile keys. The
+// environment is nil while the volatile keys are still being found, so
+// stale checks wait for them.
 func (s *shellEnv) cached() ([]string, map[string]bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.probing {
+		return nil, nil
+	}
 	return s.env, s.volatile
 }
 
@@ -51,13 +58,21 @@ func (s *shellEnv) get() []string {
 		return s.env
 	}
 	read, env := ReadLoginShell()
-	if env != nil && !s.probed {
+	if env != nil && !s.probed && !s.probing {
 		// A second read shows which values change on every shell start
-		// (session ids, agents, generated PATH entries).
-		if _, again := ReadLoginShell(); again != nil {
-			s.volatile = differingKeys(env, again)
-			s.probed = true
-		}
+		// (session ids, agents, generated PATH entries). It runs without
+		// the lock, so starts do not wait for it.
+		s.probing = true
+		go func() {
+			_, again := ReadLoginShell()
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.probing = false
+			if again != nil {
+				s.volatile = differingKeys(env, again)
+				s.probed = true
+			}
+		}()
 	}
 	if read.Shell != s.read.Shell || read.Used != s.read.Used || read.Err != s.read.Err {
 		log.Print(read.Describe())
@@ -398,7 +413,18 @@ func lookupEnv(env []string, key string) string {
 	return ""
 }
 
-// sameEnv reports whether two launch environments match for stale checks.
+// sameEnv reports whether two environments match for stale checks.
 func sameEnv(a, b []string, volatile map[string]bool) bool {
+	// A temporary agent socket on either side (such as one that an older
+	// daemon kept from a read) is session state on both.
+	for _, env := range [][]string{a, b} {
+		if v := lookupEnv(env, "SSH_AUTH_SOCK"); sessionValue("SSH_AUTH_SOCK", v) && !volatile["SSH_AUTH_SOCK"] {
+			volatile = maps.Clone(volatile)
+			if volatile == nil {
+				volatile = map[string]bool{}
+			}
+			volatile["SSH_AUTH_SOCK"] = true
+		}
+	}
 	return slices.Equal(comparableEnv(a, volatile), comparableEnv(b, volatile))
 }

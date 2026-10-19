@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,7 +53,9 @@ type proc struct {
 	cfg            config.Server // latest configuration
 	runningEnv     []string
 	runningShell   string
-	runningTool    string // version manager the live process runs under, "" for none
+	runningTool    string        // version manager the live process runs under, "" for none
+	launch         *launchInputs // what runningEnv was built from; nil when unknown
+	detected       *string       // tool detection for cfg as last sampled; nil before the first sample
 	restartPending bool
 	listenPorts    []int
 	listenHost     string
@@ -347,11 +350,23 @@ func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool
 	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || a.Wrap != b.Wrap || p.runningShell != cfg.Shell {
 		return true
 	}
+	if l := p.launch; l != nil {
+		if !slices.Equal(l.Path, cfg.PathPrepend) || !maps.Equal(l.Env, cfg.Env) || !maps.Equal(a.Env, b.Env) {
+			return true
+		}
+		if p.detected != nil && *p.detected != l.Detect {
+			return true
+		}
+	}
 	// Until the login environment has been read (as after an upgrade, which
 	// keeps servers started by the previous binary), it cannot be compared.
 	if base == nil {
 		return false
 	}
+	if l := p.launch; l != nil {
+		return !sameEnv(l.Base, base, volatile)
+	}
+	// Started by a daemon that kept only the resulting environment.
 	return !sameEnv(p.runningEnv, launchEnv(base, b, cfg.PathPrepend, cfg.Env), volatile)
 }
 
@@ -541,14 +556,15 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		return errors.New(msg)
 	}
 
-	env := s.buildEnv(sv, prepend, globalEnv)
+	base := s.env.get()
+	env := launchEnv(base, sv, prepend, globalEnv)
 	shellPath := lookPath(shell, lookupEnv(env, "PATH"))
 	script := strings.ReplaceAll(sv.Cmd, "{PORT}", strconv.Itoa(sv.Port))
-	tool := projectTools(sv, env, shellPath)
+	tool, choice := projectTools(sv, env, shellPath, keptKeys(sv, globalEnv))
 	argv := append(slices.Clone(tool.prefix), shellPath, "-c", tool.script+script)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = sv.Dir
-	cmd.Env = env
+	cmd.Env = mergeEnv(env, tool.env)
 
 	s.mu.Lock()
 	if p.pid != 0 { // lost a race with another Start
@@ -596,6 +612,8 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.runningEnv = slices.Clone(env)
 	p.runningShell = shell
 	p.runningTool = tool.name
+	p.launch = &launchInputs{Base: slices.Clone(base), Path: slices.Clone(prepend), Env: maps.Clone(globalEnv), Detect: choice.key()}
+	p.detected = nil
 	p.restartPending = false
 	p.listenPorts = nil
 	p.listenHost = ""
@@ -693,6 +711,32 @@ func (s *Supervisor) Environ() []string {
 
 func (s *Supervisor) buildEnv(sv config.Server, prepend []string, global map[string]string) []string {
 	return launchEnv(s.env.get(), sv, prepend, global)
+}
+
+// launchInputs are the parts a server's environment was built from, kept so
+// that stale checks compare the config's parts directly and ignore volatile
+// values only in the login-shell part.
+type launchInputs struct {
+	Base   []string          `json:"base"`             // login-shell environment
+	Path   []string          `json:"path,omitempty"`   // configured path entries
+	Env    map[string]string `json:"env,omitempty"`    // global env
+	Detect string            `json:"detect,omitempty"` // toolChoice key
+}
+
+// keptKeys are the variables a tool environment must not override: PORT and
+// the config's env, sorted.
+func keptKeys(sv config.Server, global map[string]string) []string {
+	set := map[string]bool{}
+	if sv.Port > 0 {
+		set["PORT"] = true
+	}
+	for k := range global {
+		set[k] = true
+	}
+	for k := range sv.Env {
+		set[k] = true
+	}
+	return slices.Sorted(maps.Keys(set))
 }
 
 func launchEnv(base []string, sv config.Server, prepend []string, global map[string]string) []string {
@@ -1237,10 +1281,20 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 	var checks []check
 	hasLive := false
 	forwarded := map[string]bool{} // stopped servers whose port forwards to another computer
+	type detection struct {
+		name string
+		pid  int
+		cfg  config.Server
+	}
+	var detections []detection
 	s.mu.Lock()
+	prepend, globalEnv := s.cfg.PathPrepend, s.cfg.Env
 	for name, p := range s.procs {
 		if p.pid != 0 {
 			hasLive = true
+			if p.launch != nil {
+				detections = append(detections, detection{name, p.pid, p.cfg})
+			}
 			cpu, mem, ok := treeUsage(table, children, p.pid)
 			if ok {
 				p.cpu, p.mem = cpu, mem
@@ -1263,7 +1317,17 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 	s.mu.Unlock()
 
 	if hasLive {
-		_ = s.env.get()
+		base := s.env.get()
+		// Files such as a new .envrc change which tool a restart would use.
+		for _, d := range detections {
+			env := launchEnv(base, d.cfg, prepend, globalEnv)
+			key := detectTool(d.cfg, lookupEnv(env, "PATH"), nvmScript(env)).key()
+			s.mu.Lock()
+			if p := s.procs[d.name]; p != nil && p.pid == d.pid {
+				p.detected = &key
+			}
+			s.mu.Unlock()
+		}
 	}
 	for _, c := range checks {
 		// A forwarded port answers from the other computer; nothing here holds it.

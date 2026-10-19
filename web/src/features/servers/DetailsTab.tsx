@@ -58,6 +58,13 @@ export function DetailsTab({ server: v, servers }: { server: ServerView; servers
         <dt>{t('detail.pid')}</dt>
         <dd>{v.pid ? <code>{v.pid}</code> : <span className="muted">–</span>}</dd>
 
+        {!!v.pid && v.tool && (
+          <>
+            <dt>{t('detail.tool')}</dt>
+            <dd><code>{v.tool}</code></dd>
+          </>
+        )}
+
         <dt>{t('detail.dependsOn')}</dt>
         <dd className="deps">
           {v.dependsOn?.length ? (
