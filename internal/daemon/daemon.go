@@ -38,10 +38,10 @@ var ErrAlreadyRunning = errors.New("another daemon is already running")
 // MarkStopped records a deliberate stop, so background clients do not start
 // a daemon again until something starts one explicitly.
 func MarkStopped() error {
-	if err := os.MkdirAll(paths.StateDir(), 0o755); err != nil {
+	if err := os.MkdirAll(paths.StateDir(), paths.DirMode); err != nil {
 		return err
 	}
-	return os.WriteFile(paths.StopMarker(), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
+	return os.WriteFile(paths.StopMarker(), []byte(time.Now().Format(time.RFC3339)+"\n"), paths.FileMode)
 }
 
 // Stopped reports whether the daemon was stopped deliberately and none started since.
@@ -54,7 +54,7 @@ func Stopped() bool {
 // when another daemon owns the state directory.
 func Run(cfgPath string) error {
 	stateDir := paths.StateDir()
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+	if err := os.MkdirAll(stateDir, paths.DirMode); err != nil {
 		return err
 	}
 	// A daemon that re-executed itself to upgrade left its lock, sockets
@@ -88,6 +88,9 @@ func Run(cfgPath string) error {
 		}
 		log.Printf("created %s", cfgPath)
 	}
+	// Files left by older versions or created by other tools (the service's
+	// log redirect) lose group and other access.
+	paths.Restrict(cfgPath, stateDir)
 	// Save automatic ports first; an invalid file is reported by LoadRecoverable.
 	_, portsErr := config.LoadAssignedPorts(cfgPath, supervisor.SavedTemporaryPorts(stateDir))
 	cfg, configErr := config.LoadRecoverable(cfgPath, stateDir)
@@ -226,7 +229,7 @@ func Run(cfgPath string) error {
 	log.Printf("%s %s listening on http://127.0.0.1:%d (pid %d)", app.Name, app.Version, cfg.Port, os.Getpid())
 	// Clients find a daemon whose config has since moved to another port here.
 	portFile := filepath.Join(stateDir, "daemon.port")
-	_ = os.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"), 0o644)
+	_ = os.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"), paths.FileMode)
 	defer os.Remove(portFile)
 	// Keep an installed agent skill in step with this binary. Instances with
 	// their own config or state (tests, development) leave it alone.
@@ -400,7 +403,7 @@ func listen(port int) ([]net.Listener, error) {
 
 // acquireLock guarantees a single daemon per state directory.
 func acquireLock(path string) (*os.File, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, paths.FileMode)
 	if err != nil {
 		return nil, err
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/paths"
 )
 
 type cachedConfig struct {
@@ -28,7 +29,7 @@ func CacheGood(stateDir, path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+	if err := os.MkdirAll(stateDir, paths.DirMode); err != nil {
 		return err
 	}
 	dest := filepath.Join(stateDir, "last-good-config.json")

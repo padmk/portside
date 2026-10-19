@@ -331,10 +331,10 @@ func spawnDaemon() (<-chan error, error) {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	if err := os.MkdirAll(paths.StateDir(), 0o755); err != nil {
+	if err := os.MkdirAll(paths.StateDir(), paths.DirMode); err != nil {
 		return nil, err
 	}
-	logf, err := os.OpenFile(paths.DaemonLog(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logf, err := os.OpenFile(paths.DaemonLog(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, paths.FileMode)
 	if err != nil {
 		return nil, err
 	}

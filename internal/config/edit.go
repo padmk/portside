@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/paths"
 )
 
 // Spec describes a server as written to the file. Empty fields are omitted.
@@ -335,7 +336,7 @@ func realPath(path string) string {
 // lock serialises read-modify-write cycles across processes (daemon, CLI).
 func lock(path string) (func(), error) {
 	dir := filepath.Dir(realPath(path))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, paths.DirMode); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "."+filepath.Base(path)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
@@ -382,11 +383,13 @@ func WriteAtomic(path string, data []byte) error {
 
 func writeFile(path string, data []byte) error {
 	path = realPath(path)
-	mode := os.FileMode(0o644)
+	// The file can hold secrets in server environments: a new one is private
+	// and an existing one keeps only its owner's permissions.
+	mode := paths.FileMode
 	if st, err := os.Stat(path); err == nil {
-		mode = st.Mode().Perm()
+		mode = st.Mode().Perm() &^ 0o077
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), paths.DirMode); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")

@@ -43,19 +43,13 @@ func cmdDaemon(e *env, args []string) error {
 		}
 		fmt.Fprintf(e.out, "%s daemon running (pid %d) at %s\n", app.Name, h.PID, c.Base)
 	case "stop":
-		// The marker keeps background clients (the menu bar app) from starting it again.
-		if err := daemon.MarkStopped(); err != nil {
+		ran, err := stopDaemon(e, c)
+		if err != nil {
 			return err
 		}
-		if _, err := c.Ping(e.ctx); err != nil {
+		if !ran {
 			fmt.Fprintln(e.out, "daemon is not running")
 			return nil
-		}
-		if err := shutdown(e, c, nil); err != nil {
-			return err
-		}
-		if !waitGone(c, e, 90*time.Second) {
-			return fmt.Errorf("daemon did not stop within 90s")
 		}
 		fmt.Fprintln(e.out, "daemon stopped; servers it ran were stopped too. Any command starts it again.")
 		if service.Query().Installed {
@@ -113,14 +107,20 @@ func cmdService(e *env, args []string) error {
 		}
 		lingerHint(e)
 	case "uninstall":
-		// Removing the service stops its daemon; the marker keeps it stopped.
-		if err := daemon.MarkStopped(); err != nil {
+		// The daemon may run outside the service (started by the app or a
+		// command), so it is stopped first, the same way as `daemon stop`.
+		ran, err := stopDaemon(e, client.New(e.port()))
+		if err != nil {
 			return err
 		}
 		if err := service.Uninstall(); err != nil {
 			return err
 		}
-		fmt.Fprintln(e.out, "Service removed. The daemon is stopped; any command starts it again on demand.")
+		if ran {
+			fmt.Fprintln(e.out, "Service removed and the daemon stopped, with the servers it ran. Any command starts it again on demand.")
+		} else {
+			fmt.Fprintln(e.out, "Service removed; no daemon was running. Any command starts one on demand.")
+		}
 	case "status":
 		st := service.Query()
 		switch {
@@ -135,6 +135,25 @@ func cmdService(e *env, args []string) error {
 		return usageError{"unknown subcommand " + args[0]}
 	}
 	return nil
+}
+
+// stopDaemon stops the daemon c reaches, with its servers, and waits until it
+// has exited. It reports whether one was running. The stop marker keeps
+// background clients (the menu bar app) from starting it again.
+func stopDaemon(e *env, c *client.Client) (bool, error) {
+	if err := daemon.MarkStopped(); err != nil {
+		return false, err
+	}
+	if _, err := c.Ping(e.ctx); err != nil {
+		return false, nil
+	}
+	if err := shutdown(e, c, nil); err != nil {
+		return true, err
+	}
+	if !waitGone(c, e, 90*time.Second) {
+		return true, fmt.Errorf("daemon did not stop within 90s")
+	}
+	return true, nil
 }
 
 // restartBody tells /api/shutdown that a new daemon follows, so the stop is

@@ -169,7 +169,7 @@ func (s *Supervisor) ForCheckout(name, dir string) (string, error) {
 		return name, nil
 	}
 	if want.common != orig.common {
-		return "", fmt.Errorf("%s is not a checkout of the repository %s runs from (%s)", paths.ShortenHome(want.top), name, paths.ShortenHome(orig.top))
+		return "", fmt.Errorf("%s is not a worktree of the repository %s runs from (%s); only its linked git worktrees can run a copy", paths.ShortenHome(want.top), name, paths.ShortenHome(orig.top))
 	}
 	rel, err := filepath.Rel(orig.top, realDir(sv.Dir))
 	if err != nil || strings.HasPrefix(rel, "..") {

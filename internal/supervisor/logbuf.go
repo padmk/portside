@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/padmk/portside/internal/paths"
 )
 
 const (
@@ -38,7 +40,7 @@ type mark struct {
 func newLogBuffer(dir, name string) *LogBuffer {
 	lb := &LogBuffer{subs: map[chan []byte]struct{}{}}
 	if dir != "" {
-		_ = os.MkdirAll(dir, 0o755)
+		_ = os.MkdirAll(dir, paths.DirMode)
 		lb.path = filepath.Join(dir, name+".log")
 		lb.seedTail()
 		lb.openFile()
@@ -99,7 +101,7 @@ func (lb *LogBuffer) retarget(dir, name string) {
 }
 
 func (lb *LogBuffer) openFile() {
-	f, err := os.OpenFile(lb.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(lb.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, paths.FileMode)
 	if err != nil {
 		return
 	}

@@ -57,7 +57,7 @@ func Install(configPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(paths.StateDir(), 0o755); err != nil {
+	if err := os.MkdirAll(paths.StateDir(), paths.DirMode); err != nil {
 		return err
 	}
 	file := File()

@@ -142,7 +142,7 @@ func TestForCheckoutRejectsOtherRepository(t *testing.T) {
 	main, _ := repoWithWorktree(t)
 	_, unrelated := repoWithWorktree(t)
 	s := New(worktreeConfig(main), t.TempDir())
-	if _, err := s.ForCheckout("web", unrelated); err == nil || !strings.Contains(err.Error(), "not a checkout of the repository") {
+	if _, err := s.ForCheckout("web", unrelated); err == nil || !strings.Contains(err.Error(), "not a worktree of the repository") {
 		t.Errorf("unrelated checkout: %v", err)
 	}
 	if _, err := s.ForCheckout("web", t.TempDir()); err == nil || !strings.Contains(err.Error(), "not a git checkout") {

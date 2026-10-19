@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/padmk/portside/internal/paths"
 )
 
 // persisted survives daemon restarts: which servers the user wants running
@@ -58,9 +60,9 @@ func (s *Supervisor) saveLocked() {
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(filepath.Dir(s.state), 0o755)
+	_ = os.MkdirAll(filepath.Dir(s.state), paths.DirMode)
 	tmp := s.state + ".tmp"
-	if os.WriteFile(tmp, data, 0o644) == nil {
+	if os.WriteFile(tmp, data, paths.FileMode) == nil {
 		_ = os.Rename(tmp, s.state)
 	}
 }

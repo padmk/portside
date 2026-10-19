@@ -21,7 +21,7 @@ func StarterRoot() string {
 
 // WriteStarter creates a commented configuration file with no servers.
 func WriteStarter(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), paths.DirMode); err != nil {
 		return err
 	}
 	text := fmt.Sprintf(`# %[1]s configuration. Edits are picked up automatically.

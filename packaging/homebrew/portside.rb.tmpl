@@ -8,21 +8,46 @@ cask "portside" do
   desc "Keep your local dev servers running, in one place"
   homepage "https://github.com/__REPO__"
 
-  depends_on macos: ">= :sonoma"
+  depends_on arch: :arm64
+  depends_on macos: :sonoma
 
   app "Portside.app"
   binary "#{appdir}/Portside.app/Contents/Helpers/portside"
 
   # The app is not notarized yet; without this Gatekeeper blocks the first launch.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Portside.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/Portside.app"]
   end
 
+  # Upgrades run this too, so it leaves the daemon and its servers running.
   uninstall quit: "__BUNDLE_ID__"
 
-  zap trash: [
-    "~/.config/portside",
-    "~/.local/state/portside",
-    "~/Library/Preferences/__BUNDLE_ID__.plist",
-  ]
+  # The bundled binary is already removed when this runs, so the login
+  # service is removed and any other daemon gets SIGTERM, which stops its
+  # servers; the script waits for it before config and state are trashed.
+  zap launchctl: "__SERVICE_LABEL__",
+      script:    {
+        executable:   "/bin/sh",
+        args:         [
+          "-c",
+          "pkill -TERM -x portside; i=0; " \
+          "while pgrep -x portside >/dev/null && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done",
+        ],
+        must_succeed: false,
+      },
+      trash:     [
+        "~/.config/portside",
+        "~/.local/state/portside",
+        "~/Library/Preferences/__BUNDLE_ID__.plist",
+      ]
+
+  caveats <<~EOS
+    Uninstalling or upgrading leaves the daemon and its dev servers running.
+    Before `brew uninstall --cask portside`, stop them with:
+      portside daemon stop
+    and, if you installed the login service:
+      portside service uninstall
+    `brew uninstall --zap --cask portside` stops them and also trashes the
+    config and state.
+  EOS
 end
