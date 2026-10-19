@@ -2,9 +2,9 @@ import { useT } from '../../i18n'
 import { closeDialog } from '../../state/ui'
 import { Dialog } from '../../ui/Dialog'
 import { SHORTCUTS } from '../../app/shortcuts'
+import { modLabel } from '../../ui/keys'
 import './settings.css'
 
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
 export function ShortcutsDialog() {
   const t = useT()
@@ -21,7 +21,7 @@ export function ShortcutsDialog() {
                     {item.keys.map((k, i) => (
                       <span key={k}>
                         {i > 0 && <span className="then">{item.chord ? t('shortcuts.then') : '+'}</span>}
-                        <kbd>{k === 'mod' ? (isMac ? '⌘' : 'Ctrl') : k}</kbd>
+                        <kbd>{k === 'mod' ? modLabel : k}</kbd>
                       </span>
                     ))}
                   </dt>

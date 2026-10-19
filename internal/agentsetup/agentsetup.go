@@ -1,7 +1,7 @@
 // Package agentsetup is the optional setup for coding agents: the MCP server
-// registered with Claude Code and Codex, and the agent skill in their skill
-// directories. It checks each item and applies the missing ones, for
-// `setup`, `doctor` and the menu bar app.
+// registered with Claude Code, Codex and Gemini CLI, and the agent skill in
+// the Claude Code and Codex skill directories. It checks each item and
+// applies the missing ones, for `setup`, `doctor` and the menu bar app.
 package agentsetup
 
 import (
@@ -20,7 +20,6 @@ import (
 	"github.com/padmk/portside/internal/agentskill"
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/paths"
-	"github.com/padmk/portside/internal/supervisor"
 )
 
 // State of an item.
@@ -70,40 +69,41 @@ type Result struct {
 	Command string `json:"command,omitempty"`
 }
 
-// agent is a coding agent that can use the MCP server and the skill.
+// agent is a coding agent that can use the MCP server, and the skill when
+// it has a skill item.
 type agent struct {
-	key  string // item ID prefix
+	key  string // item ID prefix; the agent of agentskill.Target
 	name string
-	dir  string // its directory in the home directory
 	cli  string
+	// dir is its configuration directory; it exists once the agent ran.
+	dir func(agentskill.Dirs) string
 	// registered reports whether the MCP server is configured for it.
-	registered func(home string) bool
+	registered func(agentskill.Dirs) bool
 	add        func(exe string) []string // arguments that register the MCP server
+	skill      bool
 }
 
 var agents = []agent{
-	{key: "claude", name: "Claude Code", dir: ".claude", cli: "claude",
-		registered: func(home string) bool {
-			data, err := os.ReadFile(filepath.Join(home, ".claude.json"))
-			if err != nil {
-				return false
+	{key: "claude", name: "Claude Code", cli: "claude", skill: true,
+		dir: func(d agentskill.Dirs) string { return d.Claude },
+		registered: func(d agentskill.Dirs) bool {
+			// The file is in the home directory, or in CLAUDE_CONFIG_DIR
+			// when that is set.
+			if jsonHasServer(filepath.Join(d.Claude, ".claude.json")) {
+				return true
 			}
-			var cfg struct {
-				MCPServers map[string]json.RawMessage `json:"mcpServers"`
-			}
-			_ = json.Unmarshal(data, &cfg)
-			_, ok := cfg.MCPServers[app.ID]
-			return ok
+			return d.Claude == filepath.Join(d.Home, ".claude") && jsonHasServer(filepath.Join(d.Home, ".claude.json"))
 		},
 		add: func(exe string) []string {
 			return []string{"mcp", "add", "--scope", "user", app.ID, "--", exe, "mcp"}
 		}},
-	{key: "codex", name: "Codex", dir: ".codex", cli: "codex",
-		registered: func(home string) bool {
+	{key: "codex", name: "Codex", cli: "codex", skill: true,
+		dir: func(d agentskill.Dirs) string { return d.Codex },
+		registered: func(d agentskill.Dirs) bool {
 			var cfg struct {
 				MCPServers map[string]toml.Primitive `toml:"mcp_servers"`
 			}
-			if _, err := toml.DecodeFile(filepath.Join(home, ".codex", "config.toml"), &cfg); err != nil {
+			if _, err := toml.DecodeFile(filepath.Join(d.Codex, "config.toml"), &cfg); err != nil {
 				return false
 			}
 			_, ok := cfg.MCPServers[app.ID]
@@ -112,12 +112,35 @@ var agents = []agent{
 		add: func(exe string) []string {
 			return []string{"mcp", "add", app.ID, "--", exe, "mcp"}
 		}},
+	{key: "gemini", name: "Gemini CLI", cli: "gemini",
+		dir: func(d agentskill.Dirs) string { return d.Gemini },
+		registered: func(d agentskill.Dirs) bool {
+			return jsonHasServer(filepath.Join(d.Gemini, "settings.json"))
+		},
+		add: func(exe string) []string {
+			return []string{"mcp", "add", "--scope", "user", app.ID, exe, "mcp"}
+		}},
+}
+
+// jsonHasServer reports whether the JSON file at path lists the MCP server
+// under mcpServers.
+func jsonHasServer(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	_ = json.Unmarshal(data, &cfg)
+	_, ok := cfg.MCPServers[app.ID]
+	return ok
 }
 
 // Check returns every item, applicable or not, for a daemon on port with
 // its config at cfgPath (the skill names both).
 func Check(port int, cfgPath string) []Item {
-	home, err := os.UserHomeDir()
+	dirs, err := agentskill.Locate()
 	if err != nil {
 		return nil
 	}
@@ -125,10 +148,21 @@ func Check(port int, cfgPath string) []Item {
 	exe, self := executable(t)
 	var items []Item
 	for _, a := range agents {
-		items = append(items, mcpItem(a, home, exe, t))
+		items = append(items, mcpItem(a, dirs, exe, t))
 	}
-	items = append(items, skillItems(home, self, agentskill.Render(port, cfgPath))...)
+	items = append(items, skillItems(dirs, self, agentskill.Render(port, cfgPath))...)
 	return items
+}
+
+// MCPConfig is the MCP server entry for clients configured by hand, in the
+// common mcpServers shape, with the path agents should start it with.
+func MCPConfig() any {
+	type server struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+	}
+	exe, _ := executable(&tools{})
+	return map[string]map[string]server{"mcpServers": {app.ID: {Command: exe, Args: []string{"mcp"}}}}
 }
 
 // Applicable reports whether any agent is installed.
@@ -141,9 +175,9 @@ func Applicable(items []Item) bool {
 	return false
 }
 
-func mcpItem(a agent, home, exe string, t *tools) Item {
+func mcpItem(a agent, dirs agentskill.Dirs, exe string, t *tools) Item {
 	cli, env := t.find(a.cli)
-	_, dirErr := os.Stat(filepath.Join(home, a.dir))
+	_, dirErr := os.Stat(a.dir(dirs))
 	it := Item{
 		ID:         a.key + "-mcp",
 		Label:      a.name + " MCP server",
@@ -151,7 +185,7 @@ func mcpItem(a agent, home, exe string, t *tools) Item {
 		Command:    shellJoin(append([]string{a.cli}, a.add(exe)...)),
 	}
 	switch {
-	case a.registered(home):
+	case a.registered(dirs):
 		it.State = OK
 	case cli == "":
 		it.State = Unavailable
@@ -177,25 +211,28 @@ func mcpItem(a agent, home, exe string, t *tools) Item {
 	return it
 }
 
-func skillItems(home, self, content string) []Item {
+func skillItems(dirs agentskill.Dirs, self, content string) []Item {
 	targets := map[string]string{}
 	for _, t := range agentskill.AgentTargets() {
 		targets[t.Agent] = t.Path
 	}
 	installed := func(a agent) bool {
-		_, err := os.Stat(filepath.Join(home, a.dir))
+		_, err := os.Stat(a.dir(dirs))
 		return err == nil
 	}
 	var items []Item
 	for i, a := range agents {
-		path, ok := targets[a.dir]
+		if !a.skill {
+			continue
+		}
+		path, ok := targets[a.key]
 		if !ok && installed(a) {
 			// Its skills directory is an earlier agent's, so that item covers it.
 			continue
 		}
 		label := "Skill for " + a.name
 		for _, b := range agents[i+1:] {
-			if _, own := targets[b.dir]; ok && !own && installed(b) {
+			if _, own := targets[b.key]; b.skill && ok && !own && installed(b) {
 				label += " and " + b.name
 			}
 		}
@@ -307,7 +344,7 @@ func (t *tools) find(name string) (string, []string) {
 			return abs, nil
 		}
 	}
-	t.once.Do(func() { t.env = supervisor.LoginShellEnv() })
+	t.once.Do(func() { t.env = agentskill.ShellEnv() })
 	for _, kv := range t.env {
 		path, ok := strings.CutPrefix(kv, "PATH=")
 		if !ok {

@@ -140,7 +140,8 @@ root = %[2]s
 # port = %[3]d
 
 # Directories prepended to PATH for every server, e.g. to pin a Node version.
-# path = ["/opt/homebrew/opt/node@24/bin"]
+# path = ["/opt/homebrew/opt/node@24/bin"]       # Homebrew, or with nvm:
+# path = ["~/.nvm/versions/node/v24.11.0/bin"]
 
 # Start the servers that were running when the daemon last stopped.
 # restore = true

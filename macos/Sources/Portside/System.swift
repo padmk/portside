@@ -44,9 +44,64 @@ enum CommandLineTool {
         return link
     }
 
-    static var onPath: Bool {
-        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        return path.split(separator: ":").contains { $0 == Substring(linkURL.deletingLastPathComponent().path) }
+    /// The account's login shell from the user database (an app's SHELL can differ).
+    static var loginShell: String {
+        if let pw = getpwuid(getuid()), let sh = pw.pointee.pw_shell {
+            let s = String(cString: sh)
+            if !s.isEmpty { return s }
+        }
+        return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    }
+
+    /// Whether the login shell's PATH, which terminals get, has the link's
+    /// directory. The app's own PATH never has it. False when the shell
+    /// cannot be read within a few seconds.
+    static func onLoginShellPath() async -> Bool {
+        let shell = loginShell
+        let dir = linkURL.deletingLastPathComponent().path
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                let marker = "__PATH_BEGIN__"
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: shell)
+                // Interactive mode reads the rc files where most people set
+                // PATH; the marker skips anything they print.
+                var args = ["-l", "-c", "printf '\(marker)'; command env"]
+                if ["zsh", "bash", "fish"].contains((shell as NSString).lastPathComponent) { args.insert("-i", at: 0) }
+                p.arguments = args
+                let out = Pipe()
+                p.standardOutput = out
+                p.standardError = FileHandle.nullDevice
+                p.standardInput = FileHandle.nullDevice
+                do { try p.run() } catch {
+                    cont.resume(returning: false)
+                    return
+                }
+                let timeout = DispatchWorkItem { if p.isRunning { p.terminate() } }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeout)
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                p.waitUntilExit()
+                timeout.cancel()
+                let text = String(decoding: data, as: UTF8.self)
+                guard let start = text.range(of: marker) else {
+                    cont.resume(returning: false)
+                    return
+                }
+                let path = text[start.upperBound...].split(separator: "\n").first { $0.hasPrefix("PATH=") }?.dropFirst(5) ?? ""
+                cont.resume(returning: path.split(separator: ":").contains { $0 == Substring(dir) || $0 == Substring(dir + "/") })
+            }
+        }
+    }
+
+    /// The command that adds ~/.local/bin to PATH for the login shell, or nil
+    /// for a shell without a known one.
+    static var pathCommand: String? {
+        switch (loginShell as NSString).lastPathComponent {
+        case "fish": return "fish_add_path ~/.local/bin"
+        case "zsh": return #"echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc"#
+        case "bash": return #"echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile"#
+        default: return nil
+        }
     }
 }
 

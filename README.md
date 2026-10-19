@@ -26,11 +26,11 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 - **Restart policies and notifications.** `on-failure` or `always` with exponential backoff; a desktop notification when a server crashes. A server waiting for its next automatic restart can be stopped like a running one.
 - **Survives restarts and updates.** Updating the daemon (`portside daemon restart`) keeps your servers running, and the servers you had running come back when the daemon is stopped and started again or you log in (`portside service install`).
 - **CPU and memory** per server, summed over the whole process tree, with sparklines.
-- **A dashboard that scales with your setup.** One server fills the screen with its output and charts, a few get large cards with a live log preview, and long lists switch to compact rows (`c` and `l` toggle them). Click a card for a full-size terminal, with every server one click away in a side rail. `⌘F` searches the terminal, and **Filter lines** shows the matching lines from all the output the daemon keeps; **Clear output** clears only that view, while **Clear daemon scrollback** in the server menu forgets the kept output (the log file stays, and **Open log file** shows it). Group headers start, restart (in dependency order) and stop a whole group. Everything else (ports, config, add server) stays in the menu and the `⌘K` palette; `?` lists the keyboard shortcuts.
+- **A dashboard that scales with your setup.** One server fills the screen with its output and charts, a few get large cards with a live log preview, and long lists switch to compact rows (`c` and `l` toggle them). Click a card for a full-size terminal, with every server one click away in a side rail. `⌘F` (Ctrl+Shift+F on Linux, so Ctrl-F and Ctrl-K stay with the shell) searches the terminal, and **Filter lines** shows the matching lines from all the output the daemon keeps; **Clear output** clears only that view, while **Clear daemon scrollback** in the server menu forgets the kept output (the log file stays, and **Open log file** shows it). Group headers start, restart (in dependency order) and stop a whole group. Everything else (ports, config, add server) stays in the menu and the `⌘K` (Ctrl+Shift+K) palette; `?` lists the keyboard shortcuts.
 - **Themes.** Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme.
 - **Project discovery.** `portside scan` finds Node dev servers (Next.js, Vite, Astro, Nuxt, Remix, React Router, Angular, Gatsby, webpack-dev-server, Vue CLI, Docusaurus, Create React App, Wrangler), Deno tasks, Django, Flask and ASGI apps (FastAPI, Starlette), Rails, Laravel, Phoenix, Spring Boot, ASP.NET Core, Go and Rust web servers and Compose projects, and proposes commands with the right port flags. Node flags are added only when the script runs one of those CLIs itself; other scripts get a port when they use `$PORT` or their entry file reads `process.env.PORT`, else none. Workspace roots (turbo, nx, `pnpm -r` and similar) are left out when their apps are found, else proposed without a port. Python commands use the project's tool by lockfile (`uv run`, `poetry run`, `pipenv run`, `pdm run`), else a `.venv` or `venv` interpreter, else `python3`; declared `[project.scripts]` entry points need one of those environments and have no assumed listening port. Go and Rust servers get a port only when their source reads `PORT`. Discovery skips commands already configured, keeps other services in the same folder, and checks live listeners when suggesting automatic ports.
 - **Agent friendly.** `portside ensure web` starts a server if needed, waits until it is ready and prints its URL. `portside mcp` exposes servers, containers and searchable logs to Claude Code, Codex and other MCP clients, and `portside setup` (or the app, when it first connects) registers it with them and installs a skill that teaches them how to use it.
-- **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with OrbStack, Docker Desktop, Colima, Rancher Desktop (with dockerd), Podman or a Linux daemon, rootful or rootless, and with remote `tcp://` (also TLS) and `ssh://` contexts (see [How it works](#how-it-works)). Compose containers appear next to the server with the closest matching directory, including projects in a subfolder such as `infra/` and ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. Servers that share the closest directory share its containers, and a temporary worktree server owns the containers started from its worktree (also one nested in the original checkout). Supabase CLI containers match `project_id` in `supabase/config.toml` in the server directory or an ancestor up to the repository root. Set per-server `projects` to explicitly attach Compose project names. A server warns when one of its containers is unhealthy, restarting or crashed while it runs; a container stopped on purpose (a stop signal from `docker stop`, `compose stop` or `docker kill`, remembered across daemon restarts, or an exit the engine did not restart under an `always` or `unless-stopped` policy without an error) does not count as crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate**, plus **Rebuild and recreate** for known Compose-built images or **Pull and recreate** for image services. Each Compose project offers **Start all**, **Stop all** and confirmed **Remove containers** (`compose down`, keeping volumes) on both container views. Log-driver errors stay visible above the terminal, and output survives reconnection. Attached containers becoming unhealthy or failing trigger desktop notifications when notifications are enabled and no notifying desktop client is connected. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
+- **Containers.** Portside talks to the Docker Engine API of the active Docker context, so it works the same with Docker Desktop, OrbStack, Colima, Rancher Desktop (with dockerd), Podman or a Linux daemon, rootful or rootless, and with remote `tcp://` (also TLS) and `ssh://` contexts (see [How it works](#how-it-works)). Compose containers appear next to the server with the closest matching directory, including projects in a subfolder such as `infra/` and ones that project scripts start: state, health check, uptime, published ports, CPU and memory, updated live. Servers that share the closest directory share its containers, and a temporary worktree server owns the containers started from its worktree (also one nested in the original checkout). Supabase CLI containers match `project_id` in `supabase/config.toml` in the server directory or an ancestor up to the repository root. Set per-server `projects` to explicitly attach Compose project names. A server warns when one of its containers is unhealthy, restarting or crashed while it runs; a container stopped on purpose (a stop signal from `docker stop`, `compose stop` or `docker kill`, remembered across daemon restarts, or an exit the engine did not restart under an `always` or `unless-stopped` policy without an error) does not count as crashed. Each container has start, stop and restart, its logs in a searchable terminal, a shell (bash or sh) in a terminal tab, details (image, command, environment with secret-looking values hidden until revealed, volumes, networks) and, for Compose services, **Recreate**, plus **Rebuild and recreate** for known Compose-built images or **Pull and recreate** for image services. Each Compose project offers **Start all**, **Stop all** and confirmed **Remove containers** (`compose down`, keeping volumes) on both container views. Log-driver errors stay visible above the terminal, and output survives reconnection. Attached containers becoming unhealthy or failing trigger desktop notifications when notifications are enabled and no notifying desktop client is connected. A **Containers** page (`g d`) shows every container on the engine with the same actions. When the engine is down, **Start Docker** starts the one behind the active context, or the `docker_start` command.
 - **Other computers.** With Tailscale on both machines, the dashboard connects to Portside on another of your computers and manages its servers, containers, logs and terminals as if you sat at it. Its sites open in your local browser: running servers' ports are forwarded to the same ports here, and every server is also at `http://<name>.<computer>.localhost:7878`. See [Other computers](#other-computers).
 - **Ports overview.** Every listening TCP port on the machine with its process and working directory, the container a published port belongs to, and a safe way to kill strays.
 
@@ -77,7 +77,7 @@ To update an installed app, run `make app-install`: it quits a running copy, ins
 ## Quick start
 
 ```sh
-portside scan --add     # find projects under ~/dev and add them
+portside scan --add     # find projects in your projects folder (the config's root) and add them
 portside up web --wait  # start one server and wait until it is ready
 portside open           # sign in and open the dashboard (http://d-<random>.localhost:7878)
 portside service install  # start the daemon at login (optional)
@@ -92,7 +92,8 @@ The config lives at `~/.config/portside/portside.toml` (`$PORTSIDE_CONFIG` overr
 ```toml
 root = "~/dev"                      # base for relative dirs
 # port = 7878                       # dashboard, API and *.localhost proxy
-# path = ["/opt/homebrew/opt/node@24/bin"]   # prepended to PATH for every server
+# path = ["/opt/homebrew/opt/node@24/bin"]   # prepended to PATH for every server (Homebrew;
+#                                   # with nvm: "~/.nvm/versions/node/v24.11.0/bin")
 # restore = true                    # bring back running servers after a restart
 # notify = true                     # desktop notification on crash
 # stop_timeout = "10s"              # grace period after Ctrl-C
@@ -182,6 +183,7 @@ portside add <name> --cmd "..." [--dir .] [--port N] [--group G]
 portside rm <name> | enable <name> | disable <name>
 portside scan [dir] [--add]              discover projects
 portside import devctl [servers.conf]    import a devctl roster, keeping ports
+portside init                            write the starter config file
 portside config [path|edit|check]
 
 portside daemon [start|stop|restart|status|logs]
@@ -195,7 +197,8 @@ portside connect <computer> | disconnect connect to a paired computer, or end th
 portside --on <computer> <command>       run status, up, down, restart, ensure, logs, attach
                                          or containers on the connected computer
 portside mcp                             MCP server on stdio
-portside setup [--yes] [--json]          connect Claude Code and Codex (MCP server and skill)
+portside setup [--yes] [--json]          connect Claude Code, Codex and Gemini CLI (MCP server, skill);
+                                         --print-mcp prints the entry for other MCP clients
 portside skill install|print             agent skill for Claude Code and Codex
 portside doctor [--fix]                  check the setup; --fix connects coding agents
 ```
@@ -208,13 +211,30 @@ After 10 seconds of startup, a server reports the port or health check it is wai
 
 ## Coding agents
 
-Connect Claude Code and Codex once, with the MCP server and the agent skill (below):
+Connect Claude Code, Codex and Gemini CLI once, with the MCP server and, for the first two, the agent skill (below):
 
 ```sh
 portside setup
 ```
 
-It checks each agent installed for the account (`~/.claude` or `~/.codex` exists, or the `claude` or `codex` command is on PATH or the login shell's PATH), lists what is missing, asks once, and then runs `claude mcp add --scope user portside -- <path> mcp` and `codex mcp add portside -- <path> mcp` and installs the skill. `<path>` is the `portside` on PATH when it is the same binary (such as `~/.local/bin/portside` or the Homebrew link), otherwise the binary's own path, such as `/Applications/Portside.app/Contents/Helpers/portside`. `--yes` skips the question, `--json` lists the items (`id`, `label`, `state`: `ok`, `missing`, `outdated`, `foreign` or `unavailable`, `applicable`, `command`), and `--apply claude-mcp,codex-skill --yes` applies only those and prints the results as JSON. When an agent's command is not found, or a skill file with that name was not written by Portside, setup leaves it alone and prints the command to run yourself. `portside doctor` reports the same items without changing anything, and `portside doctor --fix` applies the missing and outdated ones.
+It checks each agent installed for the account (its configuration directory exists: `~/.claude` or `$CLAUDE_CONFIG_DIR`, `~/.codex` or `$CODEX_HOME`, `~/.gemini` or `$GEMINI_CLI_HOME/.gemini`; or the `claude`, `codex` or `gemini` command is on PATH or the login shell's PATH), lists what is missing, asks once, and then runs `claude mcp add --scope user portside -- <path> mcp`, `codex mcp add portside -- <path> mcp` and `gemini mcp add --scope user portside <path> mcp` and installs the skill. When the variables are not set in its own environment, as for the app, setup reads them from the login shell. `<path>` is the `portside` on PATH when it is the same binary (such as `~/.local/bin/portside` or the Homebrew link), otherwise the binary's own path, such as `/Applications/Portside.app/Contents/Helpers/portside`. `--yes` skips the question, `--json` lists the items (`id`, `label`, `state`: `ok`, `missing`, `outdated`, `foreign` or `unavailable`, `applicable`, `command`), and `--apply claude-mcp,codex-skill --yes` applies only those and prints the results as JSON. When an agent's command is not found, or a skill file with that name was not written by Portside, setup leaves it alone and prints the command to run yourself. `portside doctor` reports the same items without changing anything, and `portside doctor --fix` applies the missing and outdated ones.
+
+Other MCP clients start the same server, `<path> mcp`, from their own config. `portside setup --print-mcp` prints the entry with the resolved path:
+
+```json
+{
+  "mcpServers": {
+    "portside": { "command": "/Users/you/.local/bin/portside", "args": ["mcp"] }
+  }
+}
+```
+
+- Cursor: put it in `~/.cursor/mcp.json` (every project) or `.cursor/mcp.json` in a project.
+- Windsurf: the same `mcpServers` entry in its `mcp_config.json`, opened from the MCP settings in Cascade.
+- VS Code: `.vscode/mcp.json`, or the user one from **MCP: Open User Configuration**, uses `servers`: `{"servers": {"portside": {"type": "stdio", "command": "<path>", "args": ["mcp"]}}}`.
+- Zed: `context_servers` in `settings.json`: `{"context_servers": {"portside": {"command": "<path>", "args": ["mcp"]}}}`.
+- opencode: `mcp` in `~/.config/opencode/opencode.json`: `{"mcp": {"portside": {"type": "local", "command": ["<path>", "mcp"], "enabled": true}}}`.
+- Gemini CLI: `portside setup` adds it; by hand, `gemini mcp add --scope user portside <path> mcp`.
 
 The macOS app offers the same setup once, the first time it connects to the daemon while an installed agent lacks something: a checkbox per missing item, **Connect** and **Not Now**. **Settings > Connect Coding Agents** opens it again and shows what is already connected. Without an installed agent the app asks nothing.
 
@@ -226,7 +246,7 @@ Agents often work in a linked git worktree (`git worktree add`), where the confi
 
 Temporary servers are not written to the config file. They are kept in the daemon's state, so they survive a daemon restart, and appear in `status`, the dashboard (under their original, marked `worktree`) and `list_servers` with `temporary`, `origin` and `worktree`; `list_servers` with `dir` lists the ones of that checkout. Stopping one (`stop_server`, `portside down`, or Remove in the dashboard) removes it with its logs, and the daemon removes it on its own once its worktree directory is gone. Editing or removing the original in the config applies to its copies too.
 
-The agent skill (`portside setup` installs it, as does `portside skill install`) writes `SKILL.md` to `~/.claude/skills/portside/` and `~/.codex/skills/portside/` (once when one links to the other) for the agents set up on the account. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts with the default config and state paths, including login-service starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file.
+The agent skill (`portside setup` installs it, as does `portside skill install`) writes `SKILL.md` for the agents set up on the account: to `~/.claude/skills/portside/` (`$CLAUDE_CONFIG_DIR/skills` when set) for Claude Code and to `~/.agents/skills/portside/` for Codex, or to `~/.codex/skills/portside/` (`$CODEX_HOME/skills`), which Codex still reads, when an earlier install put it there; once when one directory links to the other. The skill covers when to reuse, start or restart a server, how to diagnose one through its logs and containers, and what to leave alone. The daemon rewrites an installed copy when it starts with the default config and state paths, including login-service starts, so the skill follows app updates; a file with that name that `skill install` did not write is kept unless you pass `--force`. `portside skill print` shows the file.
 
 ## Other computers
 

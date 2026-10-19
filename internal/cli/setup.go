@@ -18,12 +18,18 @@ func cmdSetup(e *env, args []string) error {
 	yes := fs.Bool("yes", false, "")
 	asJSON := fs.Bool("json", false, "")
 	only := fs.String("apply", "", "")
+	printMCP := fs.Bool("print-mcp", false, "")
 	words, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(words) > 0 {
 		return usageError{""}
+	}
+	if *printMCP {
+		// The entry for MCP clients configured by hand (Cursor, Windsurf and
+		// others); see README "Coding agents".
+		return printJSON(e, agentsetup.MCPConfig())
 	}
 	items := agentsetup.Check(e.port(), e.cfgPath)
 	if *asJSON && *only == "" {
@@ -48,7 +54,7 @@ func cmdSetup(e *env, args []string) error {
 	}
 
 	if !agentsetup.Applicable(items) {
-		fmt.Fprintln(e.out, "Neither Claude Code nor Codex is installed for this account; nothing to set up.")
+		fmt.Fprintf(e.out, "No coding agent (Claude Code, Codex, Gemini CLI) is installed for this account; nothing to set up. `%s setup --print-mcp` prints the MCP entry for other clients.\n", app.ID)
 		return nil
 	}
 	var todo []agentsetup.Item
@@ -110,7 +116,7 @@ func printResults(e *env, results []agentsetup.Result) []agentsetup.Result {
 func doctorAgents(e *env, fix bool, ok, warn, bad func(string, ...any)) {
 	items := agentsetup.Check(e.port(), e.cfgPath)
 	if !agentsetup.Applicable(items) {
-		fmt.Fprintf(e.out, "%s no coding agent found (Claude Code, Codex)\n", e.paint(dim, "•"))
+		fmt.Fprintf(e.out, "%s no coding agent found (Claude Code, Codex, Gemini CLI)\n", e.paint(dim, "•"))
 		return
 	}
 	for _, it := range items {

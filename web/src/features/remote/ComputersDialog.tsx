@@ -5,7 +5,6 @@ import type { Mirror, PairedDevice, PairingCode, Peer, PeersResponse, RemoteConn
 import { brand } from '../../brand'
 import { useT } from '../../i18n'
 import { useRemote } from '../../state/live'
-import { usePrefs } from '../../state/prefs'
 import { closeDialog } from '../../state/ui'
 import { toast, toastError } from '../../state/toasts'
 import { Dialog } from '../../ui/Dialog'
@@ -72,11 +71,10 @@ export function ComputersDialog() {
 
 function Connected({ remote }: { remote: RemoteConnection }) {
   const t = useT()
-  const { locale } = usePrefs()
   const busy = useBusy('remote:disconnect')
   const name = remote.peer.name
   const since = new Date(remote.since)
-  const meta = [remote.peer.os, remote.version && `${brand.name} ${remote.version}`, !Number.isNaN(since.getTime()) && t('remote.since', { time: since.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) })].filter(Boolean)
+  const meta = [remote.peer.os, remote.version && `${brand.name} ${remote.version}`, !Number.isNaN(since.getTime()) && t('remote.since', { time: since.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) })].filter(Boolean)
   return (
     <section className="here" aria-label={t('remote.connectedTo', { name })}>
       <div className="here-head">
@@ -558,7 +556,6 @@ function CodeCard({ code, known, issuing, onNew, onPaired }: CodeCardProps) {
 /** Devices paired with this computer, each with a way to revoke it. */
 function Devices({ devices, onChange }: { devices: PairedDevice[]; onChange: (share: RemoteShare) => void }) {
   const t = useT()
-  const { locale } = usePrefs()
   const [confirm, setConfirm] = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
 
@@ -580,7 +577,7 @@ function Devices({ devices, onChange }: { devices: PairedDevice[]; onChange: (sh
       <ul>
         {devices.map((d) => {
           const paired = new Date(d.pairedAt)
-          const date = Number.isNaN(paired.getTime()) ? '' : paired.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })
+          const date = Number.isNaN(paired.getTime()) ? '' : paired.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
           return (
             <li key={d.id} className="device">
               <span className="device-icon"><OsIcon os={d.os} size={16} /></span>

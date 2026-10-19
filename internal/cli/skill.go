@@ -28,7 +28,7 @@ func cmdSkill(e *env, args []string) error {
 	}
 	targets := agentskill.Targets()
 	if len(targets) == 0 {
-		return errors.New("neither Claude Code (~/.claude) nor Codex (~/.codex) is set up for this account; use `skill print` to get the file")
+		return errors.New("neither Claude Code (~/.claude) nor Codex (~/.codex) (CLAUDE_CONFIG_DIR, CODEX_HOME) is set up for this account; use `skill print` to get the file")
 	}
 	var errs []error
 	for _, path := range targets {

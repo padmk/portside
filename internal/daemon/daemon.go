@@ -259,11 +259,14 @@ func Run(cfgPath string) error {
 	_ = os.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"), paths.FileMode)
 	defer os.Remove(portFile)
 	// Keep an installed agent skill in step with this binary. Instances with
-	// their own config or state (tests, development) leave it alone.
+	// their own config or state (tests, development) leave it alone. It runs
+	// in the background because locating the agents may read the login shell.
 	if refreshInstalledSkill(cfgPath) {
-		if err := agentskill.Refresh(cfg.Port, cfgPath); err != nil {
-			log.Printf("agent skill: %v", err)
-		}
+		go func(port int) {
+			if err := agentskill.Refresh(port, cfgPath); err != nil {
+				log.Printf("agent skill: %v", err)
+			}
+		}(cfg.Port)
 	}
 
 	go sup.Run(ctx)

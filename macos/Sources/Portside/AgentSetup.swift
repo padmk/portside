@@ -73,7 +73,7 @@ final class AgentSetupModel {
     }
 }
 
-/// The window that connects Claude Code and Codex: offered once after the
+/// The window that connects the coding agents: offered once after the
 /// first connection and from Settings.
 @MainActor
 final class AgentSetupWindowController: NSWindowController, NSWindowDelegate {
@@ -116,8 +116,8 @@ struct AgentSetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(L.t("The MCP server and the skill let Claude Code and Codex find, start and debug your local servers.",
-                     "Serwer MCP i umiejętność pozwalają Claude Code i Codex znajdować, uruchamiać i debugować lokalne serwery."))
+            Text(L.t("The MCP server and the skill let coding agents (Claude Code, Codex, Gemini CLI) find, start and debug your local servers.",
+                     "Serwer MCP i umiejętność pozwalają agentom (Claude Code, Codex, Gemini CLI) znajdować, uruchamiać i debugować lokalne serwery."))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             content
@@ -139,8 +139,8 @@ struct AgentSetupView: View {
             Text(msg).foregroundStyle(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         default:
             if model.items.isEmpty {
-                Text(L.t("Neither Claude Code nor Codex is installed for this account.",
-                         "Claude Code ani Codex nie są zainstalowane na tym koncie."))
+                Text(L.t("No coding agent (Claude Code, Codex, Gemini CLI) is installed for this account.",
+                         "Na tym koncie nie ma agenta (Claude Code, Codex, Gemini CLI)."))
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.items) { row($0) }

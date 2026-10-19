@@ -1,6 +1,6 @@
 // Package agentskill renders the agent skill that teaches coding agents to
 // work with the daemon, and installs it where Claude Code and Codex look for
-// skills. An installed copy is refreshed when the daemon starts, so it
+// skills (dirs.go locates their directories). An installed copy is refreshed when the daemon starts, so it
 // follows the binary that serves it.
 package agentskill
 
@@ -38,8 +38,7 @@ func Render(port int, cfgPath string) string {
 	return b.String()
 }
 
-// Target is the skill file one agent reads. Agent is the agent's directory
-// in the home directory (".claude" or ".codex").
+// Target is the skill file one agent reads. Agent is "claude" or "codex".
 type Target struct {
 	Agent string
 	Path  string
@@ -55,29 +54,37 @@ func Targets() []string {
 }
 
 // AgentTargets are the skill files of the agents installed for this
-// account: Claude Code (~/.claude/skills) and Codex (~/.codex/skills).
-// Directories linked to one another count once, for the first agent.
+// account: Claude Code (<config dir>/skills) and Codex (~/.agents/skills,
+// or <CODEX_HOME>/skills where an earlier install put the skill, which
+// Codex still reads). Directories linked to one another count once, for
+// the first agent.
 func AgentTargets() []Target {
-	home, err := os.UserHomeDir()
+	d, err := Locate()
 	if err != nil {
 		return nil
 	}
 	var out []Target
 	seen := map[string]bool{}
-	for _, agent := range []string{".claude", ".codex"} {
-		if _, err := os.Stat(filepath.Join(home, agent)); err != nil {
-			continue
-		}
-		dir := filepath.Join(home, agent, "skills")
+	add := func(agent, dir string) {
 		real := dir
 		if r, err := filepath.EvalSymlinks(dir); err == nil {
 			real = r
 		}
 		if seen[real] {
-			continue
+			return
 		}
 		seen[real] = true
 		out = append(out, Target{Agent: agent, Path: filepath.Join(dir, app.ID, "SKILL.md")})
+	}
+	if exists(d.Claude) {
+		add("claude", filepath.Join(d.Claude, "skills"))
+	}
+	if exists(d.Codex) {
+		dir := filepath.Join(d.Home, ".agents", "skills")
+		if legacy := filepath.Join(d.Codex, "skills"); exists(filepath.Join(legacy, app.ID, "SKILL.md")) {
+			dir = legacy
+		}
+		add("codex", dir)
 	}
 	return out
 }

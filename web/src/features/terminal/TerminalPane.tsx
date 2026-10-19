@@ -9,6 +9,7 @@ import { errorText, wsUrl } from '../../api/client'
 import { useT } from '../../i18n'
 import { usePrefs } from '../../state/prefs'
 import { useUi } from '../../state/ui'
+import { isModKey } from '../../ui/keys'
 import { searchDecorations, terminalBackground, terminalTheme } from '../../theme/terminal'
 import './terminal.css'
 
@@ -156,13 +157,14 @@ export function TerminalPane({ source, interactive, input = 'toggle', reconnect 
 
       tm.attachCustomKeyEventHandler((e) => {
         if (e.type !== 'keydown') return true
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        if (isModKey(e, 'f')) {
           e.preventDefault()
           searchInput.current?.focus()
           searchInput.current?.select()
           return false
         }
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') return false
+        // The command palette; the window's handler opens it.
+        if (isModKey(e, 'k')) return false
         if (e.key === 'Escape' && !typingRef.current) {
           tm.blur()
           return false

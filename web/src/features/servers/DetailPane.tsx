@@ -7,6 +7,7 @@ import { closeServer } from '../../state/route'
 import { pickContainer, setTab, showTerminalSearch, useUi, type DetailTab } from '../../state/ui'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { useNow } from '../../ui/hooks'
+import { isModKey } from '../../ui/keys'
 import { restartServer, useBusy } from './actions'
 import { Address } from './Address'
 import { DetailsTab } from './DetailsTab'
@@ -47,7 +48,7 @@ export function DetailPane({ server: v, servers, docker }: Props) {
   // Find on this page searches the server's output, wherever the focus is.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return
+      if (!isModKey(e, 'f')) return
       if (e.defaultPrevented || document.querySelector('dialog[open]')) return
       e.preventDefault()
       showTerminalSearch()
