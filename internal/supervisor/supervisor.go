@@ -695,6 +695,17 @@ func (s *Supervisor) LookPath(name string) string {
 	return findInPath(name, pathEnv)
 }
 
+// ServerLookPath finds name the way LookPath does for a process without a
+// daemon (the CLI): the caller's PATH first, then prepend and the login
+// shell's PATH, read only when needed. It returns "" when nothing matches.
+func ServerLookPath(name string, prepend []string) string {
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	pathEnv := strings.Join(append(slices.Clone(prepend), lookupEnv(LoginShellEnv(), "PATH")), string(os.PathListSeparator))
+	return findInPath(name, pathEnv)
+}
+
 // Environ is the login-shell environment with the configured path entries,
 // for helper commands the daemon runs on the user's behalf.
 func (s *Supervisor) Environ() []string {
@@ -724,7 +735,8 @@ type launchInputs struct {
 }
 
 // keptKeys are the variables a tool environment must not override: PORT and
-// the config's env, sorted.
+// the config's env except PATH, sorted. The tool builds its PATH on top of
+// the configured one, so setting that again would drop the tool's entries.
 func keptKeys(sv config.Server, global map[string]string) []string {
 	set := map[string]bool{}
 	if sv.Port > 0 {
@@ -736,6 +748,7 @@ func keptKeys(sv config.Server, global map[string]string) []string {
 	for k := range sv.Env {
 		set[k] = true
 	}
+	delete(set, "PATH")
 	return slices.Sorted(maps.Keys(set))
 }
 

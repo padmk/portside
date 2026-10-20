@@ -89,7 +89,7 @@ func detectTool(sv config.Server, pathEnv, nvm string) toolChoice {
 
 // projectTools decides how sv's shell starts: through its configured wrap,
 // else through the detected tool when that works without installing
-// anything. keep names the variables (PORT and the config's env) that the
+// anything. keep names the variables (PORT and the config's env but PATH) that the
 // shell sets again once the tool has loaded the project's environment, so
 // that an .envrc or a mise [env] cannot override them. Their values travel
 // in the environment, never in argv.
@@ -142,8 +142,12 @@ func chooseTool(sv config.Server, env []string, shellPath string) (toolLaunch, t
 		if !posix {
 			return toolLaunch{note: "devbox: " + shell + " cannot load `devbox shellenv`; running the command without devbox"}, c
 		}
+		// The output is captured first so that a failed shellenv reaches
+		// the note (eval of empty text succeeds); --init-hook runs the
+		// project's init_hook as `devbox shell` does.
 		failed := shellQuote("devbox: `devbox shellenv` failed; running the command without it")
-		return toolLaunch{name: "devbox", script: "eval \"$(" + shellQuote(c.bin) + " shellenv --config " + shellQuote(filepath.Dir(c.file)) + ")\" || echo " + failed + " >&2\n"}, c
+		script := "__tool_env=$(" + shellQuote(c.bin) + " shellenv --init-hook --config " + shellQuote(filepath.Dir(c.file)) + ") && eval \"$__tool_env\" || echo " + failed + " >&2; unset __tool_env\n"
+		return toolLaunch{name: "devbox", script: script}, c
 	case "mise":
 		// A start never installs tools; mise reports missing ones and runs
 		// the command with what is installed.
@@ -226,10 +230,11 @@ func keepScript(shellPath string, keep []string) string {
 			continue
 		}
 		v := keepVar(k)
+		// A carrier that a custom wrap dropped leaves k as the tool set it.
 		if shell == "fish" {
-			fmt.Fprintf(&b, "set -gx %s $%s; set -e %s\n", k, v, v)
+			fmt.Fprintf(&b, "if set -q %s; set -gx %s $%s; set -e %s; end\n", v, k, v, v)
 		} else {
-			fmt.Fprintf(&b, "export %s=\"$%s\"; unset %s\n", k, v, v)
+			fmt.Fprintf(&b, "if [ -n \"${%s+x}\" ]; then export %s=\"$%s\"; unset %s; fi\n", v, k, v, v)
 		}
 	}
 	return b.String()

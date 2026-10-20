@@ -122,17 +122,24 @@ var skipDirs = map[string]bool{
 // in these monorepo folders, which are still searched.
 var nestedDirs = map[string]bool{"apps": true, "packages": true, "web": true, "frontend": true, "services": true}
 
+// Installed reports whether a command is on the PATH that servers get (the
+// login shell's, not necessarily the caller's), for proposals that depend on
+// a tool such as uv.
+type Installed func(name string) bool
+
 // Scan walks root up to depth levels deep and returns suggestions sorted by
-// directory. Directories in skip (absolute paths) are left out.
-func Scan(root string, depth int, skip map[string]bool) []Suggestion {
+// directory. Directories in skip (absolute paths) are left out, and each
+// directory is visited once however many symlinks lead to it.
+func Scan(root string, depth int, skip map[string]bool, has Installed) []Suggestion {
 	visited := map[string]bool{}
 	var walk func(dir string, level int) []Suggestion
 	walk = func(dir string, level int) []Suggestion {
-		if skip[dir] || visited[dir] {
+		real := realPath(dir)
+		if skip[dir] || skip[real] || visited[real] {
 			return nil
 		}
-		visited[dir] = true
-		found := detect(dir)
+		visited[real] = true
+		found := detect(dir, has)
 		var below []Suggestion
 		if entries, err := os.ReadDir(dir); err == nil && level < depth {
 			for _, e := range entries {
@@ -197,6 +204,14 @@ func Slug(s string) string {
 	return s
 }
 
+// realPath is dir with symlinks resolved, or dir when that fails.
+func realPath(dir string) string {
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		return r
+	}
+	return filepath.Clean(dir)
+}
+
 func exists(dir, name string) bool {
 	_, err := os.Stat(filepath.Join(dir, name))
 	return err == nil
@@ -241,7 +256,7 @@ func nameFor(dir string) string {
 // detect proposes the servers of one directory. The application server comes
 // first and keeps the directory's name; asset servers and other entry points
 // get their kind as a suffix, Compose services "-services".
-func detect(dir string) []Suggestion {
+func detect(dir string, has Installed) []Suggestion {
 	name := nameFor(dir)
 	var out []Suggestion
 	add := func(found ...Suggestion) {
@@ -256,14 +271,14 @@ func detect(dir string) []Suggestion {
 			out = append(out, s)
 		}
 	}
-	add(detectBackend(dir)...)
+	add(detectBackend(dir, has)...)
 	if s, ok := detectNode(dir); ok {
 		add(s)
 	} else if s, ok := detectDeno(dir); ok {
 		add(s)
 	}
 	if !exists(dir, "manage.py") {
-		add(detectPython(dir, name)...)
+		add(detectPython(dir, name, has)...)
 	}
 	add(detectGo(dir, name)...)
 	if s, ok := detectRust(dir); ok {

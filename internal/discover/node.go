@@ -56,14 +56,18 @@ func detectNode(dir string) (Suggestion, bool) {
 		s.Kind, s.NoPort = kindMonorepo, true
 		return s, true
 	}
+	pinned := pinnedPort(run.text)
 	if cli.listen == listenSource {
 		files := entryFiles(pkg.Main, cli.entries, run.words[1:])
 		switch {
 		case slices.ContainsFunc(files, func(f string) bool { return fileMatches(dir, f, nodePortRe) }):
 		case slices.ContainsFunc(files, func(f string) bool { return fileMatches(dir, f, nextWrapperRe) }):
 			// A wrapper that spawns Next.js passes its environment on, and
-			// Next.js reads PORT.
+			// Next.js reads PORT, unless the wrapper passes its own port.
 			cli = nodeCLI{kind: "next", listen: listenEnv}
+			if p := wrapperPort(dir, files); p > 0 {
+				pinned = p
+			}
 		default:
 			cli.listen = listenNone
 		}
@@ -83,9 +87,9 @@ func detectNode(dir string) (Suggestion, bool) {
 	}
 	s.Kind = cli.kind
 	switch {
-	case pinnedPort(run.text) > 0:
+	case pinned > 0:
 		// A script that pins its own port keeps it; the suggestion must use the same one.
-		s.Port = pinnedPort(run.text)
+		s.Port = pinned
 	case portVarRe.MatchString(run.text):
 	case cli.listen == listenFlags:
 		s.Cmd += pm.sep() + cli.flags
@@ -446,6 +450,26 @@ func pinnedPort(body string) int {
 	}
 	p, _ := strconv.Atoi(m[1])
 	return p
+}
+
+// wrapperPortRe finds a literal port flag in a Next.js wrapper's arguments,
+// such as `"-p", "3000"`, `'--port=3000'` or `"next dev -p 3000"`.
+var wrapperPortRe = regexp.MustCompile(`(?:^|["'\s,\[\x60])(?:-p|--port)(?:["']\s*,\s*["']?|[=\s]+)(\d{2,5})\b`)
+
+// wrapperPort returns the port a Next.js wrapper passes to next itself, or 0.
+func wrapperPort(dir string, files []string) int {
+	for _, f := range files {
+		data, err := os.ReadFile(filepath.Join(dir, f))
+		if err != nil || !nextWrapperRe.Match(data) {
+			continue
+		}
+		if m := wrapperPortRe.FindSubmatch(data); m != nil {
+			if p, _ := strconv.Atoi(string(m[1])); p > 0 && p < 65536 {
+				return p
+			}
+		}
+	}
+	return 0
 }
 
 // entryFiles returns the entry files of a runner script: the files named in

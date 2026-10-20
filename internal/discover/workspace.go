@@ -112,6 +112,9 @@ func pnpmWorkspacePackages(dir string) []string {
 // matches one or two levels.
 func matchPackages(dir string, globs []string) []string {
 	var out []string
+	// Folders reached twice through symlinks, or a symlink back to dir,
+	// count once.
+	seen := map[string]bool{realPath(dir): true}
 	for _, g := range globs {
 		g = strings.Trim(strings.TrimPrefix(filepath.ToSlash(g), "./"), "/")
 		if g == "" || strings.HasPrefix(g, "!") || slices.Contains(strings.Split(g, "/"), "..") {
@@ -130,7 +133,8 @@ func matchPackages(dir string, globs []string) []string {
 				}) {
 					continue
 				}
-				if exists(m, "package.json") && !slices.Contains(out, m) {
+				if real := realPath(m); exists(m, "package.json") && !seen[real] {
+					seen[real] = true
 					out = append(out, m)
 				}
 			}

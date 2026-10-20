@@ -854,7 +854,8 @@ func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
 		root = paths.ExpandHome(q)
 	}
 	out := []DiscoverResult{}
-	for _, sg := range discover.Prepare(cfg, discover.Scan(root, 3, nil)) {
+	has := func(name string) bool { return s.sup.LookPath(name) != "" }
+	for _, sg := range discover.Prepare(cfg, discover.Scan(root, 3, nil, has)) {
 		res := DiscoverResult{Suggestion: sg, DirDisplay: paths.ShortenHome(sg.Dir), DirConfig: paths.ShortenHome(sg.Dir)}
 		if rel, err := filepath.Rel(cfg.Root, sg.Dir); err == nil && !strings.HasPrefix(rel, "..") {
 			res.DirConfig = rel

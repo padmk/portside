@@ -13,7 +13,7 @@ import (
 // detectBackend proposes the application servers of web frameworks outside
 // Node. They come before a Node script in the same folder, which then usually
 // serves assets.
-func detectBackend(dir string) []Suggestion {
+func detectBackend(dir string, has Installed) []Suggestion {
 	var out []Suggestion
 	if exists(dir, "artisan") && fileMatches(dir, "composer.json", laravelRe) {
 		out = append(out, Suggestion{Kind: "laravel", Cmd: "php artisan serve --host=127.0.0.1 --port={PORT}"})
@@ -21,7 +21,7 @@ func detectBackend(dir string) []Suggestion {
 	if exists(dir, "Gemfile") && exists(dir, "bin/rails") {
 		out = append(out, Suggestion{Kind: "rails", Cmd: "bin/rails server -b 127.0.0.1 -p {PORT}"})
 	}
-	out = append(out, detectDjango(dir)...)
+	out = append(out, detectDjango(dir, has)...)
 	if s, ok := detectPhoenix(dir); ok {
 		out = append(out, s)
 	}

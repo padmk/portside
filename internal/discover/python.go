@@ -3,7 +3,6 @@ package discover
 import (
 	"bufio"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -20,22 +19,26 @@ type pyRunner struct {
 }
 
 var (
-	lookPath       = exec.LookPath
 	pyprojectRe    = regexp.MustCompile(`(?m)^\[project\]`)
+	toolUVRe       = regexp.MustCompile(`(?m)^\[tool\.uv[.\]]`)
+	uvVenvRe       = regexp.MustCompile(`(?m)^uv\s*=`)
 	pythonBinRe    = regexp.MustCompile(`^python(?:3(?:\.\d+)?)?$`)
 	pythonRunnerRe = regexp.MustCompile(`^(?:uv|poetry|pipenv|pdm)$`)
 )
 
 // pythonRunner chooses the runner by lockfile (in the project or a parent up
 // to the repository root), then uv when it is installed and the project has
-// a PEP 621 pyproject.toml (uv run uses its .venv too), then a virtual
+// a PEP 621 pyproject.toml (uv run uses its .venv too), unless a .venv that
+// uv did not make (no `uv =` in its pyvenv.cfg) shows the project installs
+// with pip and its pyproject.toml has no [tool.uv] section; then a virtual
 // environment, then python3.
-func pythonRunner(dir string) pyRunner {
+func pythonRunner(dir string, has Installed) pyRunner {
 	if r, ok := lockedRunner(dir); ok {
 		return r
 	}
-	if fileMatches(dir, "pyproject.toml", pyprojectRe) {
-		if _, err := lookPath("uv"); err == nil {
+	if fileMatches(dir, "pyproject.toml", pyprojectRe) && has("uv") {
+		pipVenv := exists(dir, ".venv/bin/python") && !fileMatches(dir, ".venv/pyvenv.cfg", uvVenvRe)
+		if !pipVenv || fileMatches(dir, "pyproject.toml", toolUVRe) {
 			return pyRunner{prefix: "uv run ", python: "uv run python"}
 		}
 	}
@@ -115,14 +118,14 @@ func (r pyRunner) script(name string) (string, bool) {
 
 var djangoRe = regexp.MustCompile(`(?i)django`)
 
-func detectDjango(dir string) []Suggestion {
+func detectDjango(dir string, has Installed) []Suggestion {
 	if !fileMatches(dir, "manage.py", djangoRe) {
 		return nil
 	}
-	return []Suggestion{{Kind: "django", Cmd: pythonRunner(dir).python + " manage.py runserver 127.0.0.1:{PORT}"}}
+	return []Suggestion{{Kind: "django", Cmd: pythonRunner(dir, has).python + " manage.py runserver 127.0.0.1:{PORT}"}}
 }
 
-func detectPython(dir, name string) []Suggestion {
+func detectPython(dir, name string, has Installed) []Suggestion {
 	var project struct {
 		Project struct {
 			Dependencies []string          `toml:"dependencies"`
@@ -181,7 +184,7 @@ func detectPython(dir, name string) []Suggestion {
 	if !hasProject && !hasRequirements {
 		return nil
 	}
-	run := pythonRunner(dir)
+	run := pythonRunner(dir, has)
 	var out []Suggestion
 	if deps["fastapi"] || deps["starlette"] || deps["uvicorn"] {
 		// Only conventional modules with an explicit ASGI app are proposed.

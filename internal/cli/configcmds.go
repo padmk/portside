@@ -15,6 +15,7 @@ import (
 	"github.com/padmk/portside/internal/discover"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
+	"github.com/padmk/portside/internal/supervisor"
 )
 
 // ensureConfig creates the starter config when it does not exist yet.
@@ -150,7 +151,17 @@ func cmdScan(e *env, args []string) error {
 			root = abs
 		}
 	}
-	found := discover.Prepare(cfg, discover.Scan(root, *depth, nil))
+	// Proposals follow the tools servers will find, as in the dashboard.
+	installed := map[string]bool{}
+	has := func(name string) bool {
+		ok, seen := installed[name]
+		if !seen {
+			ok = supervisor.ServerLookPath(name, cfg.PathPrepend) != ""
+			installed[name] = ok
+		}
+		return ok
+	}
+	found := discover.Prepare(cfg, discover.Scan(root, *depth, nil, has))
 	if *asJSON {
 		return printJSON(e, found)
 	}

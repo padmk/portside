@@ -72,12 +72,26 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 // to server, by the same ownership rules as the dashboard. A container that
 // no server owns, such as one from a compose file outside every server's
 // directory, also counts, as its project cannot be matched to a server.
+// Before that, a container whose Compose working directory is server's own
+// directory, or whose project is one of server's `projects`, is server's
+// even when the closest-directory rule would give it to another server
+// (a compose file under another server's directory, say).
 func (s *Server) publishedBy(server string, port int) bool {
 	if s.opt.Docker == nil {
 		return false
 	}
 	containers := s.opt.Docker.Publishing(port)
-	attachContainers(containers, s.sup.Definitions())
+	defs := s.sup.Definitions()
+	if i := slices.IndexFunc(defs, func(sv config.Server) bool { return sv.Name == server }); i >= 0 {
+		own := defs[i]
+		dir := canonicalDir(own.Dir)
+		for _, c := range containers {
+			if (c.WorkingDir != "" && canonicalDir(c.WorkingDir) == dir) || (c.Project != "" && slices.Contains(own.Projects, c.Project)) {
+				return true
+			}
+		}
+	}
+	attachContainers(containers, defs)
 	unowned := ""
 	for _, c := range containers {
 		if slices.Contains(c.Servers(), server) {
