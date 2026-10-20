@@ -21,10 +21,11 @@ import (
 type Holder struct {
 	PID     int
 	Command string
-	// Product is true when it answers as this product's daemon or its
-	// command is named like this product.
-	Product bool
-	// Own is true when it is a process of this account.
+	// Own is true when lsof or ss name the listening process, it belongs to
+	// this account and its command is this product's binary. A pid claimed
+	// only by what answers on the port, or a process of this account that
+	// forwards the port (such as an ssh tunnel to another computer's
+	// daemon), is not taken for this product.
 	Own bool
 	// StateDir is the state directory of such a daemon, when its lock file
 	// can be seen among its open files.
@@ -34,7 +35,7 @@ type Holder struct {
 // Ours reports whether the holder is this product running for this account,
 // such as a daemon with another state directory. Its port is never taken
 // over: moving away would leave two daemons serving one config.
-func (h Holder) Ours() bool { return h.Product && h.Own }
+func (h Holder) Ours() bool { return h.Own }
 
 // Refusal explains why a daemon does not start on port while h holds it.
 func (h Holder) Refusal(port int) string {
@@ -46,22 +47,21 @@ func (h Holder) Refusal(port int) string {
 	return fmt.Sprintf("port %d is held by %s; stop that daemon first, or run this one with its own config (%s) that sets another `port`", port, who, app.Env("CONFIG"))
 }
 
-// PortHolder finds out what listens on port on loopback: lsof or ss name
-// processes of this account (another account's are usually invisible), and
-// what answers /api/health tells whether it is this product.
+// PortHolder finds out what listens on port on loopback. Only lsof or ss
+// are trusted to name the process (another account's are usually invisible
+// to them), and its command name to tell whether it is this product; what
+// answers on the port cannot prove either.
 func PortHolder(ctx context.Context, port int) Holder {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	var h Holder
-	health, _ := New(port).Ping(ctx)
-	if l, ok := ports.Owner(ctx, port); ok && l.PID > 0 {
-		h.PID, h.Command = l.PID, l.Command
-	} else if health.App == app.ID {
-		h.PID = health.PID
+	l, ok := ports.Owner(ctx, port)
+	if !ok || l.PID <= 0 {
+		return h
 	}
-	h.Product = health.App == app.ID || strings.HasPrefix(filepath.Base(h.Command), app.ID)
-	h.Own = h.PID > 0 && syscall.Kill(h.PID, 0) == nil
-	if h.Ours() {
+	h.PID, h.Command = l.PID, l.Command
+	h.Own = strings.HasPrefix(filepath.Base(h.Command), app.ID) && syscall.Kill(h.PID, 0) == nil
+	if h.Own {
 		h.StateDir = lockDir(ctx, h.PID)
 	}
 	return h

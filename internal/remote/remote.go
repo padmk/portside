@@ -555,11 +555,9 @@ func (c *conn) reconcileLocked() {
 func (c *conn) bind(local, port int) []net.Listener {
 	p := strconv.Itoa(local)
 	ctx := context.Background()
-	all, err := exclusive.Listen(ctx, "tcp", ":"+p)
-	if err != nil {
+	if !wildcardFree(local) {
 		return nil
 	}
-	_ = all.Close()
 	v4, err := exclusive.Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", p))
 	if err != nil {
 		return nil

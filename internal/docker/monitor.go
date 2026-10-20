@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -632,8 +633,15 @@ func (m *Monitor) follow(ctx context.Context, c *Client, id string) {
 // pollStats samples running containers one request at a time per slot, once
 // per interval, for ssh:// engines: the requests share the transport's few
 // kept-alive connections instead of holding an ssh login per container.
+//
+// Each round adds one history point per container: CPU use is measured
+// against the container's sample from the round before, so it covers the
+// whole interval, and a round that runs late repeats its point for the
+// intervals it missed, so the history keeps its time scale.
 func (m *Monitor) pollStats(ctx context.Context, c *Client) {
 	sem := make(chan struct{}, parallelRequests(c))
+	var mu sync.Mutex
+	prev := map[string]*statsSample{}
 	for ctx.Err() == nil {
 		began := time.Now()
 		m.mu.Lock()
@@ -653,12 +661,27 @@ func (m *Monitor) pollStats(ctx context.Context, c *Client) {
 				defer func() { <-sem }()
 				sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				defer cancel()
-				if s, err := c.statsOnce(sctx, id); err == nil {
-					m.record(id, s)
+				s, err := c.statsOnce(sctx, id)
+				if err != nil {
+					return
 				}
+				mu.Lock()
+				last := prev[id]
+				prev[id] = s
+				mu.Unlock()
+				if last != nil {
+					s.PreCPU.Usage.Total, s.PreCPU.System = last.CPU.Usage.Total, last.CPU.System
+				}
+				m.recordPolled(id, s, last != nil || s.PreCPU.System != 0, last != nil)
 			}()
 		}
 		wg.Wait()
+		// Containers no longer running start over without a previous sample.
+		for id := range prev {
+			if !slices.Contains(ids, id) {
+				delete(prev, id)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -693,6 +716,33 @@ func (m *Monitor) record(id string, s *statsSample) {
 		e.mem = appendRing(e.mem, e.c.Mem)
 		m.sampled = true
 	}
+}
+
+// recordPolled stores a polled usage sample. When it measures CPU use it adds
+// a history point, and when it continues the container's previous sample
+// one for each interval since the previous point, for a round that ran late.
+func (m *Monitor) recordPolled(id string, s *statsSample, measured, continued bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e := m.entries[id]
+	if e == nil || (e.c.State != "running" && e.c.State != "paused") {
+		return
+	}
+	e.c.CPU, e.c.Mem, e.c.MemLimit = s.cpuPercent(), s.memBytes(), int64(s.Memory.Limit)
+	if !measured {
+		return
+	}
+	now := time.Now()
+	n := 1
+	if continued && !e.sampled.IsZero() {
+		n = min(max(int((now.Sub(e.sampled)+m.interval/2)/m.interval), 1), historyLen)
+	}
+	for range n {
+		e.cpu = appendRing(e.cpu, e.c.CPU)
+		e.mem = appendRing(e.mem, e.c.Mem)
+	}
+	e.sampled = now
+	m.sampled = true
 }
 
 const historyLen = 60

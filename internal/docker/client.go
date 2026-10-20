@@ -314,11 +314,13 @@ func (c *Client) stats(ctx context.Context, id string, fn func(*statsSample)) er
 	}
 }
 
-// statsOnce returns one usage sample. The engine takes about a second to
-// measure CPU use against the previous reading.
+// statsOnce returns one usage sample without waiting for the engine's second
+// reading (one-shot, API 1.41 and later; older engines ignore it and take
+// about a second to fill precpu_stats), so the caller measures CPU use
+// against its previous sample.
 func (c *Client) statsOnce(ctx context.Context, id string) (*statsSample, error) {
 	var s statsSample
-	if err := c.call(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/stats", url.Values{"stream": {"0"}}, nil, &s); err != nil {
+	if err := c.call(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/stats", url.Values{"stream": {"0"}, "one-shot": {"1"}}, nil, &s); err != nil {
 		return nil, err
 	}
 	return &s, nil

@@ -106,6 +106,13 @@ func cmdService(e *env, args []string) error {
 			_ = shutdown(e, c, restartBody)
 			waitGone(c, e, 90*time.Second)
 		}
+		// Locations an earlier version kept under XDG variables move now that
+		// no daemon uses them, before the service is pinned to them again.
+		cfgPath, notes := paths.MoveLegacyForService(e.cfgPath)
+		for _, note := range notes {
+			fmt.Fprintf(e.errOut, "%s: %s\n", app.ID, note)
+		}
+		e.cfgPath = cfgPath
 		if err := service.Install(e.cfgPath); err != nil {
 			return err
 		}

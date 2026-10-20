@@ -297,9 +297,9 @@ func call(ctx context.Context, tr http.RoundTripper, node tailnet.Node, port int
 	return data, proven, nil
 }
 
-func (m *Manager) ports(prefer int) []int {
+func (m *Manager) ports(prefer ...int) []int {
 	out := []int{}
-	for _, p := range []int{prefer, m.localPort, app.DefaultPort} {
+	for _, p := range append(prefer, m.localPort, app.DefaultPort) {
 		if p > 0 && !containsInt(out, p) {
 			out = append(out, p)
 		}
@@ -318,42 +318,64 @@ func containsInt(s []int, v int) bool {
 
 // findPort asks each candidate port for the daemon's hello, all at once:
 // devices without a shared daemon may drop packets instead of refusing. The
-// last port it was found on, this daemon's own and the default are
-// preferred, then the fallback ports a daemon takes when the default is
-// taken.
+// port given with the target or last found, the saved connection's, this
+// daemon's own and the default rank first, then the fallback ports a daemon
+// takes when the default is taken. It returns as soon as the best-ranked
+// port answers and every port ranked above it has failed, and cancels the
+// remaining probes, so ports that never answer do not hold up one that did.
 func (m *Manager) findPort(ctx context.Context, tr http.RoundTripper, n tailnet.Node, cred *share.Credential) (int, *hello, string, error) {
 	m.mu.Lock()
 	prefer := m.known[n.DNSName]
 	m.mu.Unlock()
-	cands := m.ports(prefer)
+	saved := 0
+	if s, ok := m.store.connection(); ok && strings.EqualFold(s.DNSName, n.DNSName) {
+		saved = s.Port
+	}
+	cands := m.ports(prefer, saved)
 	for _, p := range app.FallbackPorts() {
 		if !containsInt(cands, p) {
 			cands = append(cands, p)
 		}
 	}
-	found := make([]*hello, len(cands))
-	epochs := make([]string, len(cands))
-	errs := make([]error, len(cands))
-	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type result struct {
+		i     int
+		h     *hello
+		epoch string
+		err   error
+	}
+	results := make(chan result, len(cands))
 	for i, port := range cands {
-		wg.Add(1)
 		go func(i, port int) {
-			defer wg.Done()
 			var h hello
-			if _, epoch, err := call(ctx, tr, n, port, cred, "", http.MethodGet, "/api/hello", nil, &h); err != nil {
-				errs[i] = err
-			} else if h.App == app.ID {
-				found[i], epochs[i] = &h, epoch
+			_, epoch, err := call(ctx, tr, n, port, cred, "", http.MethodGet, "/api/hello", nil, &h)
+			switch {
+			case err != nil:
+				results <- result{i: i, err: err}
+			case h.App == app.ID:
+				results <- result{i: i, h: &h, epoch: epoch}
+			default:
+				results <- result{i: i}
 			}
 		}(i, port)
 	}
-	wg.Wait()
-	for i, h := range found {
-		if h != nil {
+	done := make([]bool, len(cands))
+	found := make([]*hello, len(cands))
+	epochs := make([]string, len(cands))
+	errs := make([]error, len(cands))
+	next := 0 // best-ranked port without a failed reply
+	for next < len(cands) {
+		r := <-results
+		done[r.i], found[r.i], epochs[r.i], errs[r.i] = true, r.h, r.epoch, r.err
+		for next < len(cands) && done[next] && found[next] == nil {
+			next++
+		}
+		if next < len(cands) && found[next] != nil {
 			m.mu.Lock()
-			m.known[n.DNSName] = cands[i]
+			m.known[n.DNSName] = cands[next]
 			m.mu.Unlock()
-			return cands[i], h, epochs[i], nil
+			return cands[next], found[next], epochs[next], nil
 		}
 	}
 	// A failed proof, a refusal or a removed pairing says more than an

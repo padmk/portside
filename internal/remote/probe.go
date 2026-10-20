@@ -39,3 +39,24 @@ func wildcardTaken(port int) bool {
 	return try(syscall.AF_INET, &syscall.SockaddrInet4{Port: port}) ||
 		try(syscall.AF_INET6, &syscall.SockaddrInet6{Port: port})
 }
+
+// wildcardFree reports whether no socket holds port on any address, by
+// binding the wildcard addresses without SO_REUSEADDR. The sockets are bound,
+// never listened on, and closed at once: listening on a non-loopback address
+// would make the macOS firewall ask about incoming connections.
+func wildcardFree(port int) bool {
+	try := func(family int, sa syscall.Sockaddr) bool {
+		fd, err := syscall.Socket(family, syscall.SOCK_STREAM, 0)
+		if err != nil {
+			// No such family (no IPv6): nothing can hold the port there.
+			return true
+		}
+		defer syscall.Close(fd)
+		if family == syscall.AF_INET6 && syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 1) != nil {
+			return false
+		}
+		return syscall.Bind(fd, sa) == nil
+	}
+	return try(syscall.AF_INET, &syscall.SockaddrInet4{Port: port}) &&
+		try(syscall.AF_INET6, &syscall.SockaddrInet6{Port: port})
+}

@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -38,15 +41,54 @@ func connected(t *testing.T) (*Manager, *conn) {
 
 // freePort returns a port free on every address. A port picked on
 // 127.0.0.1 alone can be held on the wildcard address by another process
-// (macOS allows both binds), which mirrors report as busy.
+// (macOS allows both binds), which mirrors report as busy. Ports the
+// kernel hands out (127.0.0.1:0) come from the ephemeral range, where
+// macOS also holds ports for other processes' connections on other
+// addresses that no loopback check sees, so the port is drawn from below
+// the ephemeral ranges of macOS (49152) and Linux (32768) instead. It is
+// checked with loopback binds without SO_REUSEADDR, like the mirrors' own,
+// and by dialing, never by a wildcard bind, which would make the macOS
+// firewall ask about the test binary.
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
+	ctx := context.Background()
+	for range 50 {
+		port := 20000 + rand.IntN(12000)
+		if !answers(port, "127.0.0.1", "::1", "0.0.0.0") && bindsLoopback(ctx, port) {
+			return port
+		}
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	t.Fatal("no port free on every address")
+	return 0
+}
+
+// bindsLoopback reports whether port can be bound on 127.0.0.1 and, where
+// the system has IPv6 loopback, on ::1.
+func bindsLoopback(ctx context.Context, port int) bool {
+	p := strconv.Itoa(port)
+	l, err := exclusive.Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", p))
+	if err != nil {
+		return false
+	}
+	l.Close()
+	l6, err := exclusive.Listen(ctx, "tcp", net.JoinHostPort("::1", p))
+	if err == nil {
+		l6.Close()
+	}
+	return !errors.Is(err, syscall.EADDRINUSE)
+}
+
+// answers reports whether a listener accepts a connection to port on any
+// of hosts.
+func answers(port int, hosts ...string) bool {
+	for _, h := range hosts {
+		c, err := net.DialTimeout("tcp", net.JoinHostPort(h, strconv.Itoa(port)), 200*time.Millisecond)
+		if err == nil {
+			c.Close()
+			return true
+		}
+	}
+	return false
 }
 
 func TestTokens(t *testing.T) {
