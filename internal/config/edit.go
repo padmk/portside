@@ -353,7 +353,7 @@ func lock(path string) (func(), error) {
 	if err := os.MkdirAll(dir, paths.DirMode); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "."+filepath.Base(path)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, paths.ConfigLockName(path)), os.O_CREATE|os.O_RDWR, paths.FileMode)
 	if err != nil {
 		return nil, err
 	}

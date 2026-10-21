@@ -26,6 +26,12 @@ func home() string {
 	return h
 }
 
+// ConfigLockName is the file next to the config file named config that
+// serialises edits to it; it stays after an edit.
+func ConfigLockName(config string) string {
+	return "." + filepath.Base(config) + ".lock"
+}
+
 // ConfigFile returns the path of the main configuration file.
 func ConfigFile() string {
 	if p := os.Getenv(app.Env("CONFIG")); p != "" {

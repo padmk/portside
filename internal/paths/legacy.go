@@ -116,9 +116,10 @@ var legacyMarkers = map[string][]string{
 }
 
 // legacyConfigEntry reports whether name is a file the product keeps in its
-// config directory: the config and leftovers of an interrupted edit.
+// config directory: the config, the lock its edits take and leftovers of an
+// interrupted edit.
 func legacyConfigEntry(name string) bool {
-	return name == app.ID+".toml" || strings.HasPrefix(name, ".tmp-") || name == ".DS_Store"
+	return name == app.ID+".toml" || name == ConfigLockName(app.ID+".toml") || strings.HasPrefix(name, ".tmp-") || name == ".DS_Store"
 }
 
 // legacyStateEntry is legacyConfigEntry for the state directory, counting
