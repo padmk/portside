@@ -247,7 +247,7 @@ func cmdRestart(e *env, args []string) error { return bulk(e, "restart", args, t
 
 func cmdEnsure(e *env, args []string) error {
 	fs := flag.NewFlagSet("ensure", flag.ContinueOnError)
-	timeout := fs.String("timeout", "90s", "")
+	timeout := fs.String("timeout", supervisor.ReadyTimeout.String(), "")
 	asJSON := fs.Bool("json", false, "")
 	takeover := fs.Bool("takeover", false, "")
 	dir := fs.String("dir", "", "")

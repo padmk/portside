@@ -291,11 +291,11 @@ func (s *Server) ensure(w http.ResponseWriter, r *http.Request) {
 		}
 		name = target
 	}
-	timeout := 90 * time.Second
+	timeout := supervisor.ReadyTimeout
 	if body.Timeout != "" {
 		d, err := time.ParseDuration(body.Timeout)
-		if err != nil {
-			fail(w, http.StatusBadRequest, err)
+		if err != nil || d <= 0 {
+			fail(w, http.StatusBadRequest, errors.New("timeout must be a positive duration"))
 			return
 		}
 		timeout = d

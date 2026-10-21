@@ -358,7 +358,7 @@ func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureSer
 	}
 	timeout := in.Timeout
 	if timeout == "" {
-		timeout = "90s"
+		timeout = supervisor.ReadyTimeout.String()
 	}
 	body := map[string]string{"timeout": timeout}
 	if in.Dir != "" {
@@ -409,7 +409,7 @@ func (t *tools) restart(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn
 	}
 	timeout := in.Timeout
 	if timeout == "" {
-		timeout = "90s"
+		timeout = supervisor.ReadyTimeout.String()
 	}
 	var v supervisor.View
 	if err := g.c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(in.Name)+"/restart", map[string]string{"timeout": timeout}, &v); err != nil {

@@ -155,6 +155,10 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 	}
 }
 
+// ReadyTimeout is how long ensure and restart wait for readiness when the
+// caller gives no timeout.
+const ReadyTimeout = 90 * time.Second
+
 // WaitReady checks the live listener, including servers already marked running.
 func (s *Supervisor) WaitReady(ctx context.Context, name string, timeout time.Duration) error {
 	ch := s.Subscribe()
