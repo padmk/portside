@@ -395,7 +395,16 @@ func daemonInfo(e *env, c *client.Client, args []string) error {
 	} else {
 		h, err = c.Ensure(e.ctx)
 	}
-	if err == nil || errors.Is(err, client.ErrUnverified) {
+	// Without a config that loads the port is a guess, so what answers there
+	// unproven says nothing about this daemon; the config error comes first.
+	var cfgErr error
+	if _, statErr := os.Stat(e.cfgPath); statErr == nil {
+		_, cfgErr = config.Load(e.cfgPath)
+	}
+	answered := err == nil || errors.Is(err, client.ErrUnverified)
+	if answered && !h.Verified && cfgErr != nil {
+		err = c.Unverified()
+	} else if answered {
 		out := map[string]any{"running": true, "verified": h.Verified, "url": c.Base, "port": c.Port, "pid": h.PID, "version": h.Version,
 			"config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "tokenFile": filepath.Join(paths.StateDir(), paths.TokenName)}
 		if !h.Verified {
@@ -404,14 +413,12 @@ func daemonInfo(e *env, c *client.Client, args []string) error {
 		return printJSON(e, out)
 	}
 	out := map[string]any{"running": false, "stopped": daemon.Stopped(), "config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "error": err.Error()}
-	if _, statErr := os.Stat(e.cfgPath); statErr == nil {
-		if _, cfgErr := config.Load(e.cfgPath); cfgErr != nil {
-			out["configError"] = cfgErr.Error()
-			if perr := printJSON(e, out); perr != nil {
-				return perr
-			}
-			return silentError{infoConfigError}
+	if cfgErr != nil {
+		out["configError"] = cfgErr.Error()
+		if perr := printJSON(e, out); perr != nil {
+			return perr
 		}
+		return silentError{infoConfigError}
 	}
 	if !*noStart {
 		return err

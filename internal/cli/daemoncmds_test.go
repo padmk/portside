@@ -176,6 +176,28 @@ func TestDaemonInfoUnverified(t *testing.T) {
 	}
 }
 
+// With a config that does not load, an unproven reply on the guessed port
+// is not this daemon: the app gets the config error, not a restart offer.
+func TestDaemonInfoUnverifiedWithConfigError(t *testing.T) {
+	cfg, _, port := isolateDaemon(t)
+	if err := os.WriteFile(cfg, []byte("root = \"a\"\nroot = \"b\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	serveHealth(t, port, &fakeHealth{pid: 4242})
+	e, out, _ := testEnv(cfg)
+	err := cmdDaemon(e, []string{"info", "--no-start"})
+	if got := exitCode(err); got != infoConfigError {
+		t.Fatalf("exit %d (%v), want %d", got, err, infoConfigError)
+	}
+	var info map[string]any
+	if err := json.Unmarshal(out.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info["running"] != false || info["configError"] == nil {
+		t.Errorf("info = %v, want not running with configError", info)
+	}
+}
+
 func needListenerLookup(t *testing.T) {
 	t.Helper()
 	_, lsofErr := exec.LookPath("lsof")
