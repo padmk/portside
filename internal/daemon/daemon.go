@@ -41,7 +41,7 @@ func MarkStopped() error {
 	if err := os.MkdirAll(paths.StateDir(), paths.DirMode); err != nil {
 		return err
 	}
-	return os.WriteFile(paths.StopMarker(), []byte(time.Now().Format(time.RFC3339)+"\n"), paths.FileMode)
+	return paths.WriteFile(paths.StopMarker(), []byte(time.Now().Format(time.RFC3339)+"\n"))
 }
 
 // ClearStopped removes the record of a deliberate stop.
@@ -251,7 +251,7 @@ func Run(cfgPath string) error {
 	log.Printf("%s %s listening on http://127.0.0.1:%d (pid %d)", app.Name, app.Version, cfg.Port, os.Getpid())
 	// Clients find a daemon whose config has since moved to another port here.
 	portFile := filepath.Join(stateDir, paths.PortName)
-	_ = os.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"), paths.FileMode)
+	_ = paths.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"))
 	defer os.Remove(portFile)
 	// Keep an installed agent skill in step with this binary. Instances with
 	// their own config or state (tests, development) leave it alone. It runs

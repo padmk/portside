@@ -123,7 +123,7 @@ func listenConfigured(cfg *config.Config, cfgPath, stateDir string, avoid func(p
 		if p == app.DefaultPort {
 			_ = os.Remove(autoPortFile(stateDir))
 		} else if p != SavedPort(stateDir) {
-			if err := os.WriteFile(autoPortFile(stateDir), []byte(strconv.Itoa(p)+"\n"), paths.FileMode); err != nil {
+			if err := paths.WriteFile(autoPortFile(stateDir), []byte(strconv.Itoa(p)+"\n")); err != nil {
 				log.Printf("saving port %d: %v", p, err)
 			} else {
 				log.Printf("port %d is kept in %s while the config sets no `port`", p, paths.ShortenHome(autoPortFile(stateDir)))
