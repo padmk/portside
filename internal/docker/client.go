@@ -35,9 +35,6 @@ func NewClient(ep Endpoint, env []string) *Client {
 	return &Client{ep: ep, http: &http.Client{Transport: tr}, dial: dial}
 }
 
-// Endpoint returns where the client connects.
-func (c *Client) Endpoint() Endpoint { return c.ep }
-
 // Close drops idle connections.
 func (c *Client) Close() { c.http.CloseIdleConnections() }
 
