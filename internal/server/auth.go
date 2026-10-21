@@ -114,7 +114,7 @@ func LoadCredentials(stateDir, keepHost string) (Credentials, error) {
 	}
 	c.Host = keepHost
 	if !IsDashboardHost(c.Host) {
-		c.Host = "d-" + signing.RandomHex(12) + ".localhost"
+		c.Host = config.NewDashboardLabel() + ".localhost"
 	}
 	if err := writePrivate(DashboardHostPath(stateDir), c.Host); err != nil {
 		return c, err
