@@ -6,7 +6,7 @@ import type { ServerView, Spec } from '../../api/types'
 import { useT } from '../../i18n'
 import { selectServer } from '../../state/route'
 import { openOnDesktop } from './actions'
-import { CopyButton } from './Address'
+import { CopyButton } from '../../ui/CopyButton'
 import { Charts } from './Charts'
 import { EnvTable } from './EnvTable'
 

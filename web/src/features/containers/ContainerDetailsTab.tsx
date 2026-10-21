@@ -4,7 +4,7 @@ import type { ContainerDetails, ContainerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { selectServer } from '../../state/route'
 import { Charts } from '../servers/Charts'
-import { CopyButton } from '../servers/Address'
+import { CopyButton } from '../../ui/CopyButton'
 import { EnvTable } from '../servers/EnvTable'
 
 /** What a container runs, how it is wired up, and its resource history. */

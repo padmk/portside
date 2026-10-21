@@ -1,11 +1,10 @@
-import { Check, Copy, FolderSearch, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { FolderSearch, Plus } from 'lucide-react'
 import { useT } from '../../i18n'
 import { useLive } from '../../state/live'
 import { openAddServer } from '../../state/ui'
 import { Mark } from '../../app/Mark'
 import { brand } from '../../brand'
-import { copyText } from '../../ui/hooks'
+import { CopyButton } from '../../ui/CopyButton'
 
 /** Scanning the current folder, and the configured projects folder unless that is the home folder. */
 function commands(root: string | undefined): string[] {
@@ -48,26 +47,13 @@ export function EmptyState() {
 
 function CommandLine({ command }: { command: string }) {
   const t = useT()
-  const [done, setDone] = useState(false)
   return (
     <div className="cli-line">
       <code>
         <span aria-hidden="true">$ </span>
         {command}
       </code>
-      <button
-        type="button"
-        className="icon-btn icon-btn--sm"
-        aria-label={t('common.copyCommand', { command })}
-        title={t('common.copy')}
-        onClick={async () => {
-          await copyText(command)
-          setDone(true)
-          window.setTimeout(() => setDone(false), 1200)
-        }}
-      >
-        {done ? <Check size={13} /> : <Copy size={13} />}
-      </button>
+      <CopyButton text={command} label={t('common.copyCommand', { command })} size={13} />
     </div>
   )
 }

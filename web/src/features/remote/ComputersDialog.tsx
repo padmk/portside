@@ -10,7 +10,7 @@ import { toast, toastError } from '../../state/toasts'
 import { Dialog } from '../../ui/Dialog'
 import { useNow } from '../../ui/hooks'
 import { useBusy } from '../servers/actions'
-import { CopyButton } from '../servers/Address'
+import { CopyButton } from '../../ui/CopyButton'
 import { connectTo, disconnectRemote, pairWith } from './actions'
 import './remote.css'
 

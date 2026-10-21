@@ -1,54 +1,8 @@
-import { Check, Copy, ExternalLink } from 'lucide-react'
-import { useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import type { ServerView } from '../../api/types'
 import { useT } from '../../i18n'
-import { copyText } from '../../ui/hooks'
+import { CopyButton } from '../../ui/CopyButton'
 import { bareUrl, isUp } from './format'
-
-/** A copy button that confirms with a check mark. */
-export function CopyButton({ text, label, className = 'icon-btn icon-btn--sm', size = 15 }: { text: string; label: string; className?: string; size?: number }) {
-  const t = useT()
-  const [done, setDone] = useState(false)
-  return (
-    <button
-      type="button"
-      className={className}
-      aria-label={label}
-      title={t('common.copy')}
-      onClick={async (e) => {
-        e.stopPropagation()
-        await copyText(text)
-        setDone(true)
-        window.setTimeout(() => setDone(false), 1200)
-      }}
-    >
-      {done ? <Check size={size} /> : <Copy size={size} />}
-    </button>
-  )
-}
-
-/** The alias reads as a quiet monospace item; the whole item copies it. */
-function AliasCopy({ url }: { url: string }) {
-  const t = useT()
-  const [done, setDone] = useState(false)
-  return (
-    <button
-      type="button"
-      className="addr-alias mono"
-      aria-label={t('common.copyUrl', { url })}
-      title={t('common.copy')}
-      onClick={async (e) => {
-        e.stopPropagation()
-        await copyText(url)
-        setDone(true)
-        window.setTimeout(() => setDone(false), 1200)
-      }}
-    >
-      <span>{bareUrl(url)}</span>
-      {done ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-    </button>
-  )
-}
 
 /**
  * The direct address is the large link; the `name.localhost` alias is a quieter
@@ -75,7 +29,12 @@ export function Address({ server: v }: { server: ServerView }) {
       ) : (
         <span className="addr-main addr-main--off mono">{bareUrl(v.url)}</span>
       )}
-      {v.alias && <AliasCopy url={v.alias} />}
+      {/* The alias reads as a quiet monospace item; the whole item copies it. */}
+      {v.alias && (
+        <CopyButton text={v.alias} label={t('common.copyUrl', { url: v.alias })} className="addr-alias mono" size={14}>
+          <span>{bareUrl(v.alias)}</span>
+        </CopyButton>
+      )}
       <ListenPorts server={v} />
     </div>
   )
