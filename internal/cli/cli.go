@@ -62,19 +62,21 @@ func (e *env) configPort() int {
 	if p := e.envPort(); p > 0 {
 		return p
 	}
+	var port int
+	var auto bool
 	if cfg, err := config.Load(e.cfgPath); err == nil {
-		// A daemon whose config sets no port keeps a fallback port it chose.
-		if p := daemon.SavedPort(paths.StateDir()); cfg.PortAuto && p > 0 {
-			return p
-		}
-		return cfg.Port
+		port, auto = cfg.Port, cfg.PortAuto
+	} else if p, a, portErr := config.ReadPort(e.cfgPath); portErr == nil {
+		port, auto = p, a
 	} else {
-		if port, portErr := config.ReadPort(e.cfgPath); portErr == nil {
-			return port
-		}
 		fmt.Fprintf(e.errOut, "config: %v\n", err)
+		return app.DefaultPort
 	}
-	return app.DefaultPort
+	// A daemon whose config sets no port keeps a fallback port it chose.
+	if p := daemon.SavedPort(paths.StateDir()); auto && p > 0 {
+		return p
+	}
+	return port
 }
 
 func (e *env) envPort() int {

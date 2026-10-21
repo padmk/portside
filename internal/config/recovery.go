@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
-	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/paths"
 )
 
@@ -56,20 +55,21 @@ func LoadRecoverable(path, stateDir string) (*Config, error) {
 		}
 	}
 	cfg, _ := Parse(path, nil)
-	if port, err := ReadPort(path); err == nil {
-		cfg.Port = port
-		cfg.PortAuto = port == app.DefaultPort
+	if port, auto, err := ReadPort(path); err == nil {
+		cfg.Port, cfg.PortAuto = port, auto
 	}
 	return cfg, original
 }
 
-// ReadPort reads just the dashboard port even when server validation fails.
-func ReadPort(path string) (int, error) {
+// ReadPort reads just the dashboard port even when server validation fails,
+// and whether it is automatic (the file sets none), as Parse decides.
+func ReadPort(path string) (int, bool, error) {
 	var raw struct {
 		Port int `toml:"port"`
 	}
 	if _, err := toml.DecodeFile(path, &raw); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return dashboardPort(raw.Port)
+	port, err := dashboardPort(raw.Port)
+	return port, raw.Port == 0, err
 }

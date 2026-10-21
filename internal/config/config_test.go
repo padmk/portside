@@ -210,8 +210,8 @@ func TestRecoverableConfiguration(t *testing.T) {
 	if err := os.WriteFile(path, []byte("port = 18433\n[servers.web]\ncmd = ''\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if port, err := ReadPort(path); err != nil || port != 18433 {
-		t.Fatalf("port without server validation: %d, %v", port, err)
+	if port, auto, err := ReadPort(path); err != nil || port != 18433 || auto {
+		t.Fatalf("port without server validation: %d, %v, %v", port, auto, err)
 	}
 	cfg, err = LoadRecoverable(path, t.TempDir())
 	if err == nil || cfg.Port != 18433 || len(cfg.Servers) != 0 {
