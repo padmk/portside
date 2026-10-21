@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { ServerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { copyText } from '../../ui/hooks'
-import { bareUrl } from './format'
+import { bareUrl, isUp } from './format'
 
 /** A copy button that confirms with a check mark. */
 export function CopyButton({ text, label, className = 'icon-btn icon-btn--sm', size = 15 }: { text: string; label: string; className?: string; size?: number }) {
@@ -56,7 +56,7 @@ function AliasCopy({ url }: { url: string }) {
  */
 export function Address({ server: v }: { server: ServerView }) {
   const t = useT()
-  const reachable = v.status === 'running' || v.status === 'starting'
+  const reachable = isUp(v)
   if (!v.url) {
     return (
       <div className="addr">

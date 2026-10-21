@@ -6,7 +6,7 @@ import { selectServer } from '../../state/route'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { Sparkline } from '../../ui/charts'
 import { restartServer, startServer, stopServer, useBusy } from '../servers/actions'
-import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess, restartPending } from '../servers/format'
+import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess, isUp, restartPending } from '../servers/format'
 import { useProtectedReason } from '../servers/holder'
 import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
@@ -27,7 +27,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
   const status = displayStatus(v)
   const alive = hasProcess(v)
   const pending = restartPending(v)
-  const reachable = v.status === 'running' || v.status === 'starting'
+  const reachable = isUp(v)
   const reason = useProtectedReason(v.external?.pid, v.port)
   const note = useServerNote(v)
   const lastLine = v.tail?.[v.tail.length - 1] ?? ''

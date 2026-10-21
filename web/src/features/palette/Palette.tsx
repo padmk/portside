@@ -30,7 +30,7 @@ import { Dialog } from '../../ui/Dialog'
 import { bulk, groupKey, groupTargets, restartServer, startServer, stopAll, stopServer } from '../servers/actions'
 import { viewLogs } from '../servers/StateActions'
 import { disconnectRemote } from '../remote/actions'
-import { canStop, hasProcess } from '../servers/format'
+import { bareUrl, canStop, hasProcess, isUp } from '../servers/format'
 import { fuzzy } from './fuzzy'
 import './palette.css'
 
@@ -78,8 +78,8 @@ function buildCommands(state: State, t: Translate, locale: string): Command[] {
       cmds.push({ id: `start:${v.name}`, label: t('palette.start', { name: v.name }), hint, icon: <Play size={15} />, run: () => void startServer(v.name) })
     }
     cmds.push({ id: `open:${v.name}`, label: t('palette.open', { name: v.name }), hint, icon: <SquareTerminal size={15} />, run: () => viewLogs(v.name) })
-    if (v.url && (v.status === 'running' || v.status === 'starting')) {
-      cmds.push({ id: `browse:${v.name}`, label: t('palette.browse', { name: v.name }), hint: v.alias ? v.alias.replace(/^https?:\/\//, '') : '', icon: <ExternalLink size={14} />, run: () => window.open(v.url, '_blank', 'noreferrer') })
+    if (v.url && isUp(v)) {
+      cmds.push({ id: `browse:${v.name}`, label: t('palette.browse', { name: v.name }), hint: v.alias ? bareUrl(v.alias) : '', icon: <ExternalLink size={14} />, run: () => window.open(v.url, '_blank', 'noreferrer') })
     }
   }
   for (const s of buildSections(state.servers, state.groups, '', null)) {

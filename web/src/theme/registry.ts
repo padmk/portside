@@ -50,5 +50,3 @@ export function familyOf(id: string): ThemeFamily {
 }
 
 export const themeFor = (family: string, mode: ThemeMode): ThemeId => familyOf(family)[mode]
-
-export const modeOf = (id: ThemeId): ThemeMode => (FAMILIES.some((f) => f.light === id) ? 'light' : 'dark')

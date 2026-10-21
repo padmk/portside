@@ -11,7 +11,7 @@ import { isModKey } from '../../ui/keys'
 import { restartServer, useBusy } from './actions'
 import { Address } from './Address'
 import { DetailsTab } from './DetailsTab'
-import { formatUptime, hasProcess } from './format'
+import { formatUptime, hasProcess, isUp } from './format'
 import { isDegraded, useServerNote } from './note'
 import { PortBanner } from './PortBanner'
 import { ProjectTile } from './ProjectTile'
@@ -165,7 +165,7 @@ export function DetailPane({ server: v, servers, docker }: Props) {
           <TerminalPane
             key={`${v.name}:${ui.terminalEpoch}`}
             source={api.terminalPath(v.name)}
-            interactive={v.status === 'running' || v.status === 'starting'}
+            interactive={isUp(v)}
             filterLines={(pattern) => api.logMatches(v.name, pattern, 2)}
             searchSignal={ui.focusSearch}
             emptyText={t('terminal.empty')}

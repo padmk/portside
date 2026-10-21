@@ -5,7 +5,7 @@ import { closeServer, openContainers, selectServer } from '../state/route'
 import { closeDialog, openAddServer, openDialog, showTerminal } from '../state/ui'
 import { isPaletteKey, paletteKey } from '../ui/keys'
 import { restartServer, toggleServer } from '../features/servers/actions'
-import { hasProcess } from '../features/servers/format'
+import { hasProcess, isUp } from '../features/servers/format'
 import {
   buildSections,
   clearFilters,
@@ -185,7 +185,7 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
           }
           break
         case 'o':
-          if (current?.url && (current.status === 'running' || current.status === 'starting')) window.open(current.url, '_blank', 'noreferrer')
+          if (current?.url && isUp(current)) window.open(current.url, '_blank', 'noreferrer')
           break
       }
     }

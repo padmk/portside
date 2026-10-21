@@ -416,11 +416,6 @@
   margin: 6px 2px;
   background: var(--border);
 }
-.menu-label {
-  padding: 8px 10px 4px;
-  font-size: var(--fs-xs);
-  color: var(--text-3);
-}
 
 @keyframes pop {
   from {

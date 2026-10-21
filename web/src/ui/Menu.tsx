@@ -110,4 +110,3 @@ export function MenuItem({ icon, children, onSelect, danger, disabled, trail, ch
 }
 
 export const MenuSeparator = () => <div className="menu-sep" role="separator" />
-export const MenuLabel = ({ children }: { children: ReactNode }) => <div className="menu-label">{children}</div>

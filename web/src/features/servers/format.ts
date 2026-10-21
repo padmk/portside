@@ -46,8 +46,11 @@ export function shortenHome(p: string): string {
 /** `http://name.localhost:7980/x` becomes `name.localhost:7980/x`. */
 export const bareUrl = (u: string) => u.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
+/** A process runs and is not shutting down: its address opens and its terminal takes input. */
+export const isUp = (v: Pick<ServerView, 'status'>) => v.status === 'running' || v.status === 'starting'
+
 export const hasProcess = (v: Pick<ServerView, 'status'>) =>
-  v.status === 'running' || v.status === 'starting' || v.status === 'stopping'
+  isUp(v) || v.status === 'stopping'
 
 /**
  * A crashed or exited server waiting for its automatic restart. Daemons
@@ -59,7 +62,7 @@ export const restartPending = (v: Pick<ServerView, 'status' | 'restartPending' |
 
 /** Stop has something to do: a process runs, or an automatic restart is due. */
 export const canStop = (v: Pick<ServerView, 'status' | 'restartPending' | 'note' | 'wanted'>) =>
-  v.status === 'running' || v.status === 'starting' || restartPending(v)
+  isUp(v) || restartPending(v)
 
 export function initials(name: string): string {
   const parts = name.split(/[-_.]+/).filter(Boolean)
