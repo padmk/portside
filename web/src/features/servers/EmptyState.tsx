@@ -13,10 +13,13 @@ function shellWord(path: string): string {
   return `${home}'${path.slice(home.length).replaceAll("'", `'\\''`)}'`
 }
 
-/** Scanning the current folder, and the configured projects folder unless that is the home folder. */
+/**
+ * Scanning the current folder, and the configured projects folder unless that is the home folder
+ * or has a backslash, which fish reads as an escape even in single quotes.
+ */
 function commands(root: string | undefined): string[] {
   const out = [`${brand.name} scan --add`]
-  if (root && root !== '~') out.push(`${brand.name} scan ${shellWord(root)} --add`)
+  if (root && root !== '~' && !root.includes('\\')) out.push(`${brand.name} scan ${shellWord(root)} --add`)
   return out
 }
 
