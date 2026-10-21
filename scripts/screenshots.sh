@@ -7,8 +7,11 @@
 # :56379), refusing to run when projects with those names exist, and removes
 # them, volumes included, on exit; it touches nothing else.
 #
+# With dist/macos/Portside.app built it also renders the menu bar panel and the
+# coding-agent window.
+#
 #   scripts/screenshots.sh                    # README screenshots in design/screenshots
-#   scripts/screenshots.sh --portfolio DIR    # light/dark pairs and the menu bar panel into DIR
+#   scripts/screenshots.sh --portfolio DIR    # light/dark pairs, the panel and the agent window into DIR
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
@@ -22,7 +25,7 @@ DEMO="$(mktemp -d /tmp/portside-demo.XXXXXX)"
 HOMEDIR="$DEMO/home"
 PS="$DEMO/portside"
 APP="$REPO/dist/macos/Portside.app"
-if [ "${1:-}" = "--portfolio" ] && [ -x "$APP/Contents/Helpers/portside" ]; then
+if [ -x "$APP/Contents/Helpers/portside" ]; then
   # Same binary as the app, so the app sees a daemon of its own version.
   cp "$APP/Contents/Helpers/portside" "$PS"
 else
@@ -181,11 +184,21 @@ fi
 # Chrome keeps cookies in the real keychain, so it runs with the real home.
 HOME="$REAL_HOME" node "$REPO/scripts/screenshots.mjs" "$DEMO" "$OUT" "$SET"
 
-if [ "$SET" = portfolio ] && [ -d "$REPO/dist/macos/Portside.app" ]; then
-  # The menu bar panel, drawn offscreen by a second app instance on the demo daemon.
-  for look in dark light; do
-    suffix=""; [ "$look" = light ] && suffix="-light"
-    "$APP/Contents/MacOS/Portside" -AppleLanguages "(${SHOT_LANG:-pl})" --appearance="$look" --render-panel="$OUT/portside-menubar$suffix.png" >/dev/null 2>&1 || true
+if [ -d "$APP" ]; then
+  # The menu bar panel, drawn offscreen by a second app instance on the demo
+  # daemon, and the coding-agent window for the demo home, where no agent is
+  # connected yet. README gets English dark/light; the portfolio both looks.
+  looks="dark light"; lang="${SHOT_LANG:-pl}"
+  [ "$SET" = readme ] && lang=en
+  for look in $looks; do
+    if [ "$SET" = portfolio ]; then
+      suffix=""; [ "$look" = light ] && suffix="-light"
+      panel="$OUT/portside-menubar$suffix.png" agents="$OUT/portside-agents$suffix.png"
+    else
+      panel="$OUT/menubar-$look.png" agents="$OUT/agents-$look.png"
+    fi
+    "$APP/Contents/MacOS/Portside" -AppleLanguages "($lang)" --appearance="$look" --render-panel="$panel" >/dev/null 2>&1 || true
+    "$APP/Contents/MacOS/Portside" -AppleLanguages "($lang)" --appearance="$look" --render-agent-setup="$agents" >/dev/null 2>&1 || true
   done
 fi
 echo "Screenshots written to $OUT (demo in $DEMO)"

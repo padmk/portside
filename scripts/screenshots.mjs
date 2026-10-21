@@ -67,6 +67,15 @@ const containersTab = async (name) => {
   await sleep(3000)
 }
 
+// The Settings dialog (opened with the g s shortcut), scrolled to the editor and terminal pickers.
+const settingsDialog = async () => {
+  await open()
+  await evaluate(`for (const key of ['g', 's']) document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))`)
+  await sleep(1500)
+  await evaluate(`document.querySelector('#set-editor')?.scrollIntoView({ block: 'center' })`)
+  await sleep(300)
+}
+
 await send('Page.enable')
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
 // The link is on 127.0.0.1 and forwards to the dashboard host, which the reply names.
@@ -95,6 +104,7 @@ if (set === 'portfolio') {
     await open('#/web', 3500); await shot(`portside-detail${suffix}.png`)
     await open('#/blog', 3000); await shot(`portside-crashed${suffix}.png`)
     await containersTab('api'); await shot(`portside-containers${suffix}.png`)
+    await settingsDialog(); await shot(`portside-settings${suffix}.png`)
   }
 } else {
   await evaluate(`localStorage.setItem('portside.collapsed', '["shop"]')`)
@@ -107,6 +117,7 @@ if (set === 'portfolio') {
   await theme('tokyo-night', 'dark'); await open('#/web', 3500); await shot('detail.png')
   await theme('catppuccin', 'light'); await open('#/blog', 3000); await shot('crashed.png')
   await theme('nord', 'dark'); await containersTab('api'); await shot('containers.png')
+  await theme('rose-pine', 'light'); await settingsDialog(); await shot('settings.png')
 }
 
 await send('Browser.close').catch(() => {})

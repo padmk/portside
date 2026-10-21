@@ -45,6 +45,13 @@ It is built for macOS, as a menu bar app; on Linux (a preview, less tested) the 
   <tr>
     <td colspan="2"><img src="design/screenshots/containers.png" alt="A server's Compose containers with their state, usage and live logs (Nord)"></td>
   </tr>
+  <tr>
+    <td><picture><source media="(prefers-color-scheme: dark)" srcset="design/screenshots/menubar-dark.png"><img src="design/screenshots/menubar-light.png" width="360" alt="The menu bar panel: every server with its project icon, state, memory and port, grouped by project"></picture></td>
+    <td><picture><source media="(prefers-color-scheme: dark)" srcset="design/screenshots/agents-dark.png"><img src="design/screenshots/agents-light.png" width="440" alt="The app offering to connect Claude Code, Codex and Gemini CLI through the MCP server"></picture></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="design/screenshots/settings.png" alt="Settings: appearance, palette, layout, language, and the editor and terminal the dashboard opens (Rosé Pine Dawn)"></td>
+  </tr>
 </table>
 
 ## Install
