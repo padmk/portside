@@ -342,7 +342,25 @@ func licensed(name, version, id, source, dir string) (entry, error) {
 	if e.license == "" {
 		return e, fmt.Errorf("%s %s: license in %s not recognized; add it to detect()", name, version, e.files[0].name)
 	}
+	if !acceptedLicense(e.license) {
+		return e, fmt.Errorf("%s %s declares license %q, which is not reviewed; add it to accepted after checking it", name, version, e.license)
+	}
 	return e, nil
+}
+
+// accepted are the licenses detect recognizes, which a declared license
+// must also be.
+var accepted = []string{"Apache-2.0", "MPL-2.0", "OFL-1.1", "MIT", "ISC", "BSD-3-Clause", "BSD-2-Clause"}
+
+// acceptedLicense reports whether id is an accepted license, or a choice
+// (A OR B) offering one.
+func acceptedLicense(id string) bool {
+	for _, part := range strings.Split(strings.Trim(id, "()"), " OR ") {
+		if slices.Contains(accepted, strings.TrimSpace(part)) {
+			return true
+		}
+	}
+	return false
 }
 
 func clean(s string) string {
