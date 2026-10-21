@@ -353,9 +353,14 @@ func licensed(name, version, id, source, dir string) (entry, error) {
 var accepted = []string{"Apache-2.0", "MPL-2.0", "OFL-1.1", "MIT", "ISC", "BSD-3-Clause", "BSD-2-Clause"}
 
 // acceptedLicense reports whether id is an accepted license, or a choice
-// (A OR B) offering one.
+// (A OR B) offering one. Terms that add conditions (AND, WITH, nested
+// parentheses) are not accepted.
 func acceptedLicense(id string) bool {
-	for _, part := range strings.Split(strings.Trim(id, "()"), " OR ") {
+	id = strings.TrimSuffix(strings.TrimPrefix(id, "("), ")")
+	if strings.ContainsAny(id, "()") || strings.Contains(id, " AND ") || strings.Contains(id, " WITH ") {
+		return false
+	}
+	for _, part := range strings.Split(id, " OR ") {
 		if slices.Contains(accepted, strings.TrimSpace(part)) {
 			return true
 		}
