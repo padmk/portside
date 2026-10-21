@@ -349,8 +349,12 @@ var errRevoked = errors.New("the pairing was removed on the other computer")
 var errUnverified = errors.New("the other computer could not prove it is the one this computer paired with")
 
 // errPeerRefused means the other side refused a relayed request without a
-// proof, as its guard does.
-var errPeerRefused = errors.New("the other computer refused the request")
+// proof, as its guard does: unauthorized (the pairing may be gone) or, for
+// errPeerRejected, forbidden (sharing restarted or the clocks differ).
+var (
+	errPeerRefused  = errors.New("the other computer refused the request")
+	errPeerRejected = errors.New("the other computer rejected the request")
+)
 
 // dialWS opens a signed WebSocket to the remote daemon and checks that the
 // daemon proved it holds the pairing key in its reply.
@@ -879,8 +883,11 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 			// proof; its body is not passed on, since this daemon would
 			// prove it to its own client as if it were its reply.
 			if _, ok := c.cred.Proven(challenge, res.Header); !ok {
-				if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+				switch res.StatusCode {
+				case http.StatusUnauthorized:
 					return errPeerRefused
+				case http.StatusForbidden:
+					return errPeerRejected
 				}
 				return errUnverified
 			}
@@ -896,6 +903,10 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			if errors.Is(err, errPeerRefused) {
 				writeError(w, http.StatusBadGateway, c.node.Name+" refused the request; pair with it again if this continues")
+				return
+			}
+			if errors.Is(err, errPeerRejected) {
+				writeError(w, http.StatusBadGateway, c.node.Name+" rejected the request; it may be reconnecting, or the two computers' clocks differ")
 				return
 			}
 			writeError(w, http.StatusBadGateway, c.node.Name+" is not reachable")
