@@ -107,6 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 for _ in 0..<60 where self.store.connection != .connected || self.store.servers.isEmpty {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
+                // Project icons load after the servers; give them a moment.
+                for _ in 0..<12 where self.store.servers.contains(where: { $0.hasIcon == true && self.store.icons[$0.name] == nil }) {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 PanelRenderer.render(MenuPanel(store: self.store, actions: actions), to: path)
                 NSApp.terminate(nil)

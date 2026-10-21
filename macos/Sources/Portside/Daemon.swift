@@ -243,6 +243,8 @@ struct APIClient {
         while true {
             let epoch = try await DaemonHandshake.shared.epoch(base: base, token: token)
             var req = try make()
+            // A cached reply carries the proof for an earlier challenge.
+            req.cachePolicy = .reloadIgnoringLocalCacheData
             guard let challenge = RequestSigner.sign(&req, token: token, epoch: epoch) else { throw DaemonError.unverified }
             let (data, resp) = try await URLSession.shared.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw DaemonError.failed("No reply from the daemon") }
