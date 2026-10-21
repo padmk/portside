@@ -2,8 +2,6 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +15,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/paths"
+	"github.com/padmk/portside/internal/signing"
 )
 
 // AutoPortBase is the first port handed out to servers without an explicit port.
@@ -43,11 +42,7 @@ var dashboardLabelRe = regexp.MustCompile(`^d-[0-9a-f]{24}$`)
 func IsDashboardLabel(label string) bool { return dashboardLabelRe.MatchString(label) }
 
 // NewDashboardLabel returns a random label that IsDashboardLabel accepts.
-func NewDashboardLabel() string {
-	b := make([]byte, 12)
-	_, _ = rand.Read(b)
-	return "d-" + hex.EncodeToString(b)
-}
+func NewDashboardLabel() string { return "d-" + signing.RandomHex(12) }
 
 // ValidName reports whether name can be used as a server name. Names double as
 // DNS labels for the <name>.localhost proxy, hence the strict alphabet.
