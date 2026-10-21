@@ -6,10 +6,17 @@ import { Mark } from '../../app/Mark'
 import { brand } from '../../brand'
 import { CopyButton } from '../../ui/CopyButton'
 
+/** path as one shell word, with a leading ~/ left outside the quotes for the shell to expand. */
+function shellWord(path: string): string {
+  if (/^[\w./~-]+$/.test(path)) return path
+  const home = path.startsWith('~/') ? '~/' : ''
+  return `${home}'${path.slice(home.length).replaceAll("'", `'\\''`)}'`
+}
+
 /** Scanning the current folder, and the configured projects folder unless that is the home folder. */
 function commands(root: string | undefined): string[] {
   const out = [`${brand.name} scan --add`]
-  if (root && root !== '~') out.push(`${brand.name} scan ${/\s/.test(root) ? JSON.stringify(root) : root} --add`)
+  if (root && root !== '~') out.push(`${brand.name} scan ${shellWord(root)} --add`)
   return out
 }
 
