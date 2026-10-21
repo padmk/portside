@@ -647,7 +647,8 @@ func (m *Monitor) pollStats(ctx context.Context, c *Client) {
 		m.mu.Lock()
 		var ids []string
 		for id, e := range m.entries {
-			if e.c.State == "running" {
+			// Paused ones too, or they would keep their last running sample.
+			if e.c.State == "running" || e.c.State == "paused" {
 				ids = append(ids, id)
 			}
 		}
