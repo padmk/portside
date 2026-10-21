@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The config can hold secrets in server environments and the logs can hold
@@ -31,7 +32,7 @@ var stateEntries = []string{
 // symlink or a concurrent writer cannot take over a fixed temporary name.
 // The directory must exist.
 func WriteFile(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*"+tempSuffix)
 	if err != nil {
 		return err
 	}
@@ -45,6 +46,22 @@ func WriteFile(path string, data []byte) error {
 		return err
 	}
 	return nil
+}
+
+const tempSuffix = ".tmp"
+
+// tempTarget returns the file name a temporary file left by WriteFile was
+// meant to replace, and whether name is such a file.
+func tempTarget(name string) (string, bool) {
+	base, ok := strings.CutSuffix(name, tempSuffix)
+	if !ok || !strings.HasPrefix(base, ".") {
+		return "", false
+	}
+	i := strings.LastIndex(base, "-")
+	if i <= 1 {
+		return "", false
+	}
+	return base[1:i], true
 }
 
 // Restrict removes group and other access from the product's config and state.

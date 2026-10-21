@@ -121,9 +121,13 @@ func legacyConfigEntry(name string) bool {
 	return name == app.ID+".toml" || strings.HasPrefix(name, ".tmp-") || name == ".DS_Store"
 }
 
-// legacyStateEntry is legacyConfigEntry for the state directory.
+// legacyStateEntry is legacyConfigEntry for the state directory, counting
+// temporary files left by WriteFile or by the fixed names earlier versions used.
 func legacyStateEntry(name string) bool {
-	name = strings.TrimSuffix(name, ".tmp")
+	if target, ok := tempTarget(name); ok {
+		name = target
+	}
+	name = strings.TrimSuffix(name, tempSuffix)
 	return name == "logs" || name == ".DS_Store" || slices.Contains(stateEntries, name)
 }
 
