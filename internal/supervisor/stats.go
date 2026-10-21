@@ -6,6 +6,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/ports"
 )
 
 // procSample is one row of `ps`: resident memory in bytes and CPU percent.
@@ -92,3 +95,137 @@ func (h *history) add(cpu float64, mem int64) {
 }
 
 func (h *history) reset() { h.cpu, h.mem = nil, nil }
+
+// Run performs periodic bookkeeping until ctx ends: resource sampling,
+// listening checks and detection of foreign processes on configured ports.
+func (s *Supervisor) Run(ctx context.Context) {
+	tick := time.NewTicker(SampleInterval)
+	defer tick.Stop()
+	go func() {
+		prune := time.NewTicker(PruneInterval)
+		defer prune.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-prune.C:
+				s.pruneTemporary()
+			}
+		}
+	}()
+	knownExternal := map[string]int{}
+	for {
+		s.sample(ctx, knownExternal)
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
+	table := sampleProcesses(ctx)
+	children := childIndex(table)
+
+	type check struct {
+		name  string
+		port  int
+		alive bool
+		pid   int
+		start string
+	}
+	var checks []check
+	hasLive := false
+	forwarded := map[string]bool{} // stopped servers whose port forwards to another computer
+	type detection struct {
+		name string
+		pid  int
+		cfg  config.Server
+	}
+	var detections []detection
+	s.mu.Lock()
+	prepend, globalEnv := s.cfg.PathPrepend, s.cfg.Env
+	for name, p := range s.procs {
+		if p.pid != 0 {
+			hasLive = true
+			if p.launch != nil {
+				detections = append(detections, detection{name, p.pid, p.cfg})
+			}
+			cpu, mem, ok := treeUsage(table, children, p.pid)
+			if ok {
+				p.cpu, p.mem = cpu, mem
+				p.hist.add(cpu, mem)
+			}
+		}
+		if p.cfg.Port > 0 && p.status != Starting && p.status != Stopping {
+			port := p.cfg.Port
+			if p.pid != 0 {
+				port = p.running.Port
+			}
+			pid := 0
+			if p.external != nil {
+				pid = p.external.PID
+			}
+			checks = append(checks, check{name, port, p.pid != 0, pid, p.externalStart})
+			forwarded[name] = s.forwardedFromLocked(p) != ""
+		}
+	}
+	s.mu.Unlock()
+
+	if hasLive {
+		base := s.env.get()
+		// Files such as a new .envrc change which tool a restart would use.
+		for _, d := range detections {
+			env := launchEnv(base, d.cfg, prepend, globalEnv)
+			key := detectTool(d.cfg, lookupEnv(env, "PATH"), nvmScript(env)).key()
+			s.mu.Lock()
+			if p := s.procs[d.name]; p != nil && p.pid == d.pid {
+				p.detected = &key
+			}
+			s.mu.Unlock()
+		}
+	}
+	for _, c := range checks {
+		// A forwarded port answers from the other computer; nothing here holds it.
+		listening := !forwarded[c.name] && ports.Listening(c.port)
+		var owner *ports.Listener
+		if !c.alive && listening {
+			if knownExternal[c.name] != c.port || c.pid == 0 || c.start == "" || processStart(c.pid) != c.start {
+				if l, ok := ports.Owner(ctx, c.port); ok {
+					owner = &l
+				} else {
+					owner = &ports.Listener{Port: c.port}
+				}
+			}
+		}
+		identity := ""
+		if owner != nil {
+			identity = processStart(owner.PID)
+		}
+		s.mu.Lock()
+		p, ok := s.procs[c.name]
+		if ok && c.alive == (p.pid != 0) {
+			if c.alive {
+				p.listening = listening
+			} else if !listening {
+				if p.external != nil {
+					p.external = nil
+					if p.status == Blocked {
+						p.status = Stopped
+						p.note = ""
+					}
+				}
+				delete(knownExternal, c.name)
+			} else if owner != nil {
+				p.external = owner
+				p.externalStart = identity
+				knownExternal[c.name] = c.port
+			}
+		}
+		s.mu.Unlock()
+	}
+	s.mu.Lock()
+	s.changedLocked()
+	s.mu.Unlock()
+}
