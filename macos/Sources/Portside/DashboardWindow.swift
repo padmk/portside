@@ -165,8 +165,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         webView.loadHTMLString(statusPage(status), baseURL: nil)
     }
 
-    func reload() { webView.reload() }
-
     private func jsString(_ s: String) -> String {
         let data = try? JSONSerialization.data(withJSONObject: [s])
         let arr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"

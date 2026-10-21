@@ -16,7 +16,6 @@ struct DaemonState: Decodable {
 struct RemoteInfo: Decodable, Equatable {
     struct Peer: Decodable, Equatable {
         let name: String
-        let dnsName: String
     }
 
     struct Mirror: Decodable, Equatable {
@@ -25,7 +24,6 @@ struct RemoteInfo: Decodable, Equatable {
     }
 
     let peer: Peer
-    let status: String
     let mirrors: [Mirror]?
 
     /// Whether the other computer's port is forwarded to the same port here.
@@ -35,7 +33,6 @@ struct RemoteInfo: Decodable, Equatable {
 }
 
 struct DockerState: Decodable {
-    let status: String
     let containers: [Container]?
 }
 
@@ -44,7 +41,6 @@ struct Container: Decodable, Hashable {
     let service: String?
     let state: String
     let health: String?
-    let failed: Bool?
     /// Servers this container needs attention for; the daemon decides.
     let issueFor: [String]?
 
@@ -61,8 +57,6 @@ struct Container: Decodable, Hashable {
 
 struct Health: Decodable {
     let version: String
-    let pid: Int
-    let port: Int
 }
 
 struct ConfigInfo: Decodable {
@@ -72,24 +66,20 @@ struct ConfigInfo: Decodable {
 }
 
 struct PortHolder: Decodable, Hashable {
-    let pid: Int?
     let command: String?
 }
 
 struct Server: Decodable, Identifiable, Hashable {
     let name: String
     let group: String?
-    let dir: String
     let dirDisplay: String
     let port: Int
     let url: String?
     let alias: String?
     let status: String
     let note: String?
-    let pid: Int?
     let external: PortHolder?
     let stale: Bool?
-    let enabled: Bool
     let cpu: Double
     let mem: Int64
     let exitedAt: String?
@@ -167,7 +157,7 @@ enum DaemonError: LocalizedError {
     }
 }
 
-/// Runs the bundled `portside` binary and talks to the daemon over HTTP.
+/// Runs the bundled `portside` binary.
 enum DaemonCLI {
     static var helperURL: URL {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/portside")
@@ -215,13 +205,17 @@ enum DaemonCLI {
         return out.stdout
     }
 
+    /// Exit statuses of `daemon info` that still print its JSON:
+    /// `infoNotRunning` and `infoConfigError` in internal/cli/daemoncmds.go.
+    private static let infoNotRunning: Int32 = 3
+    private static let infoConfigError: Int32 = 4
+
     /// Where the daemon listens. With `start` it starts one if needed;
     /// otherwise it only reports a running daemon. A daemon that is not
-    /// running (exit 3) or a config that does not load (exit 4) is an
-    /// answer, not an error.
+    /// running or a config that does not load is an answer, not an error.
     static func info(start: Bool) async throws -> DaemonInfo {
         let out = try await exec(start ? ["daemon", "info"] : ["daemon", "info", "--no-start"])
-        guard [0, 3, 4].contains(out.status), let info = try? JSONDecoder().decode(DaemonInfo.self, from: out.stdout) else {
+        guard [0, infoNotRunning, infoConfigError].contains(out.status), let info = try? JSONDecoder().decode(DaemonInfo.self, from: out.stdout) else {
             throw DaemonError.failed(out.stderr.isEmpty ? L.t("Could not start the daemon.", "Nie udało się uruchomić demona.") : out.stderr)
         }
         return info

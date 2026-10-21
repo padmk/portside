@@ -358,7 +358,8 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 	return true, fmt.Errorf("the upgraded daemon did not answer; started a fresh one (pid %d), which restores servers that were running; see %s", h.PID, paths.ShortenHome(paths.DaemonLog()))
 }
 
-// Exit codes of `daemon info` besides 0 (running) and 1 (other errors).
+// Exit codes of `daemon info` besides 0 (running) and 1 (other errors); the
+// macOS app (macos/Sources/Portside/Daemon.swift) relies on them.
 const (
 	infoNotRunning  = 3
 	infoConfigError = 4
