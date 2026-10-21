@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ServerView } from '../api/types'
 import type { Key } from '../i18n'
-import { closeServer, openContainers, selectServer } from '../state/route'
+import { closeServer, onContainersPage, openContainers, selectServer } from '../state/route'
 import { closeDialog, openAddServer, openDialog, showTerminal } from '../state/ui'
 import { isPaletteKey, paletteKey } from '../ui/keys'
 import { restartServer, toggleServer } from '../features/servers/actions'
@@ -168,7 +168,7 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
           e.preventDefault()
           break
         case 'Escape':
-          if (location.hash === '#containers') closeServer()
+          if (onContainersPage()) closeServer()
           else if (inDetail) {
             setCursor(selectedName)
             closeServer()

@@ -11,9 +11,14 @@ function read(): string | null {
   }
 }
 
+const serverHash = (name: string) => `#/${encodeURIComponent(name)}`
+
+/** Whether the server's detail page is open. */
+export const isSelected = (name: string) => location.hash === serverHash(name)
+
 /** Opens a server's detail page, or the overview for `null`. Going from the overview to a server adds a history entry. */
 export function selectServer(name: string | null) {
-  const next = name ? `#/${encodeURIComponent(name)}` : ''
+  const next = name ? serverHash(name) : ''
   if (location.hash === next) return
   const url = next || location.pathname + location.search
   if (name && !location.hash) history.pushState(null, '', url)
@@ -47,9 +52,12 @@ export function openContainers() {
   window.dispatchEvent(new HashChangeEvent('hashchange'))
 }
 
+/** Whether the containers page is open. */
+export const onContainersPage = () => location.hash === CONTAINERS
+
 export function useContainersPage(): boolean {
   return useSyncExternalStore(
     (cb) => (window.addEventListener('hashchange', cb), () => window.removeEventListener('hashchange', cb)),
-    () => location.hash === CONTAINERS,
+    onContainersPage,
   )
 }

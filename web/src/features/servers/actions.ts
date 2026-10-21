@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { api, ApiError, isCurrent } from '../../api/client'
 import type { BulkAction, OpenTarget, ServerView, State } from '../../api/types'
 import { applyState, currentState } from '../../state/live'
-import { selectServer } from '../../state/route'
+import { isSelected, selectServer } from '../../state/route'
 import { toast, toastError } from '../../state/toasts'
 import { openDialog, resetTerminal } from '../../state/ui'
 import { t } from '../../i18n'
@@ -108,13 +108,13 @@ export const setEnabled = (name: string, enabled: boolean) =>
 export const removeTemporary = (name: string) =>
   run(name, async () => {
     await api.stop(name)
-    if (location.hash === `#/${encodeURIComponent(name)}`) selectServer(null)
+    if (isSelected(name)) selectServer(null)
   })
 
 export const removeServer = (name: string) =>
   run(name, async () => {
     applyState(await api.deleteServer(name))
-    if (location.hash === `#/${encodeURIComponent(name)}`) selectServer(null)
+    if (isSelected(name)) selectServer(null)
   })
 
 export const openOnDesktop = (target: OpenTarget, name?: string) =>
