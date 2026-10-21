@@ -288,13 +288,9 @@ func (t *tools) list(ctx context.Context, _ *mcp.CallToolRequest, in listIn) (*m
 	if err != nil {
 		return nil, listOut{}, err
 	}
-	// The local dashboard is served on its own host; another computer's goes
-	// through this daemon's relay.
-	dashboard := t.c.Base
-	if g.computer() == "" {
-		dashboard = client.DashboardURL(t.c.Port)
-	}
-	out := listOut{Dashboard: dashboard, Servers: []Server{}, Docker: engine(st.Docker), Computer: g.computer()}
+	// The dashboard is served on its own host and shows the connected
+	// computer too.
+	out := listOut{Dashboard: client.DashboardURL(t.c.Port), Servers: []Server{}, Docker: engine(st.Docker), Computer: g.computer()}
 	byServer := map[string][]Container{}
 	for _, c := range st.Docker.Containers {
 		for _, name := range c.Servers() {
