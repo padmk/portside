@@ -182,16 +182,16 @@ func (m *Manager) current() *conn {
 type conn struct {
 	m      *Manager
 	node   tailnet.Node
-	host   string // DNS name and port of the remote daemon
 	ctx    context.Context
 	cancel context.CancelFunc
 	peerTr *http.Transport // API calls and tunnels
 	devTr  *http.Transport // remote dev servers, dialled through tunnels
 	since  time.Time
-	port   int
 	cred   share.Credential // what the remote issued to this device at pairing
 
 	// Guarded by m.mu.
+	host    string // DNS name and port of the remote daemon
+	port    int
 	epoch   string // the remote listener's epoch, from its last proof
 	status  string
 	down    time.Time // when the connection was lost; zero while open
@@ -357,7 +357,8 @@ var errPeerRefused = errors.New("the other computer refused the request")
 func (c *conn) dialWS(ctx context.Context, uri string) (*websocket.Conn, error) {
 	h := peerHeader(&c.cred, c.currentEpoch(), http.MethodGet, uri, nil)
 	challenge := share.Challenge(h)
-	ws, res, err := websocket.Dial(ctx, "wss://"+c.host+uri, &websocket.DialOptions{
+	host, _ := c.address()
+	ws, res, err := websocket.Dial(ctx, "wss://"+host+uri, &websocket.DialOptions{
 		HTTPClient: &http.Client{Transport: c.peerTr}, HTTPHeader: h})
 	if err != nil {
 		if res != nil && res.StatusCode == http.StatusUnauthorized {
@@ -372,6 +373,27 @@ func (c *conn) dialWS(ctx context.Context, uri string) (*websocket.Conn, error) 
 	return ws, nil
 }
 
+// address returns the remote daemon's host (DNS name and port) and port.
+func (c *conn) address() (string, int) {
+	c.m.mu.Lock()
+	defer c.m.mu.Unlock()
+	return c.host, c.port
+}
+
+// moveTo follows the remote daemon to port, where it answered after taking
+// another automatic port, and keeps that port for resuming.
+func (c *conn) moveTo(port int) {
+	c.m.mu.Lock()
+	c.host, c.port = net.JoinHostPort(c.node.DNSName, strconv.Itoa(port)), port
+	c.m.mu.Unlock()
+	log.Printf("remote: %s now answers on port %d", c.node.DNSName, port)
+	if s, ok := c.m.store.connection(); ok && strings.EqualFold(s.DNSName, c.node.DNSName) {
+		if err := c.m.store.setConnection(savedFrom(c.node, port)); err != nil {
+			log.Printf("remote: %v", err)
+		}
+	}
+}
+
 func (c *conn) currentEpoch() string {
 	c.m.mu.Lock()
 	defer c.m.mu.Unlock()
@@ -381,13 +403,21 @@ func (c *conn) currentEpoch() string {
 func (c *conn) stream() error {
 	// Each (re)connection first checks that the daemon answering is the one
 	// this device paired with, before trusting the state it sends.
-	_, epoch, err := call(c.ctx, c.peerTr, c.node, c.port, &c.cred, "", http.MethodGet, "/api/hello", nil, nil)
+	_, port := c.address()
+	_, epoch, err := call(c.ctx, c.peerTr, c.node, port, &c.cred, "", http.MethodGet, "/api/hello", nil, nil)
 	if err != nil {
 		var e *Error
 		if errors.As(err, &e) && e.Status == http.StatusUnauthorized {
 			return errRevoked
 		}
-		return err
+		// The daemon may have restarted on another automatic port; follow
+		// it only where it proves it holds the pairing key.
+		found, _, foundEpoch, ferr := c.m.findPort(c.ctx, c.peerTr, c.node, &c.cred)
+		if ferr != nil || found == port {
+			return err
+		}
+		c.moveTo(found)
+		epoch = foundEpoch
 	}
 	c.m.mu.Lock()
 	c.epoch = epoch
@@ -814,7 +844,7 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 		r.Body = io.NopCloser(bytes.NewReader(b))
 	}
 	m.mu.Lock()
-	status, epoch := c.status, c.epoch
+	status, epoch, host := c.status, c.epoch, c.host
 	m.mu.Unlock()
 	if status != Open {
 		// Until the event stream has reconnected to a daemon that proved
@@ -828,10 +858,10 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme = "https"
-			pr.Out.URL.Host = c.host
+			pr.Out.URL.Host = host
 			pr.Out.URL.RawPath = "/api" + rest
 			pr.Out.URL.Path, _ = url.PathUnescape(pr.Out.URL.RawPath)
-			pr.Out.Host = c.host
+			pr.Out.Host = host
 			for _, h := range []string{"Cookie", "Authorization", "Origin", "Referer"} {
 				pr.Out.Header.Del(h)
 			}
