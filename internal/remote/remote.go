@@ -188,6 +188,7 @@ type conn struct {
 	devTr  *http.Transport // remote dev servers, dialled through tunnels
 	since  time.Time
 	cred   share.Credential // what the remote issued to this device at pairing
+	found  time.Time        // when stream last looked for the daemon's port
 
 	// Guarded by m.mu.
 	host    string // DNS name and port of the remote daemon
@@ -385,16 +386,18 @@ func (c *conn) address() (string, int) {
 }
 
 // moveTo follows the remote daemon to port, where it answered after taking
-// another automatic port, and keeps that port for resuming.
+// another automatic port, and keeps that port for resuming unless the
+// connection was ended or replaced meanwhile.
 func (c *conn) moveTo(port int) {
+	if c.ctx.Err() != nil {
+		return
+	}
 	c.m.mu.Lock()
 	c.host, c.port = net.JoinHostPort(c.node.DNSName, strconv.Itoa(port)), port
 	c.m.mu.Unlock()
 	log.Printf("remote: %s now answers on port %d", c.node.DNSName, port)
-	if s, ok := c.m.store.connection(); ok && strings.EqualFold(s.DNSName, c.node.DNSName) {
-		if err := c.m.store.setConnection(savedFrom(c.node, port)); err != nil {
-			log.Printf("remote: %v", err)
-		}
+	if err := c.m.store.movePort(c.node.DNSName, port); err != nil {
+		log.Printf("remote: %v", err)
 	}
 }
 
@@ -415,12 +418,20 @@ func (c *conn) stream() error {
 			return errRevoked
 		}
 		// The daemon may have restarted on another automatic port; follow
-		// it only where it proves it holds the pairing key.
-		found, _, foundEpoch, ferr := c.m.findPort(c.ctx, c.peerTr, c.node, &c.cred)
-		if ferr != nil || found == port {
+		// it only where it proves it holds the pairing key. Looking probes
+		// every candidate port, so a computer that stays away is asked at
+		// most once a minute.
+		if time.Since(c.found) < time.Minute {
 			return err
 		}
-		c.moveTo(found)
+		c.found = time.Now()
+		found, _, foundEpoch, ferr := c.m.findPort(c.ctx, c.peerTr, c.node, &c.cred)
+		if ferr != nil {
+			return err
+		}
+		if found != port {
+			c.moveTo(found)
+		}
 		epoch = foundEpoch
 	}
 	c.m.mu.Lock()

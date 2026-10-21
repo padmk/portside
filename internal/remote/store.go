@@ -90,6 +90,15 @@ func (s *store) setConnection(c *saved) error {
 	return s.edit(func(d *storeData) { d.Connection = c })
 }
 
+// movePort changes the saved connection's port when it is to dnsName.
+func (s *store) movePort(dnsName string, port int) error {
+	return s.edit(func(d *storeData) {
+		if d.Connection != nil && strings.EqualFold(d.Connection.DNSName, dnsName) {
+			d.Connection.Port = port
+		}
+	})
+}
+
 // forget removes the saved connection when it is to dnsName.
 func (s *store) forget(dnsName string) error {
 	return s.edit(func(d *storeData) {
