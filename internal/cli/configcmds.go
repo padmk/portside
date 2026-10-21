@@ -52,13 +52,7 @@ func relDir(root, dir string) string {
 			abs = filepath.Join(wd, abs)
 		}
 	}
-	if rel, err := filepath.Rel(root, abs); err == nil && !strings.HasPrefix(rel, "..") {
-		if rel == "." {
-			return ""
-		}
-		return rel
-	}
-	return paths.ShortenHome(abs)
+	return config.SpecDir(root, abs)
 }
 
 func cmdAdd(e *env, args []string) error {

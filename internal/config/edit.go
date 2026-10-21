@@ -39,6 +39,20 @@ type Spec struct {
 	Comment string `json:"comment,omitempty"`
 }
 
+// SpecDir is how the absolute directory abs is written as a server's dir:
+// relative to root when inside it ("" for root itself), otherwise with the
+// home directory shortened to ~.
+func SpecDir(root, abs string) string {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return paths.ShortenHome(abs)
+	}
+	if rel == "." {
+		return ""
+	}
+	return rel
+}
+
 // Quote renders s as a TOML basic string.
 func Quote(s string) string {
 	var b strings.Builder

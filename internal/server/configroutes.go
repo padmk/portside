@@ -103,14 +103,7 @@ func (s *Server) normalizeSpec(sp *config.Spec) {
 	root := s.sup.Config().Root
 	abs := paths.ExpandHome(sp.Dir)
 	if filepath.IsAbs(abs) {
-		if rel, err := filepath.Rel(root, abs); err == nil && !strings.HasPrefix(rel, "..") {
-			sp.Dir = rel
-			if rel == "." {
-				sp.Dir = ""
-			}
-		} else {
-			sp.Dir = paths.ShortenHome(abs)
-		}
+		sp.Dir = config.SpecDir(root, abs)
 	}
 }
 

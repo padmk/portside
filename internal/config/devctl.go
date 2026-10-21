@@ -117,11 +117,7 @@ func ImportDevctl(path string) (*DevctlImport, error) {
 			pending = nil
 			continue
 		}
-		if rel, err := filepath.Rel(root, absDir); err == nil && !strings.HasPrefix(rel, "..") {
-			dir = rel
-		} else {
-			dir = paths.ShortenHome(absDir)
-		}
+		dir = SpecDir(root, absDir)
 		sp := Spec{
 			Name:    slug(name),
 			Dir:     dir,
