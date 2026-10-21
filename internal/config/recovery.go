@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -76,11 +75,5 @@ func ReadPort(path string) (int, error) {
 	if _, err := toml.DecodeFile(path, &raw); err != nil {
 		return 0, err
 	}
-	if raw.Port == 0 {
-		return app.DefaultPort, nil
-	}
-	if raw.Port < 1 || raw.Port > 65535 {
-		return 0, fmt.Errorf("dashboard port %d out of range", raw.Port)
-	}
-	return raw.Port, nil
+	return dashboardPort(raw.Port)
 }

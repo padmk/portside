@@ -227,6 +227,18 @@ func Load(path string) (*Config, error) {
 // Parse validates configuration text. path is used for messages and relative paths.
 func Parse(path string, data []byte) (*Config, error) { return parse(path, data, nil) }
 
+// dashboardPort returns the dashboard port for a configured value: the default when unset,
+// an error when outside 1-65535.
+func dashboardPort(port int) (int, error) {
+	if port == 0 {
+		return app.DefaultPort, nil
+	}
+	if port < 1 || port > 65535 {
+		return 0, fmt.Errorf("dashboard port %d out of range", port)
+	}
+	return port, nil
+}
+
 // parse is Parse with automatic ports that also skip the ports avoid reports.
 func parse(path string, data []byte, avoid func(port int) bool) (*Config, error) {
 	var raw rawConfig
@@ -253,10 +265,11 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 	} else if !filepath.IsAbs(cfg.Root) {
 		cfg.Root = filepath.Join(filepath.Dir(path), cfg.Root)
 	}
-	if cfg.Port == 0 {
-		cfg.Port = app.DefaultPort
-		cfg.PortAuto = true
+	port, err := dashboardPort(raw.Port)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	cfg.Port, cfg.PortAuto = port, raw.Port == 0
 	if cfg.Shell == "" {
 		cfg.Shell = "bash"
 	}
