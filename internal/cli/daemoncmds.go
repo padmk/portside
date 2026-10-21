@@ -104,7 +104,7 @@ func cmdService(e *env, args []string) error {
 		if _, err := c.Ping(e.ctx); err == nil {
 			// Hand over from a manually started daemon; restore brings servers back.
 			_ = shutdown(e, c, restartBody)
-			waitGone(c, e, 90*time.Second)
+			_ = waitGone(c, e)
 		}
 		// Locations an earlier version kept under XDG variables move now that
 		// no daemon uses them, before the service is pinned to them again.
@@ -171,10 +171,7 @@ func stopDaemon(e *env, c *client.Client) (bool, error) {
 		daemon.ClearStopped()
 		return true, err
 	}
-	if !waitGone(c, e, 90*time.Second) {
-		return true, fmt.Errorf("daemon did not stop within 90s")
-	}
-	return true, nil
+	return true, waitGone(c, e)
 }
 
 // restartBody tells /api/shutdown that a new daemon follows, so the stop is
@@ -256,8 +253,8 @@ func daemonRestart(e *env, c *client.Client) error {
 			if err := shutdown(e, c, restartBody); err != nil {
 				return err
 			}
-			if !waitGone(c, e, 90*time.Second) {
-				return fmt.Errorf("daemon did not stop within 90s")
+			if err := waitGone(c, e); err != nil {
+				return err
 			}
 			running = false
 		}
@@ -282,8 +279,8 @@ func daemonRestart(e *env, c *client.Client) error {
 		if err := shutdown(e, c, restartBody); err != nil {
 			return err
 		}
-		if !waitGone(c, e, 90*time.Second) {
-			return fmt.Errorf("daemon did not stop within 90s")
+		if err := waitGone(c, e); err != nil {
+			return err
 		}
 	}
 	next := e.nextClient()
@@ -356,6 +353,19 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 		return true, fmt.Errorf("the upgraded daemon did not answer and none could be started: %w; see %s", err, paths.ShortenHome(paths.DaemonLog()))
 	}
 	return true, fmt.Errorf("the upgraded daemon did not answer; started a fresh one (pid %d), which restores servers that were running; see %s", h.PID, paths.ShortenHome(paths.DaemonLog()))
+}
+
+// waitGone polls until the daemon stops answering, giving it 90s to stop
+// its servers.
+func waitGone(c *client.Client, e *env) error {
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := c.Ping(e.ctx); err != nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return errors.New("daemon did not stop within 90s")
 }
 
 // Exit codes of `daemon info` besides 0 (running) and 1 (other errors); the

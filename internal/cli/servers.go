@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
@@ -487,16 +486,4 @@ func truncate(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n-1]) + "…"
-}
-
-// waitGone polls until the daemon stops answering.
-func waitGone(c *client.Client, e *env, d time.Duration) bool {
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if _, err := c.Ping(e.ctx); err != nil {
-			return true
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return false
 }
