@@ -69,7 +69,7 @@ func PortHolder(ctx context.Context, port int) Holder {
 
 // lockDir returns the directory of the daemon lock that pid holds open, or "".
 func lockDir(ctx context.Context, pid int) string {
-	const lock = "daemon.lock"
+	const lock = paths.LockName
 	if runtime.GOOS == "linux" {
 		fdDir := "/proc/" + strconv.Itoa(pid) + "/fd"
 		if ents, err := os.ReadDir(fdDir); err == nil {

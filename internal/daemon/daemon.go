@@ -63,7 +63,7 @@ func Run(cfgPath string) error {
 	// A daemon that re-executed itself to upgrade left its lock, sockets
 	// and servers to this process.
 	ho := takeHandoff(stateDir)
-	lockPath := filepath.Join(stateDir, "daemon.lock")
+	lockPath := filepath.Join(stateDir, paths.LockName)
 	var lock *os.File
 	if ho != nil {
 		var err error
@@ -250,7 +250,7 @@ func Run(cfgPath string) error {
 	handedOff := serve(listeners)
 	log.Printf("%s %s listening on http://127.0.0.1:%d (pid %d)", app.Name, app.Version, cfg.Port, os.Getpid())
 	// Clients find a daemon whose config has since moved to another port here.
-	portFile := filepath.Join(stateDir, "daemon.port")
+	portFile := filepath.Join(stateDir, paths.PortName)
 	_ = os.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"), paths.FileMode)
 	defer os.Remove(portFile)
 	// Keep an installed agent skill in step with this binary. Instances with

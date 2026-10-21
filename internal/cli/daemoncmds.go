@@ -386,7 +386,7 @@ func daemonInfo(e *env, c *client.Client, args []string) error {
 	}
 	if err == nil || errors.Is(err, client.ErrUnverified) {
 		out := map[string]any{"running": true, "verified": h.Verified, "url": c.Base, "port": c.Port, "pid": h.PID, "version": h.Version,
-			"config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "tokenFile": filepath.Join(paths.StateDir(), "auth-token")}
+			"config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "tokenFile": filepath.Join(paths.StateDir(), paths.TokenName)}
 		if !h.Verified {
 			out["error"] = c.Unverified().Error()
 		}

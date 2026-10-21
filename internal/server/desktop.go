@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/paths"
 )
 
 // ── desktop integration ──────────────────────────────────────────────────
@@ -36,7 +37,7 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 	case "config":
 		target = s.opt.ConfigPath
 	case "logs":
-		target = filepath.Join(s.opt.StateDir, "logs")
+		target = paths.LogDir(s.opt.StateDir)
 		if body.Name != "" {
 			target = filepath.Join(target, body.Name+".log")
 		}

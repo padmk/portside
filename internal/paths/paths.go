@@ -75,8 +75,16 @@ func Default(cfgPath, stateDir string) bool {
 	return SamePath(ExpandHome(cfgPath), DefaultConfigFile()) && SamePath(stateDir, defaultStateDir())
 }
 
-// LogDir returns the directory holding one log file per server.
-func LogDir() string { return filepath.Join(StateDir(), "logs") }
+// Files in the state directory that the daemon writes and its clients read.
+const (
+	TokenName         = "auth-token"     // the API token
+	DashboardHostName = "dashboard-host" // the dashboard's host name
+	PortName          = "daemon.port"    // the port a running daemon serves
+	LockName          = "daemon.lock"    // held by the running daemon
+)
+
+// LogDir returns the directory in stateDir holding one log file per server.
+func LogDir(stateDir string) string { return filepath.Join(stateDir, "logs") }
 
 // DaemonLog returns the daemon's own log file.
 func DaemonLog() string { return filepath.Join(StateDir(), "daemon.log") }

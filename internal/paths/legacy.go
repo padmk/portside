@@ -78,7 +78,7 @@ func moveLegacy(forService bool) []string {
 			useLegacy(app.Env("STATE_DIR"), stateFrom)
 		}
 	}
-	if stateFrom != "" && lockHeld(filepath.Join(stateFrom, "daemon.lock")) {
+	if stateFrom != "" && lockHeld(filepath.Join(stateFrom, LockName)) {
 		useOld()
 		return append(notes, fmt.Sprintf("a daemon runs from %s, where an earlier version kept its state; using it until that daemon stops, then it moves to %s", ShortenHome(stateFrom), ShortenHome(defaultStateDir())))
 	}
@@ -112,7 +112,7 @@ func moveLegacy(forService bool) []string {
 // directory under the XDG base named by the key to be the product's own.
 var legacyMarkers = map[string][]string{
 	"XDG_CONFIG_HOME": {app.ID + ".toml"},
-	"XDG_STATE_HOME":  {"daemon.lock", "state.json"},
+	"XDG_STATE_HOME":  {LockName, "state.json"},
 }
 
 // legacyConfigEntry reports whether name is a file the product keeps in its

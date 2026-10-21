@@ -20,8 +20,8 @@ const (
 // the state directory. In a state directory chosen by the user only these,
 // the logs directory and the directory itself are tightened.
 var stateEntries = []string{
-	"auth-token", "auto-port", "container-stops.json", "daemon.lock", "daemon.log",
-	"daemon.port", "dashboard-host", "handoff.json", "last-good-config.json",
+	TokenName, "auto-port", "container-stops.json", LockName, "daemon.log",
+	PortName, DashboardHostName, "handoff.json", "last-good-config.json",
 	"remote-tokens.json", "remote.json", "share-devices.json", "share-target",
 	"remote-instance", "state.json", "stopped",
 }
@@ -63,7 +63,7 @@ func Restrict(cfgPath, stateDir string) {
 		for _, name := range stateEntries {
 			restrict(filepath.Join(stateDir, name))
 		}
-		restrictTree(filepath.Join(stateDir, "logs"))
+		restrictTree(LogDir(stateDir))
 	}
 	if dir := filepath.Dir(cfgPath); SamePath(dir, defaultConfigDir()) {
 		restrictTree(dir)

@@ -61,9 +61,7 @@ import (
 // requests to that host.
 
 const (
-	tokenFile = "auth-token"
-	hostFile  = "dashboard-host"
-	codeTTL   = 2 * time.Minute
+	codeTTL = 2 * time.Minute
 )
 
 var cookieName = app.ID + "_session"
@@ -73,10 +71,12 @@ var cookieName = app.ID + "_session"
 var signInHeader = signing.Header("Sign-In")
 
 // TokenPath is where the daemon keeps its token.
-func TokenPath(stateDir string) string { return filepath.Join(stateDir, tokenFile) }
+func TokenPath(stateDir string) string { return filepath.Join(stateDir, paths.TokenName) }
 
 // DashboardHostPath is where the daemon keeps its dashboard's host name.
-func DashboardHostPath(stateDir string) string { return filepath.Join(stateDir, hostFile) }
+func DashboardHostPath(stateDir string) string {
+	return filepath.Join(stateDir, paths.DashboardHostName)
+}
 
 // Credentials are the daemon's API token and its dashboard's host name.
 type Credentials struct {

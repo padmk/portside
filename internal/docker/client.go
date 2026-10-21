@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -49,12 +48,6 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string { return e.Message }
-
-// IsNotFound reports whether err is the engine's 404.
-func IsNotFound(err error) bool {
-	var ae *APIError
-	return errors.As(err, &ae) && ae.Status == http.StatusNotFound
-}
 
 func (c *Client) do(ctx context.Context, method, path string, q url.Values, body any) (*http.Response, error) {
 	var rd io.Reader

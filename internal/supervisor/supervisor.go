@@ -150,7 +150,7 @@ func (s *Supervisor) AddDesktopClient() func() {
 func New(cfg *config.Config, stateDir string) *Supervisor {
 	s := &Supervisor{
 		procs:    map[string]*proc{},
-		logDir:   filepath.Join(stateDir, "logs"),
+		logDir:   paths.LogDir(stateDir),
 		state:    statePath(stateDir),
 		subs:     map[chan struct{}]struct{}{},
 		notifier: Notify,

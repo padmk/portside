@@ -129,11 +129,10 @@ func (c *Client) On(ctx context.Context, name string) (*Client, *Connection, err
 	return &on, cn, nil
 }
 
-// tokenFile and hostFile mirror server.TokenPath and
-// server.DashboardHostPath. The client reads the token on every request, so
-// a daemon started after the client still works.
-func tokenFile() string { return filepath.Join(paths.StateDir(), "auth-token") }
-func hostFile() string  { return filepath.Join(paths.StateDir(), "dashboard-host") }
+// The client reads the token on every request, so a daemon started after the
+// client still works.
+func tokenFile() string { return filepath.Join(paths.StateDir(), paths.TokenName) }
+func hostFile() string  { return filepath.Join(paths.StateDir(), paths.DashboardHostName) }
 
 // Token returns the daemon's API token, or "" if the daemon never ran.
 func (c *Client) Token() string {
@@ -400,7 +399,7 @@ func (c *Client) Ping(ctx context.Context) (Health, error) { return c.hello(ctx)
 
 // LivePort returns the port recorded by a running daemon, or 0.
 func LivePort() int {
-	b, err := os.ReadFile(filepath.Join(paths.StateDir(), "daemon.port"))
+	b, err := os.ReadFile(filepath.Join(paths.StateDir(), paths.PortName))
 	if err != nil {
 		return 0
 	}
@@ -445,7 +444,7 @@ func sandboxedError(port int) error {
 // The test takes a shared lock for a moment; a daemon starting meanwhile
 // retries its own.
 func DaemonRunning() bool {
-	f, err := os.Open(filepath.Join(paths.StateDir(), "daemon.lock"))
+	f, err := os.Open(filepath.Join(paths.StateDir(), paths.LockName))
 	if err != nil {
 		return false
 	}

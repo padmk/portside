@@ -20,7 +20,6 @@ const (
 	yellow = "33"
 	blue   = "34"
 	dim    = "2"
-	bold   = "1"
 )
 
 func colorEnabled() bool {
