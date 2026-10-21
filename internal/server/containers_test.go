@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"github.com/coder/websocket"
-	"github.com/padmk/portside/internal/config"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/coder/websocket"
+	"github.com/padmk/portside/internal/config"
 
 	"slices"
 	"testing"
