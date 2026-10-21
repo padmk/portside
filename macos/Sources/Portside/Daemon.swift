@@ -235,8 +235,9 @@ struct APIClient {
 
     /// Sends a signed request to a daemon that proved itself and checks the
     /// proof on its reply. A request refused for an old epoch (the daemon
-    /// restarted) is sent once more after a new handshake. A refusal comes
-    /// back as the reply; a daemon that cannot prove itself throws.
+    /// restarted) is sent once more after a new handshake. A proven refusal
+    /// comes back as the reply; an unproven one throws `refused` without
+    /// showing its words, and a daemon that cannot prove itself throws.
     func send(_ make: () throws -> URLRequest) async throws -> (Data, HTTPURLResponse) {
         var retried = false
         while true {
@@ -245,14 +246,15 @@ struct APIClient {
             guard let challenge = RequestSigner.sign(&req, token: token, epoch: epoch) else { throw DaemonError.unverified }
             let (data, resp) = try await URLSession.shared.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw DaemonError.failed("No reply from the daemon") }
-            if http.statusCode == 401 {
+            let proven = RequestSigner.provenReply(http, body: data, token: token, challenge: challenge) != nil
+            if http.statusCode == 401, !proven {
                 if !retried, await DaemonHandshake.shared.renewed(base: base, token: token, after: epoch) {
                     retried = true
                     continue
                 }
-                return (data, http)
+                throw DaemonError.refused
             }
-            guard RequestSigner.provenReply(http, body: data, token: token, challenge: challenge) != nil else {
+            guard proven else {
                 await DaemonHandshake.shared.forget(base)
                 throw DaemonError.unverified
             }
