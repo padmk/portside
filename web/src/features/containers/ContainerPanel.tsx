@@ -12,6 +12,7 @@ import { Menu, MenuItem } from '../../ui/Menu'
 import { useNow } from '../../ui/hooks'
 import { useBusy } from '../servers/actions'
 import { CopyButton } from '../../ui/CopyButton'
+import { onTabKey } from '../../ui/keys'
 import { formatAgo, formatUptime } from '../servers/format'
 import { busyKey, containerAction, dismissJob, recreate } from './actions'
 import { ContainerDetailsTab } from './ContainerDetailsTab'
@@ -123,15 +124,7 @@ export function ContainerPanel({ container: c }: { container: ContainerView }) {
             aria-controls={`cpanel-${id}`}
             tabIndex={tab === id ? 0 : -1}
             onClick={() => setContainerTab(id)}
-            onKeyDown={(e) => {
-              if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
-              e.preventDefault()
-              e.stopPropagation()
-              const i = tabs.indexOf(id) + (e.key === 'ArrowRight' ? 1 : -1)
-              const next = tabs[(i + tabs.length) % tabs.length]!
-              setContainerTab(next)
-              requestAnimationFrame(() => document.getElementById(`ctab-${next}`)?.focus())
-            }}
+            onKeyDown={(e) => onTabKey(e, tabs, id, setContainerTab, 'ctab-')}
           >
             {id === 'job' && c.job ? t(`job.${c.job.kind}`) : t(`container.tab.${id}`)}
             {id === 'job' && jobRunning && <span className="ct-busy" aria-hidden="true" />}

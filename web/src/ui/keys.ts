@@ -1,3 +1,4 @@
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { Translate } from '../i18n'
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
@@ -35,4 +36,20 @@ export const paletteKey = isMac ? 'K' : 'Space'
 export function isPaletteKey(e: KeyboardEvent) {
   if (isMac) return isModKey(e, 'k')
   return e.code === 'Space' && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey
+}
+
+/**
+ * Arrow-key handling for a tab of a tablist: Left and Right select and focus
+ * the neighbouring tab, wrapping around; the tab buttons have the id
+ * `${idPrefix}${tab}`. The keys are handled here, so the global shortcuts do
+ * not also switch servers.
+ */
+export function onTabKey<T extends string>(e: ReactKeyboardEvent, tabs: readonly T[], current: T, select: (tab: T) => void, idPrefix: string) {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+  e.preventDefault()
+  e.stopPropagation()
+  const i = tabs.indexOf(current) + (e.key === 'ArrowRight' ? 1 : -1)
+  const next = tabs[(i + tabs.length) % tabs.length]!
+  select(next)
+  requestAnimationFrame(() => document.getElementById(idPrefix + next)?.focus())
 }

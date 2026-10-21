@@ -7,7 +7,7 @@ import { closeServer } from '../../state/route'
 import { pickContainer, setTab, showTerminalSearch, useUi, type DetailTab } from '../../state/ui'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { useNow } from '../../ui/hooks'
-import { isModKey } from '../../ui/keys'
+import { isModKey, onTabKey } from '../../ui/keys'
 import { restartServer, useBusy } from './actions'
 import { Address } from './Address'
 import { DetailsTab } from './DetailsTab'
@@ -142,17 +142,7 @@ export function DetailPane({ server: v, servers, docker }: Props) {
             aria-controls={`panel-${id}`}
             tabIndex={tab === id ? 0 : -1}
             onClick={() => setTab(id)}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-                // Handled here: the global shortcuts must not also switch servers.
-                e.preventDefault()
-                e.stopPropagation()
-                const i = tabs.indexOf(id) + (e.key === 'ArrowRight' ? 1 : -1)
-                const next = tabs[(i + tabs.length) % tabs.length]!
-                setTab(next)
-                requestAnimationFrame(() => document.getElementById(`tab-${next}`)?.focus())
-              }
-            }}
+            onKeyDown={(e) => onTabKey(e, tabs, id, setTab, 'tab-')}
           >
             {t(`tab.${id}`)}
             {id === 'containers' && containers.length > 0 && <span className={`tab-count${issues.length ? ' tab-count--issue' : ''}`}>{containers.length}</span>}
