@@ -196,8 +196,10 @@ function openPeer() {
     if (socket !== ws) return
     socket = null
     // The daemon closes this socket when the connection ends; the local stream says whether it did.
-    const delay = retry === 0 ? 0 : backoff()
-    retry++
+    // The first reconnect is immediate; later ones back off.
+    let delay = 0
+    if (retry === 0) retry = 1
+    else delay = backoff()
     timer = window.setTimeout(() => void openLocal(), delay)
   }
   ws.onerror = () => ws.close()
