@@ -29,12 +29,6 @@ func cLocaleEnv() []string {
 
 const startLayout = "Mon Jan 2 15:04:05 2006"
 
-// startTime is the start time of pid, to the second.
-func startTime(pid int) (time.Time, bool) {
-	t, err := time.ParseInLocation(startLayout, processStart(pid), time.Local)
-	return t, err == nil
-}
-
 // sameStart reports whether the live process pid has the start time saved
 // for it earlier. Older daemons saved it in their own locale; such a value
 // is compared with ps in the current locale, so a process whose saved time

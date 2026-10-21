@@ -190,7 +190,7 @@ func readShell(sh string) ([]string, error) {
 	cmd := exec.CommandContext(ctx, sh, args...)
 	cmd.Stdin = nil
 	cmd.Env = os.Environ()
-	began := time.Now()
+	agents, agentsKnown := sshAgents()
 	out, err := cmd.Output()
 	if err != nil && len(out) == 0 {
 		if ctx.Err() != nil {
@@ -219,25 +219,46 @@ func readShell(sh string) ([]string, error) {
 	if len(env) == 0 {
 		return nil, errors.New("empty environment")
 	}
-	return stopSpawnedAgent(env, began), nil
+	if !agentsKnown {
+		return env, nil
+	}
+	return stopSpawnedAgent(env, agents), nil
+}
+
+// sshAgents lists the ssh-agent processes running now, and whether the list
+// could be read.
+func sshAgents() (map[int]bool, bool) {
+	cmd := exec.Command("ps", "-A", "-o", "pid=,comm=")
+	cmd.Env = cLocaleEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+	agents := map[int]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || filepath.Base(strings.Join(f[1:], " ")) != "ssh-agent" {
+			continue
+		}
+		if pid, err := strconv.Atoi(f[0]); err == nil {
+			agents[pid] = true
+		}
+	}
+	return agents, true
 }
 
 // stopSpawnedAgent ends an ssh-agent that the shell's rc files started for
 // this read (`eval $(ssh-agent)`), which would otherwise be left behind on
-// every read, and gives servers the daemon's own agent instead.
-func stopSpawnedAgent(env []string, began time.Time) []string {
+// every read, and gives servers the daemon's own agent instead. before
+// lists the agents running before the read: one the rc files reuse belongs
+// to the user's terminals.
+func stopSpawnedAgent(env []string, before map[int]bool) []string {
 	v := lookupEnv(env, "SSH_AGENT_PID")
 	if v == "" || v == os.Getenv("SSH_AGENT_PID") {
 		return env
 	}
 	pid, err := strconv.Atoi(v)
-	if err != nil || pid <= 1 {
-		return env
-	}
-	// Only an agent started during the read: one the rc files reuse from an
-	// earlier session belongs to the user's terminals.
-	at, ok := startTime(pid)
-	if !ok || at.Before(began.Add(-time.Second)) || filepath.Base(processName(pid)) != "ssh-agent" {
+	if err != nil || pid <= 1 || before[pid] || filepath.Base(processName(pid)) != "ssh-agent" {
 		return env
 	}
 	_ = syscall.Kill(pid, syscall.SIGTERM)
