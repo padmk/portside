@@ -73,22 +73,37 @@ enum CommandLineTool {
                 p.standardOutput = out
                 p.standardError = FileHandle.nullDevice
                 p.standardInput = FileHandle.nullDevice
+                // Answered once: by the read, or by the timeout when the shell
+                // hangs or a process it started keeps its output open.
+                let lock = NSLock()
+                var answered = false
+                func answer(_ v: Bool) {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if answered { return }
+                    answered = true
+                    cont.resume(returning: v)
+                }
                 do { try p.run() } catch {
-                    cont.resume(returning: false)
+                    answer(false)
                     return
                 }
-                let timeout = DispatchWorkItem { if p.isRunning { p.terminate() } }
+                // Interactive shells ignore SIGTERM.
+                let timeout = DispatchWorkItem {
+                    if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+                    answer(false)
+                }
                 DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: timeout)
                 let data = out.fileHandleForReading.readDataToEndOfFile()
                 p.waitUntilExit()
                 timeout.cancel()
                 let text = String(decoding: data, as: UTF8.self)
                 guard let start = text.range(of: marker) else {
-                    cont.resume(returning: false)
+                    answer(false)
                     return
                 }
                 let path = text[start.upperBound...].split(separator: "\n").first { $0.hasPrefix("PATH=") }?.dropFirst(5) ?? ""
-                cont.resume(returning: path.split(separator: ":").contains { $0 == Substring(dir) || $0 == Substring(dir + "/") })
+                answer(path.split(separator: ":").contains { $0 == Substring(dir) || $0 == Substring(dir + "/") })
             }
         }
     }
