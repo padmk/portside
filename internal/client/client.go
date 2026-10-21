@@ -504,7 +504,7 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	}
 	if Sandboxed() {
 		if held != nil {
-			return h, fmt.Errorf("%w; %w", held, sandboxedError(c.Port))
+			return h, fmt.Errorf("%v; %w", held, sandboxedError(c.Port))
 		}
 		return h, sandboxedError(c.Port)
 	}
@@ -514,7 +514,7 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	}
 	failed := fmt.Errorf("daemon did not come up; see %s", paths.ShortenHome(paths.DaemonLog()))
 	if held != nil {
-		failed = fmt.Errorf("%w; the daemon could not start (see %s)", held, paths.ShortenHome(paths.DaemonLog()))
+		failed = fmt.Errorf("%v; the daemon could not start (see %s)", held, paths.ShortenHome(paths.DaemonLog()))
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
