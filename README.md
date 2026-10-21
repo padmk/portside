@@ -12,7 +12,7 @@
 
 Portside is a small daemon, a CLI and a web dashboard for the dev servers you run every day: Next.js, Vite, Python APIs, `docker compose` stacks, workers. It starts them in real pseudo-terminals, keeps their ports stable, shows status, logs and resource use on one calm page, and lets coding agents reuse the same servers instead of launching duplicates.
 
-On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. One static binary inside, no runtime dependencies, no account, nothing leaves `127.0.0.1`.
+It is built for macOS, as a menu bar app; on Linux (a preview, less tested) the same dashboard runs in the browser. One static binary inside, no runtime dependencies, no account, nothing leaves `127.0.0.1`.
 
 ## Features
 
@@ -49,7 +49,7 @@ On macOS it is a menu bar app; on Linux the same dashboard runs in the browser. 
 
 ## Install
 
-Requirements: macOS 26 (Tahoe) or later on Apple Silicon (M1 or newer); Linux on x86-64 or arm64. The dashboard is served at its own `*.localhost` host, so it needs a browser that resolves `*.localhost`: Chrome, Firefox, or Safari on macOS 26 and later (the app's dashboard window uses the same WebKit).
+Requirements: macOS 26 (Tahoe) or later on Apple Silicon (M1 or newer). Linux on x86-64 or arm64 works as a preview: the CLI, daemon and dashboard run there, but macOS is the platform Portside is built and tested for. The dashboard is served at its own `*.localhost` host, so it needs a browser that resolves `*.localhost`: Chrome, Firefox, or Safari on macOS 26 and later (the app's dashboard window uses the same WebKit).
 
 macOS, with Homebrew (planned; the tap is not published yet). This will install `Portside.app` and the `portside` command:
 
@@ -61,7 +61,7 @@ Or download `Portside-<version>.zip` from the releases, move `Portside.app` to A
 
 Before uninstalling, stop the daemon and its servers with `portside daemon stop` (or `portside service uninstall` if you installed the login service, which also stops it). `brew uninstall` and `brew upgrade` leave them running; `brew uninstall --zap --cask portside` stops them and trashes the config and state.
 
-Linux: download `portside_<version>_linux_<arch>.tar.gz` from the releases, put `portside` on your `PATH`, and run `portside service install` to start the daemon at login.
+Linux (preview): download `portside_<version>_linux_<arch>.tar.gz` from the releases, put `portside` on your `PATH`, and run `portside service install` to start the daemon at login.
 
 From source (Go 1.26+, Node 24 and pnpm 12):
 

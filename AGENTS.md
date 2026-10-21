@@ -1,6 +1,6 @@
 # Portside
 
-Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded React dashboard (`web/`). macOS 26 or later first, Linux supported; Unix-only (process groups, PTYs).
+Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded React dashboard (`web/`). Built for macOS 26 or later; Linux is a preview that should keep working (keep code portable and Linux paths compiling and vetted) but is not a focus; Unix-only (process groups, PTYs).
 
 ## Commands
 
