@@ -38,9 +38,6 @@ func cmdInit(e *env, args []string) error {
 		return err
 	}
 	fmt.Fprintf(e.out, "\nNext steps:\n  %s scan --add      find projects and add them\n  %s open            open the dashboard\n", app.ID, app.ID)
-	if _, err := os.Stat(paths.ExpandHome("~/dev/devctl/servers.conf")); err == nil {
-		fmt.Fprintf(e.out, "  %s import devctl   bring over your devctl servers\n", app.ID)
-	}
 	return nil
 }
 
@@ -193,86 +190,6 @@ func cmdScan(e *env, args []string) error {
 	if failed > 0 {
 		return silentError{1}
 	}
-	return nil
-}
-
-func cmdImport(e *env, args []string) error {
-	fs := flag.NewFlagSet("import", flag.ContinueOnError)
-	dry := fs.Bool("dry-run", false, "")
-	rest, err := parse(fs, args)
-	if err != nil {
-		return err
-	}
-	if len(rest) == 0 || rest[0] != "devctl" {
-		return usageError{"only `import devctl` is supported"}
-	}
-	src := paths.ExpandHome("~/dev/devctl/servers.conf")
-	if len(rest) > 1 {
-		src = paths.ExpandHome(rest[1])
-	}
-	imp, err := config.ImportDevctl(src)
-	if err != nil {
-		return err
-	}
-	if *dry {
-		fmt.Fprintf(e.out, "root = %s\n", config.Quote(imp.Root))
-		if imp.PathDir != "" {
-			fmt.Fprintf(e.out, "path = [%s]\n", config.Quote(imp.PathDir))
-		}
-		for _, s := range imp.Servers {
-			fmt.Fprintf(e.out, "\n%s", config.Render(s))
-		}
-		for _, s := range imp.Skipped {
-			fmt.Fprintf(e.errOut, "skipped %s\n", s)
-		}
-		return nil
-	}
-	if err := e.ensureConfig(); err != nil {
-		return err
-	}
-	cfg, err := config.Load(e.cfgPath)
-	if err != nil {
-		return err
-	}
-	if len(cfg.Servers) == 0 {
-		if err := config.SetTopLevel(e.cfgPath, "root", config.Quote(imp.Root)); err != nil {
-			return err
-		}
-		if cfg, err = config.Load(e.cfgPath); err != nil {
-			return err
-		}
-	}
-	// devctl directories are relative to devctl's root; write them relative to ours.
-	importRoot := paths.ExpandHome(imp.Root)
-	for i := range imp.Servers {
-		dir := paths.ExpandHome(imp.Servers[i].Dir)
-		if !filepath.IsAbs(dir) {
-			dir = filepath.Join(importRoot, dir)
-		}
-		imp.Servers[i].Dir = relDir(cfg.Root, dir)
-	}
-	if imp.PathDir != "" && len(cfg.PathPrepend) == 0 {
-		if err := config.SetTopLevel(e.cfgPath, "path", "["+config.Quote(imp.PathDir)+"]"); err != nil {
-			return err
-		}
-	}
-	added := 0
-	for _, s := range imp.Servers {
-		if _, exists := cfg.Server(s.Name); exists {
-			fmt.Fprintf(e.out, "  %s %s already configured\n", e.paint(dim, "•"), s.Name)
-			continue
-		}
-		if err := config.AddServer(e.cfgPath, s); err != nil {
-			fmt.Fprintf(e.errOut, "  %s %s: %v\n", e.paint(red, "✗"), s.Name, err)
-			continue
-		}
-		added++
-		fmt.Fprintf(e.out, "  %s %-22s :%d\n", e.paint(green, "+"), s.Name, *s.Port)
-	}
-	for _, s := range imp.Skipped {
-		fmt.Fprintf(e.out, "  %s skipped %s\n", e.paint(dim, "•"), s)
-	}
-	fmt.Fprintf(e.out, "\nImported %d servers into %s. devctl itself was not changed.\n", added, paths.ShortenHome(e.cfgPath))
 	return nil
 }
 

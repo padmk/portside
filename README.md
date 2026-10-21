@@ -189,7 +189,6 @@ portside ports [--json]                  every listening TCP port and its owner
 portside add <name> --cmd "..." [--dir .] [--port N] [--group G]
 portside rm <name> | enable <name> | disable <name>
 portside scan [dir] [--add]              discover projects
-portside import devctl [servers.conf]    import a devctl roster, keeping ports
 portside init                            write the starter config file
 portside config [path|edit|check]
 
@@ -307,15 +306,6 @@ The daemon runs arbitrary commands from your config, so its API must only be rea
 Programs running as your own user can read the token, just as they could run the commands themselves. Keep the dashboard host to yourself while it lasts: a page served on another port of that host (`http://d-....localhost:<other port>`) would receive the session cookie. The daemon accepts it only on your account's connections, so this matters only against your own programs, which can read the token anyway. The `*.localhost` proxy needs no token: it only forwards to dev servers that already listen on loopback.
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
-## Migrating from devctl
-
-```sh
-portside import devctl ~/dev/devctl/servers.conf --dry-run   # preview
-portside import devctl ~/dev/devctl/servers.conf
-```
-
-Ports are computed exactly as devctl did, comments above entries are kept, `NODE_BIN` becomes `path`, and servers sharing a name prefix (`shop-web`, `shop-api`) are grouped. devctl's files are not modified. While both tools run, Portside shows servers started by devctl as `external`; stop them in devctl, or use **Stop it and start** to hand them over.
 
 ## Development
 
