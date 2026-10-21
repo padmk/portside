@@ -124,7 +124,17 @@ func xmlEscape(s string) string {
 }
 
 func installLaunchd(exe, file, configPath string) error {
-	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+	if err := os.WriteFile(file, []byte(launchdPlist(exe, configPath)), 0o644); err != nil {
+		return err
+	}
+	_ = exec.Command("launchctl", "bootout", launchdTarget()).Run()
+	return run("launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), file)
+}
+
+// launchdPlist is the launchd agent that runs exe as the daemon for
+// configPath and this process's state directory.
+func launchdPlist(exe, configPath string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -144,11 +154,6 @@ func installLaunchd(exe, file, configPath string) error {
 `, app.ServiceLabel, xmlEscape(exe), app.Env("CONFIG"), xmlEscape(configPath),
 		app.Env("STATE_DIR"), xmlEscape(paths.StateDir()),
 		xmlEscape(paths.DaemonLog()), xmlEscape(paths.DaemonLog()))
-	if err := os.WriteFile(file, []byte(plist), 0o644); err != nil {
-		return err
-	}
-	_ = exec.Command("launchctl", "bootout", launchdTarget()).Run()
-	return run("launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), file)
 }
 
 // installSystemd writes the user unit. It is wanted by default.target, so
@@ -160,7 +165,22 @@ func installLaunchd(exe, file, configPath string) error {
 // `dbus-update-activation-environment --systemd` at session start), and
 // importSessionEnv does so from the CLI.
 func installSystemd(exe, file, configPath string) error {
-	unit := fmt.Sprintf(`[Unit]
+	if err := os.WriteFile(file, []byte(systemdUnit(exe, configPath)), 0o644); err != nil {
+		return err
+	}
+	importSessionEnv()
+	for _, args := range [][]string{{"--user", "daemon-reload"}, {"--user", "enable", "--now", app.ID + ".service"}} {
+		if out, err := exec.Command("systemctl", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+	}
+	return nil
+}
+
+// systemdUnit is the user unit that runs exe as the daemon for configPath
+// and this process's state directory.
+func systemdUnit(exe, configPath string) string {
+	return fmt.Sprintf(`[Unit]
 Description=%s dev server manager
 After=graphical-session.target
 
@@ -176,16 +196,6 @@ TimeoutStopSec=60
 WantedBy=default.target
 `, app.Name, strconv.Quote(exe), app.Env("CONFIG"), strconv.Quote(configPath),
 		app.Env("STATE_DIR"), strconv.Quote(paths.StateDir()))
-	if err := os.WriteFile(file, []byte(unit), 0o644); err != nil {
-		return err
-	}
-	importSessionEnv()
-	for _, args := range [][]string{{"--user", "daemon-reload"}, {"--user", "enable", "--now", app.ID + ".service"}} {
-		if out, err := exec.Command("systemctl", args...).CombinedOutput(); err != nil {
-			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-		}
-	}
-	return nil
 }
 
 // Uninstall stops the service and removes its definition.
