@@ -129,8 +129,8 @@ func ImportDevctl(path string) (*DevctlImport, error) {
 			Port:    &port,
 			Comment: strings.Join(pending, "\n"),
 		}
-		if strings.Contains(cmd, "docker compose") || strings.Contains(cmd, "docker-compose") {
-			sp.Stop = "30s"
+		if IsComposeCommand(cmd) {
+			sp.Stop = ComposeStop
 		}
 		if sp.Name != name {
 			sp.Comment = strings.TrimSpace(sp.Comment + "\nImported from devctl as " + name + ".")

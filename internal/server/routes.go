@@ -798,7 +798,7 @@ func (s *Server) listeners(w http.ResponseWriter, r *http.Request) {
 		} else if name, ok := s.sup.IsManagedPID(l.PID); ok {
 			v.Managed = true
 			v.Server = name
-		} else if sv, ok := cfg.Server(v.Server); ok && live[sv.Name] && supervisor.IsComposeCommand(sv.Cmd) && supervisor.IsContainerRuntime(l.Command) {
+		} else if sv, ok := cfg.Server(v.Server); ok && live[sv.Name] && config.IsComposeCommand(sv.Cmd) && supervisor.IsContainerRuntime(l.Command) {
 			// A running compose stack: the runtime publishes its containers' ports.
 			v.Managed = true
 			v.Via = "containers"

@@ -81,7 +81,7 @@ func prepare(cfg *config.Config, found []Suggestion, listening func(int) bool) [
 // Ignore the flags added by detection when identifying an existing service.
 func commandIdentity(cmd string) string {
 	fields := pythonIdentity(strings.Fields(cmd))
-	compose := strings.Contains(cmd, "docker compose") || strings.Contains(cmd, "docker-compose") || strings.Contains(cmd, "podman compose")
+	compose := config.IsComposeCommand(cmd)
 	out := []string{}
 	for i := 0; i < len(fields); i++ {
 		f := fields[i]

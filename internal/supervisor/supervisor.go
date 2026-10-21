@@ -771,7 +771,7 @@ func launchEnv(base []string, sv config.Server, prepend []string, global map[str
 	for k, v := range sv.Env {
 		over[k] = expand(v)
 	}
-	if IsComposeCommand(sv.Cmd) {
+	if config.IsComposeCommand(sv.Cmd) {
 		over["COMPOSE_MENU"] = "false"
 	}
 	return mergeEnv(base, over)
@@ -1118,24 +1118,13 @@ func (s *Supervisor) IsManagedPID(pid int) (string, bool) {
 // accounts, published asks the engine whether a container of this server's
 // compose project publishes the port.
 func composeOwnsPort(name, cmd string, port int, published func(server string, port int) bool) bool {
-	if !IsComposeCommand(cmd) {
+	if !config.IsComposeCommand(cmd) {
 		return false
 	}
 	if owner, ok := ports.Owner(context.Background(), port); ok {
 		return IsContainerRuntime(owner.Command)
 	}
 	return published != nil && published(name, port)
-}
-
-// IsComposeCommand reports whether a server's command runs a compose stack.
-func IsComposeCommand(cmd string) bool {
-	c := strings.ToLower(cmd)
-	for _, s := range []string{"docker compose", "docker-compose", "podman compose", "podman-compose"} {
-		if strings.Contains(c, s) {
-			return true
-		}
-	}
-	return false
 }
 
 // containerRuntimes are parts of process names that publish container ports

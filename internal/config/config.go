@@ -102,6 +102,21 @@ type Server struct {
 	Enabled bool
 }
 
+// IsComposeCommand reports whether a server's command runs a compose stack.
+func IsComposeCommand(cmd string) bool {
+	c := strings.ToLower(cmd)
+	for _, s := range []string{"docker compose", "docker-compose", "podman compose", "podman-compose"} {
+		if strings.Contains(c, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// ComposeStop is the stop timeout given to compose stacks found by discovery
+// or imported, so containers can shut down cleanly.
+const ComposeStop = "30s"
+
 // Config is the parsed configuration file.
 type Config struct {
 	Path string

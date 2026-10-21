@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/padmk/portside/internal/config"
 )
 
 // detectBackend proposes the application servers of web frameworks outside
@@ -178,7 +180,7 @@ func detectCompose(dir string) (Suggestion, bool) {
 	if compose == "" {
 		return Suggestion{}, false
 	}
-	s := Suggestion{Kind: "compose", StopAfter: "30s", Cmd: "docker compose up"}
+	s := Suggestion{Kind: "compose", StopAfter: config.ComposeStop, Cmd: "docker compose up"}
 	if compose != "compose.yaml" && compose != "compose.yml" && compose != "docker-compose.yml" && compose != "docker-compose.yaml" {
 		s.Cmd = "docker compose -f " + compose + " up"
 	}

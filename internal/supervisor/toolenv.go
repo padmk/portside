@@ -172,7 +172,7 @@ func chooseTool(sv config.Server, env []string, shellPath string) (toolLaunch, t
 // containerCommand reports whether cmd runs containers, which bring their
 // own tools.
 func containerCommand(cmd string) bool {
-	if IsComposeCommand(cmd) {
+	if config.IsComposeCommand(cmd) {
 		return true
 	}
 	for _, w := range commandWords(cmd) {

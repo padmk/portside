@@ -12,7 +12,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/docker"
-	"github.com/padmk/portside/internal/supervisor"
 )
 
 // attachContainers chooses the closest project directory, keeping servers
@@ -27,7 +26,7 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 		dir := canonicalDir(sv.Dir)
 		dirOf[sv.Name] = dir
 		names := byDir[dir]
-		if supervisor.IsComposeCommand(sv.Cmd) && !composeDir[dir] {
+		if config.IsComposeCommand(sv.Cmd) && !composeDir[dir] {
 			composeDir[dir] = true
 			names = append([]string{sv.Name}, names...)
 		} else {
