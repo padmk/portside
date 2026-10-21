@@ -34,6 +34,6 @@ Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded Reac
 - Keep the product name out of identifiers; derive user-visible names and env vars from `internal/app`.
 - macOS builds target Apple Silicon only (arm64) and macOS 26 or later; keep `macos/Package.swift`, `macos/Resources/Info.plist`, the cask template, the CI runners, `scripts/build-macos-app.sh` and `.goreleaser.yaml` in line with the README requirements.
 - Config edits must go through `internal/config` so comments survive and invalid text never reaches disk.
-- Files written into the config or state directories use `paths.FileMode` and directories `paths.DirMode`: configs can hold secrets in `env` and logs can hold credentials.
+- Files written into the config or state directories use `paths.FileMode` and directories `paths.DirMode`: configs can hold secrets in `env` and logs can hold credentials. State files are replaced through `paths.WriteFile` (a fresh private temporary file, then rename); the config through `internal/config`.
 - Process termination always targets the process group (`-pgid`): SIGINT, then SIGTERM, then SIGKILL.
 - pnpm is pinned to 12.6.0 with `minimumReleaseAge: 1440`; ask before adding `trustPolicy` exceptions.

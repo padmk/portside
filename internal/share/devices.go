@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/signing"
 )
 
@@ -76,11 +77,7 @@ func (d *devices) saveLocked(list []Device) error {
 	if err != nil {
 		return err
 	}
-	tmp := d.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, d.path); err != nil {
+	if err := paths.WriteFile(d.path, b); err != nil {
 		return err
 	}
 	d.list = list

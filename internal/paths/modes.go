@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -22,7 +23,28 @@ var stateEntries = []string{
 	"auth-token", "auto-port", "container-stops.json", "daemon.lock", "daemon.log",
 	"daemon.port", "dashboard-host", "handoff.json", "last-good-config.json",
 	"remote-tokens.json", "remote.json", "share-devices.json", "share-target",
-	"state.json", "stopped",
+	"remote-instance", "state.json", "stopped",
+}
+
+// WriteFile replaces path with data through a fresh private temporary file in
+// the same directory, so readers never see a partial file and a planted
+// symlink or a concurrent writer cannot take over a fixed temporary name.
+// The directory must exist.
+func WriteFile(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.Write(data)
+	if err := errors.Join(werr, tmp.Close()); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
 // Restrict removes group and other access from the product's config and state.

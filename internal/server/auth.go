@@ -21,6 +21,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
 	"github.com/padmk/portside/internal/signing"
 )
@@ -134,11 +135,7 @@ func readPrivate(p string) (string, bool) {
 }
 
 func writePrivate(p, value string) error {
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, []byte(value+"\n"), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return paths.WriteFile(p, []byte(value+"\n"))
 }
 
 // sessionValue is the dashboard cookie for a token on a dashboard host:

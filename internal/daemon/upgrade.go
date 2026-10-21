@@ -18,6 +18,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
@@ -270,9 +271,5 @@ func writeHandoff(path string, h handoff) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return paths.WriteFile(path, data)
 }

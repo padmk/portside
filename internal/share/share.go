@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/signing"
 	"github.com/padmk/portside/internal/tailnet"
 )
@@ -401,11 +402,7 @@ func (m *Manager) writeRecord(targets map[string]bool) error {
 	for t := range targets {
 		sb.WriteString(t + "\n")
 	}
-	tmp := m.record + ".tmp"
-	if err := os.WriteFile(tmp, []byte(sb.String()), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, m.record)
+	return paths.WriteFile(m.record, []byte(sb.String()))
 }
 
 // closeListener stops the listener and returns the target it served.

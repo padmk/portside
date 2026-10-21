@@ -31,11 +31,7 @@ func CacheGood(stateDir, path string, data []byte) error {
 	if err := os.MkdirAll(stateDir, paths.DirMode); err != nil {
 		return err
 	}
-	dest := filepath.Join(stateDir, "last-good-config.json")
-	if err := os.WriteFile(dest+".tmp", content, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(dest+".tmp", dest)
+	return paths.WriteFile(filepath.Join(stateDir, "last-good-config.json"), content)
 }
 
 // LoadRecoverable always returns usable settings. Its error describes the

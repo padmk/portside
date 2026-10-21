@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/tailnet"
 )
 
@@ -62,11 +63,7 @@ func (s *store) save(d storeData) error {
 	if err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return paths.WriteFile(s.path, b)
 }
 
 func (s *store) edit(fn func(*storeData)) error {

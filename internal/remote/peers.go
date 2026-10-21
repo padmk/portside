@@ -3,8 +3,6 @@ package remote
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,7 +18,9 @@ import (
 	"time"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/share"
+	"github.com/padmk/portside/internal/signing"
 	"github.com/padmk/portside/internal/tailnet"
 )
 
@@ -111,11 +111,7 @@ func (t *tokens) Set(dnsName string, cred share.Credential) error {
 	if err != nil {
 		return err
 	}
-	tmp := t.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, t.path)
+	return paths.WriteFile(t.path, b)
 }
 
 func newTokens(stateDir string) *tokens {
@@ -129,15 +125,9 @@ func (m *Manager) instance() string {
 	if b, err := os.ReadFile(p); err == nil && len(strings.TrimSpace(string(b))) == 16 {
 		return strings.TrimSpace(string(b))
 	}
-	id := randomID()
-	_ = os.WriteFile(p, []byte(id+"\n"), 0o600)
+	id := signing.RandomHex(8)
+	_ = paths.WriteFile(p, []byte(id+"\n"))
 	return id
-}
-
-func randomID() string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
 }
 
 // ── requests to a shared device ─────────────────────────────────────────

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/padmk/portside/internal/paths"
 )
 
 // UseStateDir restores deliberate stops before the monitor starts following events.
@@ -75,13 +77,10 @@ func (m *Monitor) saveStopsLocked() {
 	}
 	data, err := json.Marshal(m.killedAt)
 	if err == nil {
-		err = os.MkdirAll(filepath.Dir(m.statePath), 0o700)
+		err = os.MkdirAll(filepath.Dir(m.statePath), paths.DirMode)
 	}
 	if err == nil {
-		err = os.WriteFile(m.statePath+".tmp", data, 0o600)
-	}
-	if err == nil {
-		err = os.Rename(m.statePath+".tmp", m.statePath)
+		err = paths.WriteFile(m.statePath, data)
 	}
 	if err != nil {
 		log.Printf("container stop state: %v", err)

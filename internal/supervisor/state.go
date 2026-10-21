@@ -61,10 +61,7 @@ func (s *Supervisor) saveLocked() {
 		return
 	}
 	_ = os.MkdirAll(filepath.Dir(s.state), paths.DirMode)
-	tmp := s.state + ".tmp"
-	if os.WriteFile(tmp, data, paths.FileMode) == nil {
-		_ = os.Rename(tmp, s.state)
-	}
+	_ = paths.WriteFile(s.state, data)
 }
 
 func (s *Supervisor) load() persisted {
