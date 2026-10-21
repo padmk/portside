@@ -19,7 +19,7 @@ async function signInLink(next = '/') {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ next }),
   })
-  return (await res.json()).url
+  return res.json()
 }
 
 const port = 9444
@@ -69,8 +69,8 @@ const containersTab = async (name) => {
 
 await send('Page.enable')
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
-const link = await signInLink('/')
-const dashboard = new URL(link).origin
+// The link is on 127.0.0.1 and forwards to the dashboard host, which the reply names.
+const { url: link, dashboard } = await signInLink('/')
 await send('Page.navigate', { url: link })
 await sleep(2000)
 
