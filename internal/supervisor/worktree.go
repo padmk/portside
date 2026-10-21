@@ -125,8 +125,10 @@ func temporaryConfig(origin config.Server, t *temporary) config.Server {
 		sv.Port = 0
 	}
 	if origin.Icon != "" {
-		if rel, err := filepath.Rel(origin.Dir, origin.Icon); err == nil && !strings.HasPrefix(rel, "..") {
-			sv.Icon = filepath.Join(sv.Dir, rel)
+		if within(origin.Icon, origin.Dir) {
+			if rel, err := filepath.Rel(origin.Dir, origin.Icon); err == nil {
+				sv.Icon = filepath.Join(sv.Dir, rel)
+			}
 		}
 	}
 	return sv
@@ -171,9 +173,11 @@ func (s *Supervisor) ForCheckout(name, dir string) (string, error) {
 	if want.common != orig.common {
 		return "", fmt.Errorf("%s is not a worktree of the repository %s runs from (%s); only its linked git worktrees can run a copy", paths.ShortenHome(want.top), name, paths.ShortenHome(orig.top))
 	}
-	rel, err := filepath.Rel(orig.top, realDir(sv.Dir))
-	if err != nil || strings.HasPrefix(rel, "..") {
-		rel = "."
+	rel := "."
+	if dir := realDir(sv.Dir); within(dir, orig.top) {
+		if r, err := filepath.Rel(orig.top, dir); err == nil {
+			rel = r
+		}
 	}
 	return s.addTemporary(sv, want.top, rel)
 }
