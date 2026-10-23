@@ -19,6 +19,7 @@ func cmdSetup(e *env, args []string) error {
 	asJSON := fs.Bool("json", false, "")
 	only := fs.String("apply", "", "")
 	printMCP := fs.Bool("print-mcp", false, "")
+	printPrompt := fs.Bool("print-prompt", false, "")
 	words, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -30,6 +31,11 @@ func cmdSetup(e *env, args []string) error {
 		// The entry for MCP clients configured by hand (Cursor, Windsurf and
 		// others); see README "Coding agents".
 		return printJSON(e, agentsetup.MCPConfig())
+	}
+	if *printPrompt {
+		// A request to paste into a coding agent; see README "Coding agents".
+		fmt.Fprint(e.out, agentsetup.Prompt())
+		return nil
 	}
 	items := agentsetup.Check(e.port(), e.cfgPath)
 	if *asJSON && *only == "" {

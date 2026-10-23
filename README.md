@@ -211,7 +211,8 @@ portside --on <computer> <command>       run status, up, down, restart, ensure, 
                                          or containers on the connected computer
 portside mcp                             MCP server on stdio
 portside setup [--yes] [--json]          connect Claude Code, Codex and Gemini CLI (MCP server, skill);
-                                         --print-mcp prints the entry for other MCP clients
+                                         --print-mcp prints the entry for other MCP clients,
+                                         --print-prompt a setup request for your coding agent
 portside skill install|print             agent skill for Claude Code and Codex
 portside doctor [--fix]                  check the setup; --fix connects coding agents
 ```
@@ -250,6 +251,8 @@ Other MCP clients start the same server, `<path> mcp`, from their own config. `p
 - Gemini CLI: `portside setup` adds it; by hand, `gemini mcp add --scope user portside <path> mcp`.
 
 The macOS app offers the same setup once, the first time it connects to the daemon while an installed agent lacks something: a checkbox per missing item, **Connect** and **Not Now**. **Settings > Connect Coding Agents** opens it again and shows what is already connected. Without an installed agent the app asks nothing.
+
+To let an agent do the whole setup, paste it the prompt that `portside setup --print-prompt` prints, or that **Copy Prompt for Your Agent** in that window copies. It asks the agent to run `portside setup`, check `portside doctor`, scan your projects folder, add the servers you pick, start each one and fix what fails with you, then summarize the URLs.
 
 Agents get `list_servers` (each server with the containers of its Compose project; `dir` narrows it to one checkout), `ensure_server` (reports whether it reused or started the server; `dir` runs it from another worktree, see below), `restart_server` (waits for readiness, with an optional `timeout`, default `90s`), `stop_server`, `server_logs`, `list_containers`, `container_action`, `container_logs` and `list_ports`, plus instructions to reuse running servers rather than start their own. Readiness failures include recent output lines for a crashed server. `container_action` takes `name`, `action` (`start`, `stop`, `restart` or `recreate`), and optional `build` or `pull` for recreation; recreate waits and returns its last 100 output lines, including failures. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out. While this computer is connected to another one, the server and container tools take `computer` (its name) to act there, and their results name it. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
 

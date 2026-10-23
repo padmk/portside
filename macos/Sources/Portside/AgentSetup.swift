@@ -55,6 +55,15 @@ final class AgentSetupModel {
         }
     }
 
+    /// Copies the request a user pastes into a coding agent so it sets everything up.
+    func copyPrompt() async -> Bool {
+        guard let data = try? await DaemonCLI.run(["setup", "--print-prompt"]),
+              let text = String(data: data, encoding: .utf8), !text.isEmpty else { return false }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        return true
+    }
+
     func connect() async {
         let ids = items.filter { selected.contains($0.id) && $0.fixable }.map(\.id)
         guard !ids.isEmpty else { return }
@@ -113,6 +122,7 @@ struct AgentSetupView: View {
 
     @Bindable var model: AgentSetupModel
     let close: () -> Void
+    @State private var promptCopied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -123,6 +133,11 @@ struct AgentSetupView: View {
             content
             HStack {
                 if model.phase == .applying { ProgressView().controlSize(.small) }
+                Button(promptCopied ? L.t("Prompt Copied", "Skopiowano prompt") : L.t("Copy Prompt for Your Agent", "Kopiuj prompt dla agenta")) {
+                    Task { promptCopied = await model.copyPrompt() }
+                }
+                .help(L.t("A prompt to paste into your coding agent: it connects the agents, adds your projects and checks that they start.",
+                          "Prompt do wklejenia agentowi: podłącza agentów, dodaje Twoje projekty i sprawdza, czy się uruchamiają."))
                 Spacer()
                 buttons
             }

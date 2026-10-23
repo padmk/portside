@@ -1,0 +1,9 @@
+Set up {{.Name}} on this computer. {{.Name}} is a local dev-server manager: a daemon runs my dev servers and their Docker containers, with a CLI (`{{.ID}}`) and an MCP server for coding agents. Use the CLI in this session; the MCP tools appear in new agent sessions once step 1 is done.{{if .Path}} `{{.ID}}` is not on PATH here, so run it as `{{.Path}}`.{{end}}
+
+1. Run `{{.ID}} setup --yes`. It registers the MCP server with the coding agents installed here (Claude Code, Codex, Gemini CLI) and installs the {{.Name}} skill for Claude Code and Codex. Report anything it could not set up, with the command it printed.
+2. Run `{{.ID}} doctor` and tell me about any warning.
+3. Run `{{.ID}} scan --json` to find the projects in my projects folder (the config's `root`; `{{.ID}} config path` prints the config file). Show me the proposed servers as a short list (name, directory, command, port) and ask which ones to add. Add the ones I choose with `{{.ID}} add <name> --cmd "<command>" --dir <dir> [--port N] [--group G]`, using the proposed values; `{{.ID}} scan --add` adds every proposal at once.
+4. Start each added server with `{{.ID}} ensure <name>`, which waits until it is ready and prints its URL. When one fails, read `{{.ID}} logs <name> -n 100`, find the cause and propose a fix (another command, port, environment value or a missing dependency). Change the config only after I agree.
+5. Finish with `{{.ID}} status` and a short summary: the servers with their URLs, and anything left for me to do.
+
+Do not stop or restart servers that were already running. If a command says it cannot start the daemon from a sandbox, ask me to open the {{.Name}} app or run `{{.ID}} daemon start` in a normal terminal, then continue.
