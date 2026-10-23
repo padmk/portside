@@ -25,13 +25,14 @@ builds:
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    files: [LICENSE, README.md, THIRD_PARTY_NOTICES.txt]
-
+    files: [LICENSE, THIRD_PARTY_NOTICES.txt]
 
 checksum:
   name_template: checksums.txt
 
+# The release workflow publishes the archives to the public release repository.
+release:
+  disable: true
+
 changelog:
-  sort: asc
-  filters:
-    exclude: ["^docs:", "^chore:"]
+  disable: true
