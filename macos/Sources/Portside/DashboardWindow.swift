@@ -64,18 +64,19 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
     /// Whether the window shows the status page rather than the dashboard.
     var showsStatus: Bool { loadedBase == nil }
 
-    /// Loads the dashboard, optionally focused on one server. The first load
-    /// goes through a one-time sign-in link so the page gets its session.
-    func load(api: APIClient, server: String?) {
+    /// Loads the dashboard, optionally at a route (the URL hash without its
+    /// `#`: `/<server>`, `/<server>/terminal` or `settings/agents`). The first
+    /// load goes through a one-time sign-in link so the page gets its session.
+    func load(api: APIClient, route: String?) {
         if loadedBase == api.base, webView.url.map(isDashboard) == true {
-            if let server {
-                webView.evaluateJavaScript("location.hash = " + jsString("#/" + server))
+            if let route {
+                webView.evaluateJavaScript("location.hash = " + jsString("#" + route))
             }
             return
         }
         Task { @MainActor in
             do {
-                self.open(try await api.signInLink(next: server.map { "/#/" + $0 } ?? "/"), api: api)
+                self.open(try await api.signInLink(next: route.map { "/#" + $0 } ?? "/"), api: api)
             } catch {
                 self.retryLater()
             }

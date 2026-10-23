@@ -2,8 +2,8 @@
 # Shows the macOS app as a new user sees it, next to the running copy and
 # without touching it: a second app instance with a fresh config, state
 # directory and daemon on a free port, and an empty temporary home folder, so
-# the coding agents have no MCP server or skill yet and the coding-agent window
-# is offered; whatever it connects lands there. The agents' commands come from
+# the coding agents have no MCP server or skill yet and the dashboard's
+# getting-started page offers them; whatever it connects lands there. The agents' commands come from
 # this shell's PATH, the projects folder is the one a new install would pick
 # in your real home, and the first-launch preferences are reset for that
 # instance only. Press Enter to stop the preview's daemon, quit its app and
@@ -45,7 +45,7 @@ open -n -a "$app" \
   --env "PORTSIDE_CONFIG=$PORTSIDE_CONFIG" --env "PORTSIDE_STATE_DIR=$PORTSIDE_STATE_DIR" \
   --env "HOME=$home" --env "PATH=$PATH" \
   --env "CLAUDE_CONFIG_DIR=$home/.claude" --env "CODEX_HOME=$home/.codex" --env "GEMINI_CLI_HOME=$home" \
-  --args -launchedBefore NO -agentSetupOffered NO
+  --args -launchedBefore NO
 pid=""
 for _ in $(seq 50); do
   pid="$(pgrep -f "$app/Contents/MacOS/" | grep -vxF "$before" | tail -n 1 || true)"

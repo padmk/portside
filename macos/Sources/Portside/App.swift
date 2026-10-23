@@ -28,18 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             NSApp.appearance = NSAppearance(named: arg.hasSuffix("dark") ? .darkAqua : .aqua)
         }
         AppIconStyle.apply()
-        // `--render-agent-setup=PATH` draws the coding-agent window offscreen
-        // to a PNG with what the helper reports, then quits.
-        if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--render-agent-setup=") }) {
-            let path = String(arg.dropFirst("--render-agent-setup=".count))
-            Task { @MainActor in
-                let model = AgentSetupModel()
-                await model.load()
-                PanelRenderer.render(AgentSetupView(model: model) {}.background(Color(nsColor: .windowBackgroundColor)), to: path)
-                NSApp.terminate(nil)
-            }
-            return
-        }
         _ = LoginItem.isEnabled // records the setting for the CLI
         notifier.setUp()
         notifier.onRestart = { [weak self] name in self?.store.perform("restart", name) }
@@ -53,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         let actions = AppActions(
             openDashboard: { [weak self] name in
-                if let name { self?.showLocalServer(name, terminal: false) } else { self?.openDashboard(nil) }
+                if let name { self?.showLocalServer(name, terminal: false) } else { self?.openDashboard(route: nil) }
             },
             openLogs: { [weak self] name in self?.showLocalServer(name, terminal: true) },
             openURL: { [weak self] url in
@@ -65,10 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 NSPasteboard.general.setString(text, forType: .string)
             },
             installCLI: { [weak self] in self?.installCLI() },
-            connectAgents: { [weak self] in
-                self?.popover.performClose(nil)
-                self?.agentSetupWindow().present()
-            },
+            connectAgents: { [weak self] in self?.openDashboard(route: "settings/agents") },
             about: { [weak self] in
                 self?.popover.performClose(nil)
                 NSApp.activate()
@@ -89,10 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         store.onCrash = { [weak self] v in self?.notifier.crashed(v) }
         store.onContainerIssue = { [weak self] server, containers in self?.notifier.containerIssue(server, containers) }
-        store.onStatusChange = { [weak self] status in
-            self?.refreshDashboard()
-            if status == .connected { self?.offerAgentSetup() }
-        }
+        store.onStatusChange = { [weak self] _ in self?.refreshDashboard() }
         store.onDaemonRestart = { [weak self] in
             guard let self, let api = self.store.api else { return }
             self.dashboard?.daemonRestarted(api: api)
@@ -126,15 +108,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
 
-        // First launch from Finder: show the dashboard so the app is discoverable.
+        // First launch from Finder: show the dashboard so the app is discoverable;
+        // without servers it is the getting-started page, coding agents included.
         if !UserDefaults.standard.bool(forKey: "launchedBefore") {
             UserDefaults.standard.set(true, forKey: "launchedBefore")
-            openDashboard(nil)
+            openDashboard(route: nil)
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        openDashboard(nil)
+        openDashboard(route: nil)
         return true
     }
 
@@ -154,7 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// The dashboard route to open once the daemon answers.
     private var pendingTarget: String?
 
-    private func openDashboard(_ server: String?, terminal: Bool = false) {
+    /// Opens the dashboard at a route (see DashboardWindowController.load).
+    private func openDashboard(route: String?) {
         popover.performClose(nil)
         if dashboard == nil {
             let wc = DashboardWindowController()
@@ -176,9 +160,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.setActivationPolicy(.regular)
         AppIconStyle.apply()
         dashboard?.present()
-        pendingTarget = server.map { terminal ? $0 + "/terminal" : $0 }
+        pendingTarget = route
         if let api = store.api {
-            dashboard?.load(api: api, server: pendingTarget)
+            dashboard?.load(api: api, route: pendingTarget)
             pendingTarget = nil
         } else {
             dashboard?.showStatus(store.daemonStatus)
@@ -194,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let status = store.daemonStatus
         if let api = store.api {
             // Keeps a loaded dashboard unless the daemon moved to another port.
-            dashboard.load(api: api, server: pendingTarget)
+            dashboard.load(api: api, route: pendingTarget)
             pendingTarget = nil
         } else if dashboard.showsStatus || status.needsUser {
             dashboard.showStatus(status)
@@ -206,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// otherwise show the other computer's server of that name.
     private func showLocalServer(_ name: String, terminal: Bool) {
         guard let remote = store.remote else {
-            openDashboard(name, terminal: terminal)
+            openDashboard(route: "/" + name + (terminal ? "/terminal" : ""))
             return
         }
         popover.performClose(nil)
@@ -219,39 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         alert.addButton(withTitle: L.t("Cancel", "Anuluj"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { @MainActor in
-            if await store.disconnectRemote() { openDashboard(name, terminal: terminal) }
-        }
-    }
-
-    private var agentSetup: AgentSetupWindowController?
-
-    private func agentSetupWindow() -> AgentSetupWindowController {
-        if let agentSetup { return agentSetup }
-        let wc = AgentSetupWindowController()
-        agentSetup = wc
-        return wc
-    }
-
-    /// Offers the coding-agent setup once, the first time the daemon
-    /// connects while an agent is installed, if it lacks something. Without
-    /// an installed agent nothing is shown and a later launch checks again.
-    private func offerAgentSetup() {
-        let key = "agentSetupOffered"
-        guard !UserDefaults.standard.bool(forKey: key), agentSetup == nil,
-              !CommandLine.arguments.contains(where: { $0.hasPrefix("--render-panel=") || $0 == "--show-menu" }) else { return }
-        // Set at once: the connection may come and go while the helper runs.
-        UserDefaults.standard.set(true, forKey: key)
-        Task { @MainActor in
-            let wc = AgentSetupWindowController()
-            await wc.model.load()
-            // No agent yet, or the helper failed: ask on a later launch.
-            guard wc.model.phase == .ready, !wc.model.items.isEmpty else {
-                UserDefaults.standard.set(false, forKey: key)
-                return
-            }
-            guard wc.model.needsAttention else { return }
-            if self.agentSetup == nil { self.agentSetup = wc }
-            self.agentSetup?.show()
+            if await store.disconnectRemote() { openDashboard(route: "/" + name + (terminal ? "/terminal" : "")) }
         }
     }
 

@@ -246,7 +246,7 @@ struct MenuPanel: View {
                     ForEach(AppIconStyle.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 Button(L.t("Install Command Line Tool...", "Zainstaluj narzędzie wiersza poleceń...")) { actions.installCLI() }
-                Button(AgentSetupView.title + "...") { actions.connectAgents() }
+                Button(L.t("Connect Coding Agents...", "Podłącz agentów kodujących...")) { actions.connectAgents() }
             }
             Divider()
             if store.daemonStopped {

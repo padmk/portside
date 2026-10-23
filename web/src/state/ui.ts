@@ -9,7 +9,7 @@ export type DialogState =
   | { kind: 'ports' }
   | { kind: 'config' }
   | { kind: 'palette' }
-  | { kind: 'settings' }
+  | { kind: 'settings'; section?: 'agents' }
   | { kind: 'shortcuts' }
   | { kind: 'computers' }
   | { kind: 'stopAll' }

@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 # Regenerates design/screenshots/ from a throwaway demo: fake projects under a
 # temporary home directory (so paths read ~/code/acme/...), a daemon on :7990
+# (SHOT_PORT picks another)
 # and headless Chrome. Needs Google Chrome and Node 24. With a running Docker
 # engine it also starts two small Compose projects, acme and studio
 # (postgres:17-alpine and redis:7-alpine, published on 127.0.0.1:55432 and
 # :56379), refusing to run when projects with those names exist, and removes
 # them, volumes included, on exit; it touches nothing else.
 #
-# With dist/macos/Portside.app built it also renders the menu bar panel and the
-# coding-agent window.
+# With dist/macos/Portside.app built it also renders the menu bar panel.
 #
 #   scripts/screenshots.sh                    # README screenshots in design/screenshots
-#   scripts/screenshots.sh --portfolio DIR    # light/dark pairs, the panel and the agent window into DIR
+#   scripts/screenshots.sh --portfolio DIR    # light/dark pairs and the panel into DIR
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 REAL_HOME="$HOME"
 
-if lsof -nP -iTCP:7990 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "port 7990 is in use (a demo daemon left running?); stop it first" >&2
+shot_port="${SHOT_PORT:-7990}"
+if lsof -nP -iTCP:"$shot_port" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "port $shot_port is in use (a demo daemon left running?); stop it first or set SHOT_PORT" >&2
   exit 1
 fi
 DEMO="$(mktemp -d /tmp/portside-demo.XXXXXX)"
@@ -33,6 +34,8 @@ else
 fi
 
 for p in acme/web acme/api acme/worker shop/storefront shop/admin studio/app blog landing; do mkdir -p "$HOMEDIR/code/$p"; done
+# The coding agents count as installed, with nothing connected yet, for the Settings shot.
+mkdir -p "$HOMEDIR/.claude" "$HOMEDIR/.codex" "$HOMEDIR/.gemini"
 # Simple project logos, picked up as favicons.
 logo() { mkdir -p "$HOMEDIR/code/$1/public"; printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="%s"/><text x="16" y="22" font-family="Helvetica" font-weight="700" font-size="17" text-anchor="middle" fill="#fff">%s</text></svg>' "$2" "$3" > "$HOMEDIR/code/$1/public/favicon.svg"; }
 logo acme/web '#6d5bd0' 'A'
@@ -50,7 +53,7 @@ done
 
 cat > "$DEMO/portside.toml" <<TOML
 root = "~/code"
-port = 7990
+port = $shot_port
 restore = false
 notify = false
 path = ["$DEMO/bin"]
@@ -182,23 +185,21 @@ if [ "$MODE" = "--portfolio" ]; then
   mkdir -p "$OUT"
 fi
 # Chrome keeps cookies in the real keychain, so it runs with the real home.
-HOME="$REAL_HOME" node "$REPO/scripts/screenshots.mjs" "$DEMO" "$OUT" "$SET"
+HOME="$REAL_HOME" node "$REPO/scripts/screenshots.mjs" "$DEMO" "$OUT" "$SET" "$shot_port"
 
 if [ -d "$APP" ]; then
   # The menu bar panel, drawn offscreen by a second app instance on the demo
-  # daemon, and the coding-agent window for the demo home, where no agent is
-  # connected yet. README gets English dark/light; the portfolio both looks.
+  # daemon. README gets English dark/light; the portfolio both looks.
   looks="dark light"; lang="${SHOT_LANG:-pl}"
   [ "$SET" = readme ] && lang=en
   for look in $looks; do
     if [ "$SET" = portfolio ]; then
       suffix=""; [ "$look" = light ] && suffix="-light"
-      panel="$OUT/portside-menubar$suffix.png" agents="$OUT/portside-agents$suffix.png"
+      panel="$OUT/portside-menubar$suffix.png"
     else
-      panel="$OUT/menubar-$look.png" agents="$OUT/agents-$look.png"
+      panel="$OUT/menubar-$look.png"
     fi
     "$APP/Contents/MacOS/Portside" -AppleLanguages "($lang)" --appearance="$look" --render-panel="$panel" >/dev/null 2>&1 || true
-    "$APP/Contents/MacOS/Portside" -AppleLanguages "($lang)" --appearance="$look" --render-agent-setup="$agents" >/dev/null 2>&1 || true
   done
 fi
 echo "Screenshots written to $OUT (demo in $DEMO)"

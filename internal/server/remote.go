@@ -191,11 +191,11 @@ func (s *Server) setShare(w http.ResponseWriter, r *http.Request) {
 // ── the shared side ─────────────────────────────────────────────────────
 
 // peerDenied lists routes another device may not use: they act on this
-// computer's desktop, stop or replace the daemon, mint sign-in links, or chain
-// connections and change sharing.
+// computer's desktop or coding agents, stop or replace the daemon, mint
+// sign-in links, or chain connections and change sharing.
 func peerDenied(p string) bool {
 	switch p {
-	case "/api/open", "/api/apps", "/api/shutdown", "/api/upgrade", "/api/auth/code":
+	case "/api/open", "/api/apps", "/api/shutdown", "/api/upgrade", "/api/auth/code", "/api/agents", "/api/agents/apply":
 		return true
 	}
 	return p == "/api/remote" || strings.HasPrefix(p, "/api/remote/") || strings.HasPrefix(p, remote.PathPrefix+"/")

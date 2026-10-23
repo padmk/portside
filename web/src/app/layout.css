@@ -254,6 +254,24 @@
   color: var(--text-2);
   font-size: var(--fs-sm);
 }
+.empty-agents {
+  display: grid;
+  gap: 8px;
+  width: min(420px, 100%);
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+.empty-agents h2 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.empty-agents > p {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
 .cli-line {
   display: flex;
   align-items: center;

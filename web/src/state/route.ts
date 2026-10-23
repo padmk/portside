@@ -36,6 +36,15 @@ export function takeTerminalLink(): boolean {
   return true
 }
 
+const AGENTS = '#settings/agents'
+
+/** `#settings/agents` (used by the menu bar app's Connect Coding Agents) opens Settings on the coding agents. */
+export function takeAgentsLink(): boolean {
+  if (location.hash !== AGENTS) return false
+  history.replaceState(null, '', location.pathname + location.search)
+  return true
+}
+
 export function useSelectedName(): string | null {
   return useSyncExternalStore(
     (cb) => (window.addEventListener('hashchange', cb), () => window.removeEventListener('hashchange', cb)),

@@ -236,6 +236,30 @@ export interface AppsView {
   autoTerminal: string
 }
 
+/** One coding-agent setup step on this computer (internal/agentsetup). */
+export interface AgentItem {
+  /** `<agent>-mcp` or `<agent>-skill`, agent being claude, codex or gemini. */
+  id: string
+  state: 'ok' | 'missing' | 'outdated' | 'foreign' | 'unavailable'
+  /** What applying it runs, or what to run by hand. */
+  command: string
+  detail?: string
+}
+
+export interface AgentsView {
+  items: AgentItem[]
+  /** A request to paste into a coding agent so it does the whole setup. */
+  prompt: string
+}
+
+export interface AgentResult {
+  id: string
+  ok: boolean
+  error?: string
+  /** The command to run by hand after a failure. */
+  command?: string
+}
+
 export type BulkAction = 'start' | 'stop' | 'restart'
 
 export interface BulkResult {

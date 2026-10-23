@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Getting started:** the empty dashboard, which the macOS app opens on its first launch, connects the coding agents (MCP server and skill) next to finding projects. Settings has the same under **Coding agents**, also opened from the app's **Connect Coding Agents** and the command palette; the app's separate agent window is gone.
+- **Agent prompt:** `portside setup --print-prompt`, and **Copy prompt for your agent** in the dashboard, give a request to paste into a coding agent so it connects the agents, adds your projects and checks that they start.
+
 ## 0.1.0
 
 First public release.

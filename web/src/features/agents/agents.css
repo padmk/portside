@@ -1,0 +1,55 @@
+.agents {
+  display: grid;
+  gap: 12px;
+  text-align: left;
+}
+.agents-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.agents-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.agents-state {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.agents-ok {
+  color: var(--running-text);
+}
+.agents-warn {
+  color: var(--external-text);
+}
+.agents-bad {
+  color: var(--crashed-text);
+}
+.agents-manual {
+  display: grid;
+  gap: 6px;
+}
+.agents-manual .agents-note,
+.agents-manual .cli-line {
+  margin-left: 24px;
+}
+.agents-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.agents-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.agents-error {
+  margin: 0;
+  color: var(--crashed-text);
+  font-size: var(--fs-sm);
+}

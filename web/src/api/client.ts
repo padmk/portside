@@ -1,4 +1,6 @@
 import type {
+  AgentResult,
+  AgentsView,
   AppsView,
   BulkAction,
   BulkResult,
@@ -175,6 +177,9 @@ export const api = {
   apps: () => request<AppsView>('GET', `${LOCAL}/apps`),
   setApp: (key: 'editor' | 'terminal', value: string) => request<AppsView>('PUT', `${LOCAL}/apps`, { key, value }),
   shutdown: () => on<{ ok: boolean }>('POST', '/shutdown', {}),
+  /** Coding-agent setup of this computer; a remote daemon refuses it. */
+  agents: () => request<AgentsView>('GET', `${LOCAL}/agents`),
+  applyAgents: (ids: string[]) => request<AgentResult[]>('POST', `${LOCAL}/agents/apply`, { ids }),
 
   remote: () => request<RemoteOverview>('GET', `${LOCAL}/remote`).then(overview),
   peers: () => request<PeersResponse>('GET', `${LOCAL}/remote/peers`).then((r) => ({ ...r, peers: r.peers ?? [] })),

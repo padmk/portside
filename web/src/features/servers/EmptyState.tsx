@@ -5,6 +5,7 @@ import { openAddServer } from '../../state/ui'
 import { Mark } from '../../app/Mark'
 import { brand } from '../../brand'
 import { CopyButton } from '../../ui/CopyButton'
+import { AgentSetup } from '../agents/AgentSetup'
 
 /** path as one shell word, with a leading ~/ left outside the quotes for the shell to expand. */
 function shellWord(path: string): string {
@@ -43,6 +44,13 @@ export function EmptyState() {
           {t('empty.manual')}
         </button>
       </div>
+      {local && (
+        <section className="empty-agents" aria-labelledby="empty-agents">
+          <h2 id="empty-agents">{t('agents.title')}</h2>
+          <p>{t('agents.body')}</p>
+          <AgentSetup />
+        </section>
+      )}
       {local && (
         <div className="empty-cli">
           <p>{t('empty.cli')}</p>

@@ -5,10 +5,10 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const [demo, out, set = 'readme'] = process.argv.slice(2)
+const [demo, out, set = 'readme', port = '7990'] = process.argv.slice(2)
 // Direct API calls go to the loopback address; the browser uses the dashboard's
 // own host, taken from the sign-in link.
-const API = 'http://127.0.0.1:7990'
+const API = `http://127.0.0.1:${port}`
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const token = readFileSync(join(demo, 'state', 'auth-token'), 'utf8').trim()
@@ -22,13 +22,13 @@ async function signInLink(next = '/') {
   return res.json()
 }
 
-const port = 9444
-const chrome = spawn(CHROME, [`--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'ps-chrome-'))}`,
+const debugPort = 9444
+const chrome = spawn(CHROME, [`--remote-debugging-port=${debugPort}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'ps-chrome-'))}`,
   // The mock keychain keeps the throwaway profile away from macOS keychains, so no keychain prompt appears.
   '--headless=new', '--use-mock-keychain', '--no-first-run', '--disable-gpu', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' })
 let targets = []
 for (let i = 0; i < 50 && !targets.length; i++) {
-  try { targets = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter((t) => t.type === 'page') } catch {}
+  try { targets = (await (await fetch(`http://127.0.0.1:${debugPort}/json`)).json()).filter((t) => t.type === 'page') } catch {}
   await sleep(200)
 }
 const ws = new WebSocket(targets[0].webSocketDebuggerUrl)
@@ -76,6 +76,11 @@ const settingsDialog = async () => {
   await sleep(300)
 }
 
+// Settings on the coding agents, as the menu bar app's Connect Coding Agents opens it.
+const agentsDialog = async () => {
+  await open('#settings/agents', 3000)
+}
+
 await send('Page.enable')
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
 // The link is on 127.0.0.1 and forwards to the dashboard host, which the reply names.
@@ -105,6 +110,7 @@ if (set === 'portfolio') {
     await open('#/blog', 3000); await shot(`portside-crashed${suffix}.png`)
     await containersTab('api'); await shot(`portside-containers${suffix}.png`)
     await settingsDialog(); await shot(`portside-settings${suffix}.png`)
+    await agentsDialog(); await shot(`portside-agents${suffix}.png`)
   }
 } else {
   await evaluate(`localStorage.setItem('portside.collapsed', '["shop"]')`)
@@ -118,6 +124,7 @@ if (set === 'portfolio') {
   await theme('catppuccin', 'light'); await open('#/blog', 3000); await shot('crashed.png')
   await theme('nord', 'dark'); await containersTab('api'); await shot('containers.png')
   await theme('rose-pine', 'light'); await settingsDialog(); await shot('settings.png')
+  await theme('rose-pine', 'dark'); await agentsDialog(); await shot('agents.png')
 }
 
 await send('Browser.close').catch(() => {})

@@ -5,13 +5,14 @@ import type { AppsView } from '../../api/types'
 import { swatches } from 'virtual:theme-swatches'
 import { useT, locales, type Key } from '../../i18n'
 import { setLocale, setThemeFamily, setThemeMode, usePrefs } from '../../state/prefs'
-import { closeDialog, openDialog } from '../../state/ui'
+import { closeDialog, getUi, openDialog } from '../../state/ui'
 import { FAMILIES, type ModeChoice } from '../../theme/registry'
 import { Dialog } from '../../ui/Dialog'
 import { RadioGroup } from '../../ui/RadioGroup'
 import { layoutFor, setLayout, useOverviewState } from '../overview/overviewState'
 import { useLive, useRemote } from '../../state/live'
 import { toastError } from '../../state/toasts'
+import { AgentSetup } from '../agents/AgentSetup'
 import './settings.css'
 
 const MODES: { id: ModeChoice; label: Key; icon: React.ReactNode }[] = [
@@ -27,6 +28,11 @@ export function SettingsDialog() {
   const count = useLive().state?.servers.length ?? 0
   const layout = layoutFor(layoutChoice, count)
   const local = !useRemote()
+  // Opened for the coding agents (the menu bar app's Connect Coding Agents): that section is scrolled into view.
+  const [toAgents] = useState(() => {
+    const d = getUi().dialog
+    return d?.kind === 'settings' && d.section === 'agents'
+  })
 
   return (
     <Dialog
@@ -121,6 +127,14 @@ export function SettingsDialog() {
         </div>
 
         {local && <AppPickers />}
+
+        {local && (
+          <section className="setting" id="set-agents" aria-labelledby="set-agents-title">
+            <h3 id="set-agents-title">{t('agents.title')}</h3>
+            <p className="setting-hint">{t('agents.body')}</p>
+            <AgentSetup reveal={toAgents} />
+          </section>
+        )}
       </div>
     </Dialog>
   )

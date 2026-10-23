@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import {
+  Bot,
   ExternalLink,
   FileCog,
   Keyboard,
@@ -56,6 +57,7 @@ function buildCommands(state: State, t: Translate, locale: string): Command[] {
       ? [{ id: 'disconnect', label: t('remote.disconnectFrom', { name: state.remote.peer.name }), icon: <Unplug size={15} />, run: () => void disconnectRemote() }]
       : []),
     { id: 'config', label: t('menu.editConfig'), icon: <FileCog size={15} />, run: () => openDialog({ kind: 'config' }) },
+    ...(state.remote ? [] : [{ id: 'agents', label: t('agents.open'), icon: <Bot size={15} />, run: () => openDialog({ kind: 'settings', section: 'agents' }) }]),
     { id: 'settings', label: t('menu.settings'), icon: <Settings size={15} />, run: () => openDialog({ kind: 'settings' }) },
     { id: 'shortcuts', label: t('menu.shortcuts'), icon: <Keyboard size={15} />, run: () => openDialog({ kind: 'shortcuts' }) },
     { id: 'cards', label: t('palette.layoutCards'), icon: <LayoutGrid size={15} />, run: () => setLayout('cards') },

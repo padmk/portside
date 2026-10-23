@@ -62,6 +62,8 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/apps", s.setApp)
 	m.HandleFunc("POST /api/shutdown", s.shutdown)
 	m.HandleFunc("POST /api/upgrade", s.upgrade)
+	m.HandleFunc("GET /api/agents", s.agents)
+	m.HandleFunc("POST /api/agents/apply", s.applyAgents)
 	s.containerRoutes(m)
 	s.remoteRoutes(m)
 

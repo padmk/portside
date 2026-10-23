@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Unplug, WifiOff } from 'lucide-react'
 import { disconnectRemote } from '../features/remote/actions'
 import { ConfigBanners } from '../features/config/ConfigBanners'
@@ -20,8 +20,8 @@ import { bulk } from '../features/servers/actions'
 import { canStop } from '../features/servers/format'
 import { useT } from '../i18n'
 import { useLive, type Connection } from '../state/live'
-import { closeServer, takeTerminalLink, useContainersPage, useSelectedName } from '../state/route'
-import { closeDialog, getUi, showTerminal, useUi } from '../state/ui'
+import { closeServer, takeAgentsLink, takeTerminalLink, useContainersPage, useSelectedName } from '../state/route'
+import { closeDialog, getUi, openDialog, showTerminal, useUi } from '../state/ui'
 import { Toasts } from '../ui/Toasts'
 import { brand } from '../brand'
 import { Mark } from './Mark'
@@ -62,6 +62,7 @@ export function App() {
   useEffect(() => {
     const check = () => {
       if (takeTerminalLink()) showTerminal()
+      if (takeAgentsLink()) openDialog({ kind: 'settings', section: 'agents' })
     }
     check()
     window.addEventListener('hashchange', check)
@@ -75,7 +76,10 @@ export function App() {
 
   // Dialogs hold data of the computer they were opened for; switching computers closes them.
   const machine = remote?.peer.dnsName ?? ''
+  const shownMachine = useRef(machine)
   useEffect(() => {
+    if (shownMachine.current === machine) return
+    shownMachine.current = machine
     const open = getUi().dialog
     if (open && open.kind !== 'computers') closeDialog()
   }, [machine])
