@@ -58,7 +58,7 @@ It is built for macOS, as a menu bar app; on Linux (a preview, less tested) the 
 
 Requirements: macOS 26 (Tahoe) or later on Apple Silicon (M1 or newer). Linux on x86-64 or arm64 works as a preview: the CLI, daemon and dashboard run there, but macOS is the platform Portside is built and tested for. The dashboard is served at its own `*.localhost` host, so it needs a browser that resolves `*.localhost`: Chrome, Firefox, or Safari on macOS 26 and later (the app's dashboard window uses the same WebKit).
 
-macOS, with Homebrew (planned; the tap is not published yet). This will install `Portside.app` and the `portside` command:
+macOS, with Homebrew. This installs `Portside.app` and the `portside` command:
 
 ```sh
 brew install --cask padmk/tap/portside
