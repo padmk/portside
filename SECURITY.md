@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report vulnerabilities privately through GitHub: open the [Security tab](https://github.com/padmk/homebrew-portside/security) of `padmk/homebrew-portside`, where releases are published, and choose **Report a vulnerability** ([GitHub's guide](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)). Please do not open a public issue, pull request or discussion for a vulnerability.
+Report vulnerabilities privately through GitHub: open the [Security tab](https://github.com/padmk/portside/security) of `padmk/portside` and choose **Report a vulnerability** ([GitHub's guide](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)). Please do not open a public issue, pull request or discussion for a vulnerability.
 
 Include the version (`portside version`), the operating system, what an attacker can do and the steps to reproduce it. Fixes are released as a new version with a GitHub security advisory, which credits the reporter unless they ask otherwise.
 

@@ -4,22 +4,13 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  release:
-    # Builds the command-line archives and the macOS app, then publishes both,
-    # the docs and the Homebrew cask to the public release repository; the
-    # source repository stays private.
+  cli:
+    # Linux and macOS command-line archives with the embedded dashboard.
     runs-on: macos-26
-    env:
-      PUBLIC_REPO: ${{ github.repository_owner }}/homebrew-portside
     steps:
-      - name: Check the release token
-        # A fine-grained token with contents write on the public repository only.
-        env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: '[ -n "$RELEASE_TOKEN" ] || { echo "The RELEASE_TOKEN secret is not set" >&2; exit 1; }'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
@@ -39,43 +30,62 @@ jobs:
         run: |
           awk -v h="## ${GITHUB_REF_NAME#v}" '$0 == h {on = 1; next} on && /^## / {exit} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no section for ${GITHUB_REF_NAME#v}" >&2; exit 1; }
-          printf '\n## Install\n\nmacOS 26 or later on Apple Silicon:\n\n```sh\nbrew install --cask %s/portside/portside\n```\n\nThe archives below hold the command-line binary alone (Linux is a preview). See the README for details.\n' "$GITHUB_REPOSITORY_OWNER" >> "$RUNNER_TEMP/notes.md"
-      - name: Command-line archives
-        # Release publishing is disabled in .goreleaser.yaml; this only builds into dist/.
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+          printf '\n## Install\n\nmacOS 26 or later on Apple Silicon:\n\n```sh\nbrew install --cask %s/tap/portside\n```\n\nThe archives below hold the command-line binary alone (Linux is a preview). See the README for details.\n' "$GITHUB_REPOSITORY_OWNER" >> "$RUNNER_TEMP/notes.md"
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
           version: v2.18.3
-          args: release --clean
+          args: release --clean --release-notes=${{ runner.temp }}/notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  app:
+    # macOS menu bar app, attached to the same release and published as a Homebrew cask.
+    needs: cli
+    runs-on: macos-26
+    env:
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
       - name: Build Portside.app
         run: VERSION="${GITHUB_REF_NAME#v}" scripts/build-macos-app.sh --zip
-      - name: Publish
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "dist/macos/Portside-${GITHUB_REF_NAME#v}.zip" --clobber
+      - name: Update the Homebrew cask
+        # Skipped until the tap repository and its token are set up.
+        if: env.HAS_TAP_TOKEN == 'true'
         env:
           # git asks gh for credentials, so the token stays out of URLs and git config.
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          zip="dist/macos/Portside-$version.zip"
+          sha=$(shasum -a 256 "dist/macos/Portside-$version.zip" | cut -d' ' -f1)
+          bundle=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' dist/macos/Portside.app/Contents/Info.plist)
+          # The app's bundle ID is the service label plus ".app" (internal/app).
+          label="${bundle%.app}"
           gh auth setup-git
-          git clone "https://github.com/$PUBLIC_REPO.git" "$RUNNER_TEMP/public"
-          pub="$RUNNER_TEMP/public"
-          git -C "$pub" config user.name "github-actions[bot]"
-          git -C "$pub" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C "$pub" checkout -B main
-
-          # The docs first, so the release has a commit to tag.
-          scripts/public-repo.sh "$pub"
-          git -C "$pub" add -A
-          git -C "$pub" diff --cached --quiet || git -C "$pub" commit -qm "Docs for $version"
-          git -C "$pub" push -q origin main
-
-          # A draft until every file is attached, so nobody sees a partial release.
-          gh release create "$GITHUB_REF_NAME" -R "$PUBLIC_REPO" --target main --draft \
-            --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" \
-            dist/*.tar.gz dist/checksums.txt "$zip"
-          gh release edit "$GITHUB_REF_NAME" -R "$PUBLIC_REPO" --draft=false --latest
-
-          # The cask last: it points at the zip, which now exists.
-          scripts/public-repo.sh "$pub" "$version" "$zip" "$PUBLIC_REPO"
-          git -C "$pub" add -A
-          git -C "$pub" commit -qm "portside $version"
-          git -C "$pub" push -q origin main
+          git clone "https://github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/__VERSION__/$version/" -e "s/__SHA256__/$sha/" -e "s#__REPO__#$GITHUB_REPOSITORY#" \
+            -e "s/__BUNDLE_ID__/$bundle/" -e "s/__SERVICE_LABEL__/$label/" \
+            packaging/homebrew/portside.rb.tmpl > tap/Casks/portside.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/portside.rb
+          git commit -m "portside $version"
+          git push
