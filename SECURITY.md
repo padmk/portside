@@ -20,4 +20,4 @@ Portside runs the commands in your config as your user, so a program that alread
 - config, state or log files readable by other accounts;
 - the release artifacts, the Homebrew cask and the macOS app's update and install paths.
 
-The README's "Security model" section describes the protections in detail.
+[docs/security.md](docs/security.md) describes the protections in detail.

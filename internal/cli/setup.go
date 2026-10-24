@@ -29,11 +29,11 @@ func cmdSetup(e *env, args []string) error {
 	}
 	if *printMCP {
 		// The entry for MCP clients configured by hand (Cursor, Windsurf and
-		// others); see README "Coding agents".
+		// others); see docs/coding-agents.md.
 		return printJSON(e, agentsetup.MCPConfig())
 	}
 	if *printPrompt {
-		// A request to paste into a coding agent; see README "Coding agents".
+		// A request to paste into a coding agent; see docs/coding-agents.md.
 		fmt.Fprint(e.out, agentsetup.Prompt())
 		return nil
 	}
