@@ -12,7 +12,7 @@ import { useNow } from '../../ui/hooks'
 import { useBusy } from '../servers/actions'
 import { CopyButton } from '../../ui/CopyButton'
 import { connectTo, disconnectRemote, pairWith } from './actions'
-import { TailscaleHelp } from './TailscaleHelp'
+import { AgentPrompt, TailscaleHelp } from './TailscaleHelp'
 import './remote.css'
 
 export function OsIcon({ os, size = 18 }: { os?: string; size?: number }) {
@@ -219,7 +219,7 @@ function Peers({ scan, remote }: { scan: PeersResponse | null; remote: RemoteCon
     )
   }
   if (!scan.tailnet.available) {
-    return <TailscaleHelp problem={scan.tailnet.problem} detail={scan.tailnet.error} />
+    return <TailscaleHelp problem={scan.tailnet.problem} detail={scan.tailnet.error} prompt={scan.prompt} />
   }
   if (scan.peers.length === 0) {
     return (
@@ -227,6 +227,7 @@ function Peers({ scan, remote }: { scan: PeersResponse | null; remote: RemoteCon
         <p>{t('remote.none')}</p>
         <p className="peers-detail">{t('remote.noneHint')}</p>
         <code className="mono peers-cmd">{brand.name} share on</code>
+        <AgentPrompt prompt={scan.prompt} />
       </div>
     )
   }

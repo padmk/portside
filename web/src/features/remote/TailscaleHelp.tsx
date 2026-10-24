@@ -16,8 +16,22 @@ function Command({ command }: { command: string }) {
   )
 }
 
+/** The request that has a coding agent set up both computers, to copy. */
+export function AgentPrompt({ prompt }: { prompt?: string }) {
+  const t = useT()
+  if (!prompt) return null
+  return (
+    <>
+      <p className="peers-detail">{t('remote.agentHint')}</p>
+      <CopyButton text={prompt} label={t('agents.prompt')} className="btn" size={14}>
+        {t('agents.prompt')}
+      </CopyButton>
+    </>
+  )
+}
+
 /** What to do when Tailscale, which connecting computers needs, is missing, off or signed out. */
-export function TailscaleHelp({ problem, detail }: { problem?: TailnetProblem; detail?: string }) {
+export function TailscaleHelp({ problem, detail, prompt }: { problem?: TailnetProblem; detail?: string; prompt?: string }) {
   const t = useT()
   return (
     <div className="peers-empty" role="status">
@@ -54,6 +68,7 @@ export function TailscaleHelp({ problem, detail }: { problem?: TailnetProblem; d
           {detail && <p className="peers-detail mono">{detail}</p>}
         </>
       )}
+      <AgentPrompt prompt={prompt} />
     </div>
   )
 }

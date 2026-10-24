@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/padmk/portside/internal/agentsetup"
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/remote"
@@ -37,10 +38,15 @@ func (e *env) localize(v *supervisor.View) {
 func cmdComputers(e *env, args []string) error {
 	fs := flag.NewFlagSet("computers", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "")
+	printPrompt := fs.Bool("print-prompt", false, "")
 	if pos, err := parse(fs, args); err != nil {
 		return err
 	} else if len(pos) > 0 {
 		return usageError{}
+	}
+	if *printPrompt {
+		fmt.Fprint(e.out, agentsetup.SharePrompt())
+		return nil
 	}
 	c, err := e.client()
 	if err != nil {
@@ -62,7 +68,7 @@ func cmdComputers(e *env, args []string) error {
 	}
 	switch {
 	case !d.Tailnet.Available:
-		fmt.Fprintf(e.errOut, "%s Tailscale is not available: %s\n", e.paint(red, "●"), d.Tailnet.Error)
+		fmt.Fprintf(e.errOut, "%s %s\n%s computers --print-prompt prints a request that has your coding agent set this up.\n", e.paint(red, "●"), d.Tailnet.Error, app.ID)
 	case len(d.Peers) == 0:
 		fmt.Fprintf(e.out, "No other computer shares its servers. Turn sharing on there with `%s share on`;\nboth computers need the same Tailscale account.\n", app.ID)
 	}

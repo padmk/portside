@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/padmk/portside/internal/agentsetup"
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/remote"
@@ -56,7 +57,14 @@ func (s *Server) remoteOverview(w http.ResponseWriter, r *http.Request) {
 func (s *Server) remotePeers(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	writeJSON(w, http.StatusOK, s.opt.Remote.Discover(ctx))
+	writeJSON(w, http.StatusOK, peersView{s.opt.Remote.Discover(ctx), agentsetup.SharePrompt()})
+}
+
+// peersView is a scan of the tailnet with the request that has a coding
+// agent set up Tailscale, sharing and pairing.
+type peersView struct {
+	remote.Discovery
+	Prompt string `json:"prompt"`
 }
 
 func (s *Server) remoteConnect(w http.ResponseWriter, r *http.Request) {

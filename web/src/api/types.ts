@@ -287,6 +287,8 @@ export interface Peer {
 export interface PeersResponse {
   tailnet: { available: boolean; error?: string; problem?: TailnetProblem; self?: string }
   peers: Peer[]
+  /** A request for a coding agent that sets up Tailscale, sharing and pairing. */
+  prompt?: string
 }
 
 /** Why Tailscale is unavailable: not installed, not connected, or waiting for a sign-in. */

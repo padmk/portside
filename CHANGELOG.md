@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **Getting started:** the empty dashboard, which the macOS app opens on its first launch, connects the coding agents (MCP server and skill) next to finding projects. Settings has the same under **Coding agents**, also opened from the app's **Connect Coding Agents** and the command palette; the app's separate agent window is gone.
-- **Tailscale help:** the **Computers** window says whether Tailscale is not installed (with a download link and the Homebrew command), not connected, or waiting for a sign-in, instead of one general message.
+- **Tailscale help:** the **Computers** window says whether Tailscale is not installed (with a download link and the Homebrew command), not connected, or waiting for a sign-in, instead of one general message. **Copy prompt for your agent** there, and `portside computers --print-prompt`, give a request that has a coding agent set up Tailscale, sharing and pairing with you.
 - **Agent prompt:** `portside setup --print-prompt`, and **Copy prompt for your agent** in the dashboard, give a request to paste into a coding agent so it connects the agents, adds your projects and checks that they start.
 
 ## 0.1.0

@@ -107,7 +107,7 @@ depends_on = ["api"]
 - [Dashboard and menu bar app](docs/dashboard.md)
 - [Coding agents](docs/coding-agents.md): setup, other MCP clients, the tools, worktrees
 - [Containers](docs/containers.md): engines, ownership, actions
-- [Other computers](docs/other-computers.md): pairing and sharing over Tailscale
+- [Other computers](docs/other-computers.md): pairing and sharing over Tailscale, or with your coding agent's help
 - [How it works](docs/how-it-works.md): processes, state, upgrades in place, the login service
 - [Security model](docs/security.md)
 - [Development](docs/development.md) and the [changelog](CHANGELOG.md)

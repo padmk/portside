@@ -153,7 +153,7 @@ func init() {
 		{names: []string{"containers"}, section: "Servers", usage: "containers [server|project]... [--json] | start|stop|restart|recreate <name> [--build] [--pull]", summary: "List containers or act on one container", run: cmdContainers, remote: true},
 		{names: []string{"ports"}, section: "Servers", usage: "ports [--json]", summary: "Show every listening TCP port and its owner", run: cmdPorts},
 
-		{names: []string{"computers"}, section: "Other computers", usage: "computers [--json]", summary: "List your other computers that share their servers, and the connection", run: cmdComputers},
+		{names: []string{"computers"}, section: "Other computers", usage: "computers [--json] | --print-prompt", summary: "List your other computers that share their servers, and the connection; --print-prompt prints a setup request for a coding agent", run: cmdComputers},
 		{names: []string{"pair"}, section: "Other computers", usage: "pair <computer> <code>", summary: "Pair with a computer using the code it shows, then connect", run: cmdPair},
 		{names: []string{"connect"}, section: "Other computers", usage: "connect <computer>", summary: "Connect to a paired computer; --on <computer> then acts on it", run: cmdConnect},
 		{names: []string{"disconnect"}, section: "Other computers", usage: "disconnect", summary: "End the connection to another computer", run: cmdDisconnect},

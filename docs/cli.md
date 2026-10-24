@@ -28,7 +28,8 @@ portside service install|uninstall|status
 portside share [on|off]                  let your paired devices on Tailscale connect;
                                          on prints a pairing code
 portside share code|devices|revoke <device>   new pairing code, paired devices, unpair one
-portside computers [--json]              your other computers that share, and the connection
+portside computers [--json]              your other computers that share, and the connection;
+                                         --print-prompt a setup request for your coding agent
 portside pair <computer> <code>          pair with a computer using its code, then connect
 portside connect <computer> | disconnect connect to a paired computer, or end the connection
 portside --on <computer> <command>       run status, up, down, restart, ensure, logs, attach
