@@ -1,7 +1,7 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { Translate } from '../i18n'
 
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
+export const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
 /** How the shortcut sheet and hints write the app's modifier ('mod'). */
 export const modLabel = isMac ? '⌘' : 'Ctrl+Shift'

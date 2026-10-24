@@ -4,7 +4,7 @@ Work on one computer while the projects run on another, for example a laptop dri
 
 ## Pairing
 
-1. Install Tailscale on both and sign both in to the same Tailscale account.
+1. Install [Tailscale](https://tailscale.com/download) on both (on macOS also `brew install --cask tailscale-app`) and sign both in to the same Tailscale account. Until then the **Computers** window says what is missing: Tailscale not installed, not connected, or waiting for a sign-in.
 2. On the computer that runs the projects, turn sharing on: **Computers** in the top bar, then **Let my other devices connect**, or `portside share on` (it sets `share = true` in the config). Either shows a one-time pairing code, valid for 10 minutes.
 3. On the computer you work on, open **Computers**, choose **Pair** next to the other computer and enter the code. Pairing is needed once per device; afterwards **Connect** is enough.
 

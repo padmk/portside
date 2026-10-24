@@ -57,6 +57,7 @@ type Status struct {
 	Active  bool     `json:"active"`
 	URL     string   `json:"url,omitempty"`
 	Error   string   `json:"error,omitempty"`
+	Problem string   `json:"problem,omitempty"` // tailnet.Problem of Error
 	Devices []Device `json:"devices"`
 }
 
@@ -216,7 +217,7 @@ func (m *Manager) Apply(ctx context.Context) Status {
 	case closed:
 	case m.wanted():
 		if err := m.enable(ctx); err != nil {
-			m.setStatus(Status{Enabled: true, Error: err.Error()})
+			m.setStatus(Status{Enabled: true, Error: err.Error(), Problem: tailnet.Problem(err)})
 		}
 	default:
 		if err := m.disable(ctx); err != nil {

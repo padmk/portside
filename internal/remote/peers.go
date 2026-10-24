@@ -49,6 +49,7 @@ type Discovery struct {
 	Tailnet struct {
 		Available bool   `json:"available"`
 		Error     string `json:"error,omitempty"`
+		Problem   string `json:"problem,omitempty"` // tailnet.Problem of Error
 		Self      string `json:"self,omitempty"`
 	} `json:"tailnet"`
 	Peers []Peer `json:"peers"`
@@ -391,6 +392,7 @@ func (m *Manager) Discover(ctx context.Context) Discovery {
 	st, err := m.ts.Fresh(ctx)
 	if err != nil {
 		d.Tailnet.Error = err.Error()
+		d.Tailnet.Problem = tailnet.Problem(err)
 		return d
 	}
 	d.Tailnet.Available = true

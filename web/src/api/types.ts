@@ -285,9 +285,12 @@ export interface Peer {
 }
 
 export interface PeersResponse {
-  tailnet: { available: boolean; error?: string; self?: string }
+  tailnet: { available: boolean; error?: string; problem?: TailnetProblem; self?: string }
   peers: Peer[]
 }
+
+/** Why Tailscale is unavailable: not installed, not connected, or waiting for a sign-in. */
+export type TailnetProblem = 'missing' | 'stopped' | 'signedOut'
 
 /** Sharing of this computer with the tailnet. */
 export interface RemoteShare {
@@ -296,6 +299,7 @@ export interface RemoteShare {
   active: boolean
   url?: string
   error?: string
+  problem?: TailnetProblem
   /** Devices paired with this computer; each has full control while sharing is on. */
   devices: PairedDevice[]
 }

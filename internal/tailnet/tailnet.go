@@ -42,6 +42,32 @@ type Status struct {
 // ErrUnavailable means the tailscale CLI is missing or Tailscale is not connected.
 var ErrUnavailable = errors.New("Tailscale is not available")
 
+// Why Tailscale is unavailable, so the dashboard can say what to do.
+const (
+	Missing   = "missing"   // the tailscale command was not found
+	Stopped   = "stopped"   // installed, but not connected or its service is not running
+	SignedOut = "signedOut" // waiting for a sign-in or the device's approval
+)
+
+// unavailable is an ErrUnavailable with its reason.
+type unavailable struct {
+	reason string
+	detail string
+}
+
+func (e *unavailable) Error() string        { return ErrUnavailable.Error() + ": " + e.detail }
+func (e *unavailable) Is(target error) bool { return target == ErrUnavailable }
+
+// Problem is the reason for an ErrUnavailable (Missing, Stopped or
+// SignedOut), or "" for any other error.
+func Problem(err error) string {
+	var u *unavailable
+	if errors.As(err, &u) {
+		return u.reason
+	}
+	return ""
+}
+
 // candidates are tried when tailscale is not on PATH, which is common for a
 // daemon started by launchd with a minimal environment.
 var candidates = []string{
@@ -61,7 +87,7 @@ func binary() (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("%w: the tailscale command was not found", ErrUnavailable)
+	return "", &unavailable{Missing, "the tailscale command was not found"}
 }
 
 func run(ctx context.Context, args ...string) ([]byte, error) {
@@ -115,7 +141,11 @@ func node(r *rawNode) Node {
 func Fetch(ctx context.Context) (*Status, error) {
 	out, err := run(ctx, "status", "--json")
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		if Problem(err) != "" {
+			return nil, err
+		}
+		// The command is there but its service does not answer, as when the app is not running.
+		return nil, &unavailable{Stopped, err.Error()}
 	}
 	return parseStatus(out)
 }
@@ -127,7 +157,11 @@ func parseStatus(out []byte) (*Status, error) {
 		return nil, fmt.Errorf("tailscale status: %w", err)
 	}
 	if raw.BackendState != "Running" || raw.Self == nil {
-		return nil, fmt.Errorf("%w: Tailscale is %s", ErrUnavailable, strings.ToLower(raw.BackendState))
+		reason := Stopped
+		if raw.BackendState == "NeedsLogin" || raw.BackendState == "NeedsMachineAuth" {
+			reason = SignedOut
+		}
+		return nil, &unavailable{reason, "Tailscale is " + strings.ToLower(raw.BackendState)}
 	}
 	st := &Status{Self: node(raw.Self)}
 	if u, ok := raw.User[strconv.FormatInt(raw.Self.UserID, 10)]; ok && !st.Self.Tagged {

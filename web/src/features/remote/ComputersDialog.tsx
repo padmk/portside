@@ -12,6 +12,7 @@ import { useNow } from '../../ui/hooks'
 import { useBusy } from '../servers/actions'
 import { CopyButton } from '../../ui/CopyButton'
 import { connectTo, disconnectRemote, pairWith } from './actions'
+import { TailscaleHelp } from './TailscaleHelp'
 import './remote.css'
 
 export function OsIcon({ os, size = 18 }: { os?: string; size?: number }) {
@@ -218,12 +219,7 @@ function Peers({ scan, remote }: { scan: PeersResponse | null; remote: RemoteCon
     )
   }
   if (!scan.tailnet.available) {
-    return (
-      <div className="peers-empty" role="status">
-        <p>{t('remote.noTailnet')}</p>
-        {scan.tailnet.error && <p className="peers-detail mono">{scan.tailnet.error}</p>}
-      </div>
-    )
+    return <TailscaleHelp problem={scan.tailnet.problem} detail={scan.tailnet.error} />
   }
   if (scan.peers.length === 0) {
     return (
