@@ -60,7 +60,7 @@ func cmdSetup(e *env, args []string) error {
 	}
 
 	if !agentsetup.Applicable(items) {
-		fmt.Fprintf(e.out, "No coding agent (Claude Code, Codex, Gemini CLI) is installed for this account; nothing to set up. `%s setup --print-mcp` prints the MCP entry for other clients.\n", app.ID)
+		fmt.Fprintf(e.out, "No coding agent (Claude Code, Codex) is installed for this account; nothing to set up. `%s setup --print-mcp` prints the MCP entry for other clients.\n", app.ID)
 		return nil
 	}
 	var todo []agentsetup.Item
@@ -122,7 +122,7 @@ func printResults(e *env, results []agentsetup.Result) []agentsetup.Result {
 func doctorAgents(e *env, fix bool, ok, warn, bad func(string, ...any)) {
 	items := agentsetup.Check(e.port(), e.cfgPath)
 	if !agentsetup.Applicable(items) {
-		fmt.Fprintf(e.out, "%s no coding agent found (Claude Code, Codex, Gemini CLI)\n", e.paint(dim, "•"))
+		fmt.Fprintf(e.out, "%s no coding agent found (Claude Code, Codex)\n", e.paint(dim, "•"))
 		return
 	}
 	for _, it := range items {

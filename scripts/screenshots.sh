@@ -35,7 +35,7 @@ fi
 
 for p in acme/web acme/api acme/worker shop/storefront shop/admin studio/app blog landing; do mkdir -p "$HOMEDIR/code/$p"; done
 # The coding agents count as installed, with nothing connected yet, for the Settings shot.
-mkdir -p "$HOMEDIR/.claude" "$HOMEDIR/.codex" "$HOMEDIR/.gemini"
+mkdir -p "$HOMEDIR/.claude" "$HOMEDIR/.codex"
 # Simple project logos, picked up as favicons.
 logo() { mkdir -p "$HOMEDIR/code/$1/public"; printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="%s"/><text x="16" y="22" font-family="Helvetica" font-weight="700" font-size="17" text-anchor="middle" fill="#fff">%s</text></svg>' "$2" "$3" > "$HOMEDIR/code/$1/public/favicon.svg"; }
 logo acme/web '#6d5bd0' 'A'

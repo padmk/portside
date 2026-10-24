@@ -13,7 +13,7 @@ import (
 	"github.com/padmk/portside/internal/app"
 )
 
-// agentSandbox puts fake claude, codex and gemini CLIs, which append their
+// agentSandbox puts fake claude and codex CLIs, which append their
 // arguments to the returned log, and a link to this test binary as the
 // product's command on an otherwise empty PATH. With all of them on PATH
 // and TERM set, setup never reads the login shell, whose PATH could hold
@@ -30,11 +30,11 @@ func agentSandbox(t *testing.T) (home, log string) {
 	t.Setenv("PATH", bin)
 	t.Setenv("TERM", "dumb")
 	t.Setenv("FAKE_LOG", log)
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_CLI_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME"} {
 		t.Setenv(k, "")
 	}
 	script := "#!/bin/sh\n{ printf '%s' \"${0##*/}\"; for a in \"$@\"; do printf ' %s' \"$a\"; done; printf '\\n'; } >> \"$FAKE_LOG\"\n"
-	for _, name := range []string{"claude", "codex", "gemini"} {
+	for _, name := range []string{"claude", "codex"} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +86,7 @@ func TestSetupJSONShape(t *testing.T) {
 			t.Errorf("applicable of %v is not a bool", it["id"])
 		}
 	}
-	wantIDs := []string{"claude-mcp", "codex-mcp", "gemini-mcp", "claude-skill", "codex-skill"}
+	wantIDs := []string{"claude-mcp", "codex-mcp", "claude-skill", "codex-skill"}
 	if !reflect.DeepEqual(ids, wantIDs) {
 		t.Errorf("ids %v, want %v", ids, wantIDs)
 	}

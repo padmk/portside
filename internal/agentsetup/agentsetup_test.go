@@ -20,7 +20,7 @@ func fakeCLI(t *testing.T, bin, name string, code int) {
 	t.Helper()
 	script := `#!/bin/sh
 { printf '%s' "${0##*/}"; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'; } >> "$FAKE_LOG"
-printf '%s CLAUDE_CONFIG_DIR=%s CODEX_HOME=%s GEMINI_CLI_HOME=%s\n' "${0##*/}" "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" "$GEMINI_CLI_HOME" >> "$FAKE_ENV_LOG"
+printf '%s CLAUDE_CONFIG_DIR=%s CODEX_HOME=%s\n' "${0##*/}" "$CLAUDE_CONFIG_DIR" "$CODEX_HOME" >> "$FAKE_ENV_LOG"
 `
 	if code != 0 {
 		script += "echo 'fake failure' >&2\nexit " + strconv.Itoa(code) + "\n"
@@ -59,7 +59,7 @@ func newSandbox(t *testing.T, clis map[string]int) sandbox {
 	t.Setenv("TERM", "dumb")
 	t.Setenv("FAKE_LOG", s.log)
 	t.Setenv("FAKE_ENV_LOG", s.envLog)
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_CLI_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME"} {
 		t.Setenv(k, "")
 	}
 	self, err := os.Executable()
@@ -115,17 +115,16 @@ func byID(items []Item) map[string]Item {
 	return m
 }
 
-var allCLIs = map[string]int{"claude": 0, "codex": 0, "gemini": 0}
+var allCLIs = map[string]int{"claude": 0, "codex": 0}
 
 // agentConfigs are the files the agents keep their MCP servers in; only
 // their own CLIs may write them.
-var agentConfigs = []string{".claude.json", ".claude/.claude.json", ".codex/config.toml", ".gemini/settings.json"}
+var agentConfigs = []string{".claude.json", ".claude/.claude.json", ".codex/config.toml"}
 
 func TestCheckStatesAndApplyRunsAgentCLIs(t *testing.T) {
 	s := newSandbox(t, allCLIs)
 	s.mkdir(t, ".claude")
 	s.mkdir(t, ".codex")
-	s.mkdir(t, ".gemini")
 	cfg := filepath.Join(s.home, "cfg.toml")
 
 	items := Check(7123, cfg)
@@ -135,7 +134,6 @@ func TestCheckStatesAndApplyRunsAgentCLIs(t *testing.T) {
 	}{
 		"claude-mcp":   {Missing, "claude mcp add --scope user " + app.ID + " -- " + s.exe + " mcp"},
 		"codex-mcp":    {Missing, "codex mcp add " + app.ID + " -- " + s.exe + " mcp"},
-		"gemini-mcp":   {Missing, "gemini mcp add --scope user " + app.ID + " " + s.exe + " mcp"},
 		"claude-skill": {Missing, app.ID + " skill install"},
 		"codex-skill":  {Missing, app.ID + " skill install"},
 	}
@@ -162,7 +160,6 @@ func TestCheckStatesAndApplyRunsAgentCLIs(t *testing.T) {
 	wantArgv := []string{
 		"claude mcp add --scope user " + app.ID + " -- " + s.exe + " mcp",
 		"codex mcp add " + app.ID + " -- " + s.exe + " mcp",
-		"gemini mcp add --scope user " + app.ID + " " + s.exe + " mcp",
 	}
 	if argv := lines(t, s.log); strings.Join(argv, "\n") != strings.Join(wantArgv, "\n") {
 		t.Errorf("agent CLIs ran\n%s\nwant\n%s", strings.Join(argv, "\n"), strings.Join(wantArgv, "\n"))
@@ -189,7 +186,6 @@ func TestCheckStatesAndApplyRunsAgentCLIs(t *testing.T) {
 	}
 	s.write(t, ".claude.json", `{"mcpServers":{"`+app.ID+`":{"command":"x"}}}`)
 	s.write(t, ".codex/config.toml", "[mcp_servers."+app.ID+"]\ncommand = \"x\"\n")
-	s.write(t, ".gemini/settings.json", `{"mcpServers":{"`+app.ID+`":{}}}`)
 	for id, it := range byID(Check(7123, cfg)) {
 		if it.State != OK {
 			t.Errorf("%s = %s with the server registered, want ok", id, it.State)
@@ -276,9 +272,9 @@ func TestMCPItemWithoutCLI(t *testing.T) {
 }
 
 func TestApplyReportsCLIFailure(t *testing.T) {
-	s := newSandbox(t, map[string]int{"claude": 0, "codex": 0, "gemini": 3})
-	s.mkdir(t, ".gemini")
-	it := byID(Check(7123, "/cfg.toml"))["gemini-mcp"]
+	s := newSandbox(t, map[string]int{"claude": 0, "codex": 3})
+	s.mkdir(t, ".codex")
+	it := byID(Check(7123, "/cfg.toml"))["codex-mcp"]
 	r := Apply(context.Background(), []Item{it})[0]
 	if r.OK || r.Changed || !strings.Contains(r.Error, "fake failure") || r.Command != it.Command {
 		t.Errorf("Apply = %+v, want a failure with the CLI's message and the manual command", r)

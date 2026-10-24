@@ -35,7 +35,7 @@ portside connect <computer> | disconnect connect to a paired computer, or end th
 portside --on <computer> <command>       run status, up, down, restart, ensure, logs, attach
                                          or containers on the connected computer
 portside mcp                             MCP server on stdio
-portside setup [--yes] [--json]          connect Claude Code, Codex and Gemini CLI (MCP server, skill);
+portside setup [--yes] [--json]          connect Claude Code and Codex (MCP server, skill);
                                          --print-mcp prints the entry for other MCP clients,
                                          --print-prompt a setup request for your coding agent
 portside skill install|print             agent skill for Claude Code and Codex

@@ -17,7 +17,7 @@ func isolate(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("TERM", "dumb")
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_CLI_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME"} {
 		t.Setenv(k, "")
 	}
 	return home
@@ -73,30 +73,28 @@ func TestLocateHonoursAgentVariables(t *testing.T) {
 	custom := t.TempDir()
 	tests := []struct {
 		name                string
-		claude, codex, gem  string // variable values
+		claude, codex       string // variable values
 		wantClaude, wantCdx string
-		wantGemini          string
 	}{
-		{"defaults", "", "", "",
-			filepath.Join(home, ".claude"), filepath.Join(home, ".codex"), filepath.Join(home, ".gemini")},
-		{"absolute", filepath.Join(custom, "c"), filepath.Join(custom, "x"), filepath.Join(custom, "g"),
-			filepath.Join(custom, "c"), filepath.Join(custom, "x"), filepath.Join(custom, "g", ".gemini")},
-		{"tilde", "~/cc", "~/cx", "~/cg",
-			filepath.Join(home, "cc"), filepath.Join(home, "cx"), filepath.Join(home, "cg", ".gemini")},
-		{"relative ignored", "rel/c", "rel/x", "rel/g",
-			filepath.Join(home, ".claude"), filepath.Join(home, ".codex"), filepath.Join(home, ".gemini")},
+		{"defaults", "", "",
+			filepath.Join(home, ".claude"), filepath.Join(home, ".codex")},
+		{"absolute", filepath.Join(custom, "c"), filepath.Join(custom, "x"),
+			filepath.Join(custom, "c"), filepath.Join(custom, "x")},
+		{"tilde", "~/cc", "~/cx",
+			filepath.Join(home, "cc"), filepath.Join(home, "cx")},
+		{"relative ignored", "rel/c", "rel/x",
+			filepath.Join(home, ".claude"), filepath.Join(home, ".codex")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", tt.claude)
 			t.Setenv("CODEX_HOME", tt.codex)
-			t.Setenv("GEMINI_CLI_HOME", tt.gem)
 			d, err := Locate()
 			if err != nil {
 				t.Fatal(err)
 			}
-			if d.Home != home || d.Claude != tt.wantClaude || d.Codex != tt.wantCdx || d.Gemini != tt.wantGemini {
-				t.Errorf("Locate = %+v, want home %s claude %s codex %s gemini %s", d, home, tt.wantClaude, tt.wantCdx, tt.wantGemini)
+			if d.Home != home || d.Claude != tt.wantClaude || d.Codex != tt.wantCdx {
+				t.Errorf("Locate = %+v, want home %s claude %s codex %s", d, home, tt.wantClaude, tt.wantCdx)
 			}
 		})
 	}

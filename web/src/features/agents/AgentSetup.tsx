@@ -6,7 +6,7 @@ import { useT, type Translate } from '../../i18n'
 import { CopyButton } from '../../ui/CopyButton'
 import './agents.css'
 
-const AGENTS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' }
+const AGENTS: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' }
 
 function label(t: Translate, item: AgentItem): string {
   const [agent = '', kind] = item.id.split('-')

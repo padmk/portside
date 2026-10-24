@@ -238,7 +238,7 @@ export interface AppsView {
 
 /** One coding-agent setup step on this computer (internal/agentsetup). */
 export interface AgentItem {
-  /** `<agent>-mcp` or `<agent>-skill`, agent being claude, codex or gemini. */
+  /** `<agent>-mcp` or `<agent>-skill`, agent being claude or codex. */
   id: string
   state: 'ok' | 'missing' | 'outdated' | 'foreign' | 'unavailable'
   /** What applying it runs, or what to run by hand. */

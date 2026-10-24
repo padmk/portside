@@ -171,7 +171,7 @@ func init() {
 		{names: []string{"share"}, section: "Daemon", usage: "share [on|off|code|devices|revoke <device>]", summary: "Let your paired devices on Tailscale connect to this computer", run: cmdShare},
 		{names: []string{"mcp"}, section: "Daemon", usage: "mcp", summary: "MCP server on stdio for coding agents", run: cmdMCP},
 		{names: []string{"skill"}, section: "Daemon", usage: "skill install [--force] | print", summary: "Install the agent skill for Claude Code and Codex", run: cmdSkill},
-		{names: []string{"setup"}, section: "Daemon", usage: "setup [--yes] [--json] | --apply <id>[,<id>...] --yes | --print-mcp | --print-prompt", summary: "Connect Claude Code, Codex and Gemini CLI: the MCP server and the agent skill", run: cmdSetup},
+		{names: []string{"setup"}, section: "Daemon", usage: "setup [--yes] [--json] | --apply <id>[,<id>...] --yes | --print-mcp | --print-prompt", summary: "Connect Claude Code and Codex: the MCP server and the agent skill", run: cmdSetup},
 		{names: []string{"doctor"}, section: "Daemon", usage: "doctor [--fix]", summary: "Check the setup and explain problems; --fix connects coding agents", run: cmdDoctor},
 		{names: []string{"version"}, section: "Daemon", usage: "version", summary: "Print the version", run: cmdVersion},
 	}

@@ -4,13 +4,13 @@ Portside gives coding agents the same servers you use, so they reuse a running s
 
 ## Setup
 
-Connect Claude Code, Codex and Gemini CLI once, with the MCP server and, for the first two, the [agent skill](#agent-skill):
+Connect Claude Code and Codex once, with the MCP server and the [agent skill](#agent-skill):
 
 ```sh
 portside setup
 ```
 
-It checks each agent installed for the account (its configuration directory exists: `~/.claude` or `$CLAUDE_CONFIG_DIR`, `~/.codex` or `$CODEX_HOME`, `~/.gemini` or `$GEMINI_CLI_HOME/.gemini`; or the `claude`, `codex` or `gemini` command is on PATH or the login shell's PATH), lists what is missing, asks once, and then runs `claude mcp add --scope user portside -- <path> mcp`, `codex mcp add portside -- <path> mcp` and `gemini mcp add --scope user portside <path> mcp` and installs the skill. When the variables are not set in its own environment, as for the app, setup reads them from the login shell. `<path>` is the `portside` on PATH when it is the same binary (such as `~/.local/bin/portside` or the Homebrew link), otherwise the binary's own path, such as `/Applications/Portside.app/Contents/Helpers/portside`.
+It checks each agent installed for the account (its configuration directory exists: `~/.claude` or `$CLAUDE_CONFIG_DIR`, `~/.codex` or `$CODEX_HOME`; or the `claude` or `codex` command is on PATH or the login shell's PATH), lists what is missing, asks once, and then runs `claude mcp add --scope user portside -- <path> mcp` and `codex mcp add portside -- <path> mcp` and installs the skill. When the variables are not set in its own environment, as for the app, setup reads them from the login shell. `<path>` is the `portside` on PATH when it is the same binary (such as `~/.local/bin/portside` or the Homebrew link), otherwise the binary's own path, such as `/Applications/Portside.app/Contents/Helpers/portside`.
 
 - `--yes` skips the question.
 - `--json` lists the items (`id`, `label`, `state`: `ok`, `missing`, `outdated`, `foreign` or `unavailable`, `applicable`, `command`).
@@ -39,7 +39,6 @@ Other MCP clients start the same server, `<path> mcp`, from their own config. `p
 - VS Code: `.vscode/mcp.json`, or the user one from **MCP: Open User Configuration**, uses `servers`: `{"servers": {"portside": {"type": "stdio", "command": "<path>", "args": ["mcp"]}}}`.
 - Zed: `context_servers` in `settings.json`: `{"context_servers": {"portside": {"command": "<path>", "args": ["mcp"]}}}`.
 - opencode: `mcp` in `~/.config/opencode/opencode.json`: `{"mcp": {"portside": {"type": "local", "command": ["<path>", "mcp"], "enabled": true}}}`.
-- Gemini CLI: `portside setup` adds it; by hand, `gemini mcp add --scope user portside <path> mcp`.
 
 ## MCP tools
 

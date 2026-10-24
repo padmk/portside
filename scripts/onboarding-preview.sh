@@ -27,7 +27,7 @@ while lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; do port=$((port + 1))
 dir="$(mktemp -d /tmp/onboarding-preview.XXXXXX)"
 home="$dir/home"
 # The agents count as installed when their config directory exists.
-mkdir -p "$home/.claude" "$home/.codex" "$home/.gemini"
+mkdir -p "$home/.claude" "$home/.codex"
 export PORTSIDE_CONFIG="$dir/config/portside.toml" PORTSIDE_STATE_DIR="$dir/state"
 "$helper" init >/dev/null
 # The starter file names the projects folder from the real home; spell it out
@@ -44,7 +44,7 @@ before="$(pgrep -f "$app/Contents/MacOS/" || true)"
 open -n -a "$app" \
   --env "PORTSIDE_CONFIG=$PORTSIDE_CONFIG" --env "PORTSIDE_STATE_DIR=$PORTSIDE_STATE_DIR" \
   --env "HOME=$home" --env "PATH=$PATH" \
-  --env "CLAUDE_CONFIG_DIR=$home/.claude" --env "CODEX_HOME=$home/.codex" --env "GEMINI_CLI_HOME=$home" \
+  --env "CLAUDE_CONFIG_DIR=$home/.claude" --env "CODEX_HOME=$home/.codex" \
   --args -launchedBefore NO
 pid=""
 for _ in $(seq 50); do

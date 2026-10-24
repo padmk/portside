@@ -14,7 +14,6 @@ type Dirs struct {
 	Home   string
 	Claude string // CLAUDE_CONFIG_DIR, else ~/.claude
 	Codex  string // CODEX_HOME, else ~/.codex
-	Gemini string // GEMINI_CLI_HOME/.gemini, else ~/.gemini
 }
 
 // Locate resolves the agents' directories from their environment
@@ -39,7 +38,6 @@ func Locate() (Dirs, error) {
 		Home:   home,
 		Claude: dir("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude")),
 		Codex:  dir("CODEX_HOME", filepath.Join(home, ".codex")),
-		Gemini: filepath.Join(dir("GEMINI_CLI_HOME", home), ".gemini"),
 	}, nil
 }
 

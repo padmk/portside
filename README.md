@@ -27,7 +27,7 @@ One static binary, no runtime dependencies, no account, and nothing leaves `127.
 - **Real terminals, honest status.** Servers run in a PTY with live output, search and `portside attach`. `starting` lasts until the port answers, crashes show the exit code, and foreign processes holding a port are named.
 - **Survives restarts and updates.** Restart policies with backoff, crash notifications, and servers that keep running through a daemon upgrade or come back after a reboot.
 - **Containers.** Compose containers appear next to their server with state, health, logs, a shell and recreate, for Docker Desktop, OrbStack, Colima, Podman and remote engines.
-- **Coding agents.** An MCP server and a skill for Claude Code, Codex, Gemini CLI and other clients: `ensure` starts a server if needed and returns its URL, and agents read logs instead of guessing.
+- **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure` starts a server if needed and returns its URL, and agents read logs instead of guessing.
 - **Other computers.** Over Tailscale, drive the servers of another of your machines and open its sites locally.
 
 <table>
@@ -40,7 +40,7 @@ One static binary, no runtime dependencies, no account, and nothing leaves `127.
   </tr>
   <tr>
     <td><picture><source media="(prefers-color-scheme: dark)" srcset="design/screenshots/menubar-dark.png"><img src="design/screenshots/menubar-light.png" width="360" alt="The menu bar panel: every server with its project icon, state, memory and port, grouped by project"></picture></td>
-    <td><img src="design/screenshots/agents.png" alt="Settings on the coding agents: Claude Code, Codex and Gemini CLI with their MCP server and skill, Connect, and the prompt to copy for an agent (Rosé Pine)"></td>
+    <td><img src="design/screenshots/agents.png" alt="Settings on the coding agents: Claude Code and Codex with their MCP server and skill, Connect, and the prompt to copy for an agent (Rosé Pine)"></td>
   </tr>
 </table>
 
@@ -84,7 +84,7 @@ On macOS, open Portside: its first window offers to find your projects and conne
 portside scan --add     # find projects in your projects folder and add them
 portside up web --wait  # start one server and wait until it is ready
 portside open           # sign in and open the dashboard
-portside setup          # connect Claude Code, Codex and Gemini CLI
+portside setup          # connect Claude Code and Codex
 ```
 
 Any command starts the daemon on demand, so there is nothing to launch first. Servers live in `~/.config/portside/portside.toml`:

@@ -315,8 +315,8 @@ export const en = {
 
   'agents.title': 'Coding agents',
   'agents.open': 'Connect coding agents',
-  'agents.body': 'The MCP server and the skill let Claude Code, Codex and Gemini CLI find, start and debug your servers.',
-  'agents.none': 'No coding agent (Claude Code, Codex, Gemini CLI) is installed for this account.',
+  'agents.body': 'The MCP server and the skill let Claude Code and Codex find, start and debug your servers.',
+  'agents.none': 'No coding agent (Claude Code or Codex) is installed for this account.',
   'agents.mcp': '{agent} MCP server',
   'agents.skill': 'Skill for {agent}',
   'agents.update': '{label} (update)',
@@ -811,8 +811,8 @@ export const pl: Record<Key, Message> = {
 
   'agents.title': 'Agenci kodujący',
   'agents.open': 'Podłącz agentów kodujących',
-  'agents.body': 'Serwer MCP i umiejętność pozwalają agentom Claude Code, Codex i Gemini CLI znajdować, uruchamiać i debugować Twoje serwery.',
-  'agents.none': 'Na tym koncie nie ma agenta (Claude Code, Codex, Gemini CLI).',
+  'agents.body': 'Serwer MCP i umiejętność pozwalają agentom Claude Code i Codex znajdować, uruchamiać i debugować Twoje serwery.',
+  'agents.none': 'Na tym koncie nie ma agenta (Claude Code ani Codex).',
   'agents.mcp': 'Serwer MCP dla {agent}',
   'agents.skill': 'Umiejętność dla {agent}',
   'agents.update': '{label} (aktualizacja)',

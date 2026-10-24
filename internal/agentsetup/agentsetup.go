@@ -1,7 +1,7 @@
 // Package agentsetup is the optional setup for coding agents: the MCP server
-// registered with Claude Code, Codex and Gemini CLI, and the agent skill in
-// the Claude Code and Codex skill directories. It checks each item and
-// applies the missing ones, for `setup`, `doctor` and the menu bar app.
+// registered with Claude Code and Codex, and the agent skill in their skill
+// directories. It checks each item and applies the missing ones, for
+// `setup`, `doctor` and the menu bar app.
 package agentsetup
 
 import (
@@ -69,34 +69,26 @@ type Result struct {
 	Command string `json:"command,omitempty"`
 }
 
-// agent is a coding agent that can use the MCP server, and the skill when
-// it has a skill item.
+// agent is a coding agent that can use the MCP server and the skill.
 type agent struct {
 	key  string // item ID prefix; the agent of agentskill.Target
 	name string
 	cli  string
 	// dir is its configuration directory; it exists once the agent ran.
 	dir func(agentskill.Dirs) string
-	// envKey is the variable that moves dir; home gives its value for dirs
-	// and the default value.
+	// envKey is the variable that moves dir; def is dir's default.
 	envKey string
-	home   func(d agentskill.Dirs, def bool) string
+	def    func(agentskill.Dirs) string
 	// registered reports whether the MCP server is configured for it.
 	registered func(agentskill.Dirs) bool
 	add        func(exe string) []string // arguments that register the MCP server
-	skill      bool
 }
 
 var agents = []agent{
-	{key: "claude", name: "Claude Code", cli: "claude", skill: true,
+	{key: "claude", name: "Claude Code", cli: "claude",
 		dir:    func(d agentskill.Dirs) string { return d.Claude },
 		envKey: "CLAUDE_CONFIG_DIR",
-		home: func(d agentskill.Dirs, def bool) string {
-			if def {
-				return filepath.Join(d.Home, ".claude")
-			}
-			return d.Claude
-		},
+		def:    func(d agentskill.Dirs) string { return filepath.Join(d.Home, ".claude") },
 		registered: func(d agentskill.Dirs) bool {
 			// The file is in the home directory, or in CLAUDE_CONFIG_DIR
 			// when that is set.
@@ -108,15 +100,10 @@ var agents = []agent{
 		add: func(exe string) []string {
 			return []string{"mcp", "add", "--scope", "user", app.ID, "--", exe, "mcp"}
 		}},
-	{key: "codex", name: "Codex", cli: "codex", skill: true,
+	{key: "codex", name: "Codex", cli: "codex",
 		dir:    func(d agentskill.Dirs) string { return d.Codex },
 		envKey: "CODEX_HOME",
-		home: func(d agentskill.Dirs, def bool) string {
-			if def {
-				return filepath.Join(d.Home, ".codex")
-			}
-			return d.Codex
-		},
+		def:    func(d agentskill.Dirs) string { return filepath.Join(d.Home, ".codex") },
 		registered: func(d agentskill.Dirs) bool {
 			var cfg struct {
 				MCPServers map[string]toml.Primitive `toml:"mcp_servers"`
@@ -129,21 +116,6 @@ var agents = []agent{
 		},
 		add: func(exe string) []string {
 			return []string{"mcp", "add", app.ID, "--", exe, "mcp"}
-		}},
-	{key: "gemini", name: "Gemini CLI", cli: "gemini",
-		dir:    func(d agentskill.Dirs) string { return d.Gemini },
-		envKey: "GEMINI_CLI_HOME",
-		home: func(d agentskill.Dirs, def bool) string {
-			if def {
-				return d.Home
-			}
-			return filepath.Dir(d.Gemini)
-		},
-		registered: func(d agentskill.Dirs) bool {
-			return jsonHasServer(filepath.Join(d.Gemini, "settings.json"))
-		},
-		add: func(exe string) []string {
-			return []string{"mcp", "add", "--scope", "user", app.ID, exe, "mcp"}
 		}},
 }
 
@@ -242,8 +214,8 @@ func mcpItem(a agent, dirs agentskill.Dirs, exe string, t *tools) Item {
 // is not the default, since it may come only from the login shell's startup
 // files, which a CLI found on this process's PATH does not see.
 func agentEnv(a agent, dirs agentskill.Dirs, env []string) []string {
-	v := a.home(dirs, false)
-	if v == a.home(dirs, true) {
+	v := a.dir(dirs)
+	if v == a.def(dirs) {
 		return env
 	}
 	if env == nil {
@@ -269,9 +241,6 @@ func skillItems(dirs agentskill.Dirs, self, content string) []Item {
 	}
 	var items []Item
 	for i, a := range agents {
-		if !a.skill {
-			continue
-		}
 		path, ok := targets[a.key]
 		if !ok && installed(a) {
 			// Its skills directory is an earlier agent's, so that item covers it.
@@ -279,7 +248,7 @@ func skillItems(dirs agentskill.Dirs, self, content string) []Item {
 		}
 		label := "Skill for " + a.name
 		for _, b := range agents[i+1:] {
-			if _, own := targets[b.key]; b.skill && ok && !own && installed(b) {
+			if _, own := targets[b.key]; ok && !own && installed(b) {
 				label += " and " + b.name
 			}
 		}
