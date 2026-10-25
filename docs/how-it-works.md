@@ -23,7 +23,15 @@ Process exits are noticed as they happen; crashes and restart policies need no p
 - Containers: the Docker event stream, a full resync every 30 seconds and a stats stream per running container (see [Containers](containers.md)).
 - While connected to another computer: a ping every 15 seconds and a check of the forwarded ports every 2 seconds.
 
-Measured on an Apple M4 Pro (macOS 27, about 750 processes) with 5 running `python3 -m http.server` servers out of 21 configured, no containers, and one events client connected the way the menu bar app is with its panel closed: the daemon used about 0.32 s of CPU per minute and its 2 `ps` calls about 0.03 s, together about 0.6 % of one core. With the dashboard open, its 30 `ps` calls per minute add about 0.45 s.
+Measured with `scripts/bench-idle.sh` on an Apple M4 Pro (macOS 27.0.1, about 690 processes) with 5 running `python3 -m http.server` servers out of 21 configured and no containers, over one minute each:
+
+| Events clients | Daemon CPU | `ps` calls | `ps` CPU |
+| --- | --- | --- | --- |
+| none | 0.35 s | 2 | 0.04 s |
+| one with `usage=0` (the menu bar app with its panel closed) | 0.42 s | 2 | 0.04 s |
+| one showing usage (an open dashboard) | 0.55 s | 30 | 0.58 s |
+
+With the app's panel closed that is about 0.8 % of one core; an open dashboard brings it to about 1.9 %. To measure on your machine, run `scripts/bench-idle.sh` (`--servers`, `--running` and `--window` change the setup; see [Development](development.md)).
 
 ## Upgrades in place
 
