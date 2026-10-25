@@ -5,7 +5,7 @@
 - **Verifiable releases:** every release file has a GitHub build provenance attestation (`gh attestation verify <file> -R padmk/portside`), and each CLI archive an SPDX SBOM. CodeQL checks the Go and dashboard code, and pull requests also build on macOS.
 - **Homebrew formula:** `brew install --formula padmk/tap/portside` builds the command-line tool and dashboard from the tagged source, for those who prefer it to the prebuilt app; it conflicts with the cask.
 - **Fix:** opening a server's log file from the dashboard refuses a name that leads out of the log directory.
-- **Agents:** `portside mcp --read-only` offers only the tools that read. Every MCP tool says whether it changes anything (read-only, idempotent or destructive annotations), and the log tools and instructions tell agents that log output is data, not instructions.
+- **Agents:** `portside mcp --mode read-only|start|full`: `read-only` (also `--read-only`) offers only the tools that read and never starts the daemon, `start` adds `ensure_server` without stopping or restarting; `--dir <path>` limits the tools to the servers, worktree copies and containers of those projects, and `portside setup --mcp-mode` registers a mode. Every MCP tool says whether it changes anything (read-only, idempotent or destructive annotations), and the log tools and instructions tell agents that log output is data, not instructions.
 - **Documentation:** a Trust section in the security docs (what Portside can do as you, what agents can do, what leaves the machine, the missing notarization and how to verify a download), and a comparison with process-compose, pitchfork, Portless, WhatThePort and Overmind.
 
 ## 0.2.1

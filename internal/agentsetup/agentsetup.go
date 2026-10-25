@@ -81,7 +81,10 @@ type agent struct {
 	def    func(agentskill.Dirs) string
 	// registered reports whether the MCP server is configured for it.
 	registered func(agentskill.Dirs) bool
-	add        func(exe string) []string // arguments that register the MCP server
+	// add are the arguments that register the MCP server as exe mcp with
+	// flags after it; remove the ones that unregister it.
+	add    func(exe string, flags []string) []string
+	remove []string
 }
 
 var agents = []agent{
@@ -97,9 +100,10 @@ var agents = []agent{
 			}
 			return d.Claude == filepath.Join(d.Home, ".claude") && jsonHasServer(filepath.Join(d.Home, ".claude.json"))
 		},
-		add: func(exe string) []string {
-			return []string{"mcp", "add", "--scope", "user", app.ID, "--", exe, "mcp"}
-		}},
+		add: func(exe string, flags []string) []string {
+			return append([]string{"mcp", "add", "--scope", "user", app.ID, "--", exe, "mcp"}, flags...)
+		},
+		remove: []string{"mcp", "remove", "--scope", "user", app.ID}},
 	{key: "codex", name: "Codex", cli: "codex",
 		dir:    func(d agentskill.Dirs) string { return d.Codex },
 		envKey: "CODEX_HOME",
@@ -114,9 +118,10 @@ var agents = []agent{
 			_, ok := cfg.MCPServers[app.ID]
 			return ok
 		},
-		add: func(exe string) []string {
-			return []string{"mcp", "add", app.ID, "--", exe, "mcp"}
-		}},
+		add: func(exe string, flags []string) []string {
+			return append([]string{"mcp", "add", app.ID, "--", exe, "mcp"}, flags...)
+		},
+		remove: []string{"mcp", "remove", app.ID}},
 }
 
 // jsonHasServer reports whether the JSON file at path lists the MCP server
@@ -135,8 +140,15 @@ func jsonHasServer(path string) bool {
 }
 
 // Check returns every item, applicable or not, for a daemon on port with
-// its config at cfgPath (the skill names both).
-func Check(port int, cfgPath string) []Item {
+// its config at cfgPath (the skill names both), registering the MCP server
+// with its default arguments.
+func Check(port int, cfgPath string) []Item { return CheckMCP(port, cfgPath, nil) }
+
+// CheckMCP is Check with mcpFlags after `mcp` in a new MCP registration,
+// such as a mode. An existing registration is recognized by its name
+// whatever its arguments; one in another mode gets a Detail that says how
+// to replace it.
+func CheckMCP(port int, cfgPath string, mcpFlags []string) []Item {
 	dirs, err := agentskill.Locate()
 	if err != nil {
 		return nil
@@ -145,21 +157,22 @@ func Check(port int, cfgPath string) []Item {
 	exe, self := executable(t)
 	var items []Item
 	for _, a := range agents {
-		items = append(items, mcpItem(a, dirs, exe, t))
+		items = append(items, mcpItem(a, dirs, exe, mcpFlags, t))
 	}
 	items = append(items, skillItems(dirs, self, agentskill.Render(port, cfgPath))...)
 	return items
 }
 
 // MCPConfig is the MCP server entry for clients configured by hand, in the
-// common mcpServers shape, with the path agents should start it with.
-func MCPConfig() any {
+// common mcpServers shape, with the path agents should start it with and
+// mcpFlags after `mcp`.
+func MCPConfig(mcpFlags []string) any {
 	type server struct {
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
 	}
 	exe, _ := executable(&tools{})
-	return map[string]map[string]server{"mcpServers": {app.ID: {Command: exe, Args: []string{"mcp"}}}}
+	return map[string]map[string]server{"mcpServers": {app.ID: {Command: exe, Args: append([]string{"mcp"}, mcpFlags...)}}}
 }
 
 // Applicable reports whether any agent is installed.
@@ -172,24 +185,29 @@ func Applicable(items []Item) bool {
 	return false
 }
 
-func mcpItem(a agent, dirs agentskill.Dirs, exe string, t *tools) Item {
+func mcpItem(a agent, dirs agentskill.Dirs, exe string, flags []string, t *tools) Item {
 	cli, env := t.find(a.cli)
 	_, dirErr := os.Stat(a.dir(dirs))
 	it := Item{
 		ID:         a.key + "-mcp",
 		Label:      a.name + " MCP server",
 		Applicable: dirErr == nil || cli != "",
-		Command:    shellJoin(append([]string{a.cli}, a.add(exe)...)),
+		Command:    shellJoin(append([]string{a.cli}, a.add(exe, flags)...)),
 	}
 	switch {
 	case a.registered(dirs):
 		it.State = OK
+		if len(flags) > 0 {
+			// The agents' CLIs refuse to add a name that exists, and the
+			// arguments of the existing entry are the user's to keep.
+			it.Detail = "already registered, so its mode stays as it is; to change it run `" + shellJoin(append([]string{a.cli}, a.remove...)) + "` and set it up again"
+		}
 	case cli == "":
 		it.State = Unavailable
 		it.Detail = "the " + a.cli + " command was not found"
 	default:
 		it.State = Missing
-		args := a.add(exe)
+		args := a.add(exe, flags)
 		env = agentEnv(a, dirs, env)
 		it.apply = func(ctx context.Context) error {
 			ctx, cancel := context.WithTimeout(ctx, time.Minute)

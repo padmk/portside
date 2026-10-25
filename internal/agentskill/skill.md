@@ -5,7 +5,7 @@ description: "Find, start, reuse, debug or restart this machine's local dev serv
 
 # {{.Name}}
 
-{{.Name}} runs this machine's dev servers in a daemon on `http://127.0.0.1:{{.Port}}`: API, a dashboard that `{{.ID}} open` signs the browser in to, and a proxy that serves each server at `http://<name>.localhost:{{.Port}}`. The roster is `{{.Config}}`, the CLI is `{{.ID}}`, and the MCP server `{{.ID}}` (`{{.ID}} mcp`) offers the same as tools. Use the tools when they are loaded, the CLI otherwise. When the tools include no `ensure_server`, the user set them read-only: ask the user before starting, stopping or restarting anything instead of using the CLI for it. Repository run instructions take precedence: a documented Compose or container gateway stays authoritative even if the roster has a similarly named entry.
+{{.Name}} runs this machine's dev servers in a daemon on `http://127.0.0.1:{{.Port}}`: API, a dashboard that `{{.ID}} open` signs the browser in to, and a proxy that serves each server at `http://<name>.localhost:{{.Port}}`. The roster is `{{.Config}}`, the CLI is `{{.ID}}`, and the MCP server `{{.ID}}` (`{{.ID}} mcp`) offers the same as tools. Use the tools when they are loaded, the CLI otherwise. When the tools include no `ensure_server`, the user set them read-only: ask the user before starting, stopping or restarting anything instead of using the CLI for it; when they include `ensure_server` but no `restart_server`, ask before stopping or restarting. When the tools say they see only some projects, ask the user before acting on other projects through the CLI. Repository run instructions take precedence: a documented Compose or container gateway stays authoritative even if the roster has a similarly named entry.
 
 ## Get a server running
 

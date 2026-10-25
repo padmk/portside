@@ -34,9 +34,12 @@ portside pair <computer> <code>          pair with a computer using its code, th
 portside connect <computer> | disconnect connect to a paired computer, or end the connection
 portside --on <computer> <command>       run status, up, down, restart, ensure, logs, attach
                                          or containers on the connected computer
-portside mcp [--read-only]               MCP server on stdio; --read-only offers only the tools
-                                         that read
+portside mcp [--mode <mode>] [--dir <path>]...
+                                         MCP server on stdio; --mode read-only|start|full (default
+                                         full; --read-only is read-only) limits what the tools
+                                         change, --dir the projects they see
 portside setup [--yes] [--json]          connect Claude Code and Codex (MCP server, skill);
+                                         --mcp-mode <mode> registers the MCP server in that mode,
                                          --print-mcp prints the entry for other MCP clients,
                                          --print-prompt a setup request for your coding agent
 portside skill install|print             agent skill for Claude Code and Codex

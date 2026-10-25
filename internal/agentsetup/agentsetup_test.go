@@ -249,7 +249,7 @@ func TestMCPItemWithoutCLI(t *testing.T) {
 	}
 	claude := agents[0]
 
-	it := mcpItem(claude, dirs, s.exe, noShell)
+	it := mcpItem(claude, dirs, s.exe, nil, noShell)
 	if it.Applicable || it.State != Unavailable {
 		t.Errorf("no CLI, no directory: %+v, want not applicable and unavailable", it)
 	}
@@ -258,7 +258,7 @@ func TestMCPItemWithoutCLI(t *testing.T) {
 	}
 
 	s.mkdir(t, ".claude")
-	it = mcpItem(claude, dirs, s.exe, noShell)
+	it = mcpItem(claude, dirs, s.exe, nil, noShell)
 	if !it.Applicable || it.State != Unavailable || it.Fixable() {
 		t.Errorf("directory without CLI: %+v, want applicable, unavailable, not fixable", it)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/padmk/portside/internal/agentsetup"
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/mcpserver"
 )
 
 // cmdSetup connects the installed coding agents: the MCP server and the
@@ -20,6 +21,7 @@ func cmdSetup(e *env, args []string) error {
 	only := fs.String("apply", "", "")
 	printMCP := fs.Bool("print-mcp", false, "")
 	printPrompt := fs.Bool("print-prompt", false, "")
+	modeName := fs.String("mcp-mode", string(mcpserver.Full), "")
 	words, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -27,17 +29,21 @@ func cmdSetup(e *env, args []string) error {
 	if len(words) > 0 {
 		return usageError{""}
 	}
+	mode, err := mcpMode(*modeName)
+	if err != nil {
+		return err
+	}
 	if *printMCP {
 		// The entry for MCP clients configured by hand (Cursor, Windsurf and
 		// others); see docs/coding-agents.md.
-		return printJSON(e, agentsetup.MCPConfig())
+		return printJSON(e, agentsetup.MCPConfig(mode.Flags()))
 	}
 	if *printPrompt {
 		// A request to paste into a coding agent; see docs/coding-agents.md.
 		fmt.Fprint(e.out, agentsetup.Prompt())
 		return nil
 	}
-	items := agentsetup.Check(e.port(), e.cfgPath)
+	items := agentsetup.CheckMCP(e.port(), e.cfgPath, mode.Flags())
 	if *asJSON && *only == "" {
 		return printJSON(e, items)
 	}
@@ -67,6 +73,8 @@ func cmdSetup(e *env, args []string) error {
 	for _, it := range items {
 		switch {
 		case !it.Applicable:
+		case it.State == agentsetup.OK && it.Detail != "":
+			fmt.Fprintf(e.out, "%s %s: %s\n", e.paint(green, "✓"), it.Label, it.Detail)
 		case it.State == agentsetup.OK:
 			fmt.Fprintf(e.out, "%s %s\n", e.paint(green, "✓"), it.Label)
 		case it.Fixable():

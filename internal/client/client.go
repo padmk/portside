@@ -472,6 +472,27 @@ func (c *Client) follow() {
 	c.setEpoch("")
 }
 
+// Running makes sure a daemon that already runs answers and proves itself,
+// and never starts one. It follows the port a running daemon recorded. It
+// returns an error wrapping ErrNotRunning when nothing listens.
+func (c *Client) Running(ctx context.Context) (Health, error) {
+	h, err := c.Ping(ctx)
+	if err != nil && LivePort() > 0 && LivePort() != c.Port {
+		c.follow()
+		h, err = c.Ping(ctx)
+	}
+	var opErr *net.OpError
+	switch {
+	case err != nil && errors.As(err, &opErr) && opErr.Op == "dial":
+		return h, fmt.Errorf("no daemon answers on port %d: %w", c.Port, ErrNotRunning)
+	case err != nil:
+		return h, err
+	case !h.Verified:
+		return h, c.Unverified()
+	}
+	return h, nil
+}
+
 // Ensure makes sure a daemon answers and proves itself, starting one in the
 // background if none answers. When what answers cannot prove itself, it
 // returns its claimed identity and an error wrapping ErrUnverified. When

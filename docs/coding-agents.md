@@ -15,6 +15,7 @@ It checks each agent installed for the account (its configuration directory exis
 - `--yes` skips the question.
 - `--json` lists the items (`id`, `label`, `state`: `ok`, `missing`, `outdated`, `foreign` or `unavailable`, `applicable`, `command`).
 - `--apply claude-mcp,codex-skill --yes` applies only those and prints the results as JSON.
+- `--mcp-mode read-only|start|full` registers the MCP server in that [mode](#modes-and-project-scope) (default `full`).
 
 When an agent's command is not found, or a skill file with that name was not written by Portside, setup leaves it alone and prints the command to run yourself. `portside doctor` reports the same items without changing anything, and `portside doctor --fix` applies the missing and outdated ones.
 
@@ -59,21 +60,38 @@ The tools carry MCP annotations, which clients can use for their approval prompt
 
 Through MCP an agent can start, stop and restart the configured servers, start, stop, restart and recreate containers, and read the logs and ports of every project on this computer. It cannot run arbitrary commands, delete volumes or edit the config through MCP; a server runs whatever command the config gives it. An agent that also has a shell can run the CLI anyway, so this limits the tools, not the agent: it is not a sandbox.
 
-### Read-only tools
+### Modes and project scope
 
-`portside mcp --read-only` offers only `list_servers`, `server_logs`, `list_containers`, `container_logs` and `list_ports`, and its instructions tell the agent to ask you to start servers. Register it in place of the default entry:
+`portside mcp --mode <mode>` chooses what the tools may change:
+
+| Mode | Tools | Starts the daemon |
+| --- | --- | --- |
+| `full` (default, `portside mcp`) | all of the above | yes, when none runs |
+| `start` | the reading tools and `ensure_server`; no `restart_server`, `stop_server` or `container_action` | yes, when none runs, and servers through `ensure_server` |
+| `read-only` (also `--read-only`) | `list_servers`, `server_logs`, `list_containers`, `container_logs`, `list_ports` | never: when no daemon runs, each tool answers that Portside is not running and the agent should ask you to start it |
+
+The instructions match the mode: in `start` mode they tell the agent to ask you to restart or stop servers and containers, in `read-only` mode also to start them.
+
+`--dir <path>` limits every tool to the projects under that path; repeat it for several. Paths may be relative or start with `~`, and are compared with symlinks resolved (on macOS `/tmp` is `/private/tmp`). The tools then see:
+
+- the configured servers whose directory is inside a path, and the [temporary copies](#worktrees) of those servers, wherever their worktree is, plus any temporary server whose own directory is inside a path;
+- the containers that belong to those servers (`list_containers`, the containers in `list_servers`, `container_logs` and `container_action`); other servers' names are left out of a container's `sharedWith` and `issueFor`;
+- in `list_ports`, the listeners of those servers and their containers, and processes whose working directory is inside a path (a process that changed its directory after starting is placed by its current one).
+
+Another server's name gets the same `unknown server` error as a name that does not exist, and another container `no container`; the check happens before anything is sent to the daemon. The `computer` argument is refused, since another computer's directories differ.
+
+To register a mode, remove an existing entry first: `portside setup` and `doctor` recognize the entry by its name only, and the agents' CLIs do not replace an entry that exists.
 
 ```sh
-claude mcp remove --scope user portside; codex mcp remove portside   # the default entries, if added
-claude mcp add --scope user portside -- <path> mcp --read-only
-codex mcp add portside -- <path> mcp --read-only
+claude mcp remove --scope user portside; codex mcp remove portside   # an existing entry, if added
+portside setup --mcp-mode read-only                                  # or start
 ```
 
-Other clients take `"args": ["mcp", "--read-only"]`. `portside setup` and `doctor` look for the server by name, so they leave this entry as it is.
+`portside setup --mcp-mode <mode>` runs `claude mcp add --scope user portside -- <path> mcp --mode <mode>` and `codex mcp add portside -- <path> mcp --mode <mode>`, and `full` registers today's `<path> mcp`. While an entry exists, setup reports it as connected and says how to change its mode. Add `--dir` by hand, with an absolute path since the agent decides the directory the server starts in: `claude mcp add --scope user portside -- <path> mcp --mode start --dir ~/dev/my-app` (the shell expands `~`). Other clients take `"args": ["mcp", "--mode", "read-only"]`; `portside setup --print-mcp --mcp-mode read-only` prints that entry. The dashboard and the app register `full`.
 
 Readiness failures include recent output lines for a crashed server. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out.
 
-While this computer is connected to another one, the server and container tools take `computer` (its name) to act there, and their results name it. Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
+While this computer is connected to another one, the server and container tools take `computer` (its name) to act there, and their results name it (not with `--dir`). Without MCP, `portside ensure <name> --json`, `portside status --json`, `portside containers --json` and `portside logs <name> --grep <regexp> -C <n>` give the same information.
 
 ## Worktrees
 
