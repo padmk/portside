@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 NSPasteboard.general.setString(text, forType: .string)
             },
             installCLI: { [weak self] in self?.installCLI() },
-            connectAgents: { [weak self] in self?.openDashboard(route: "settings/agents") },
+            connectAgents: { [weak self] in self?.connectAgents() },
             about: { [weak self] in
                 self?.popover.performClose(nil)
                 NSApp.activate()
@@ -189,21 +189,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// computer, it asks to disconnect first, since the dashboard would
     /// otherwise show the other computer's server of that name.
     private func showLocalServer(_ name: String, terminal: Bool) {
+        openLocal(route: "/" + name + (terminal ? "/terminal" : ""),
+                  question: { L.t("Disconnect from \($0) to show \(name) on this computer?",
+                                  "Rozłączyć się z \($0), aby pokazać \(name) na tym komputerze?") },
+                  confirm: L.t("Disconnect and Show", "Rozłącz i pokaż"))
+    }
+
+    /// Opens the coding-agent setup, which exists only for this computer.
+    private func connectAgents() {
+        openLocal(route: "settings/agents",
+                  question: { L.t("Disconnect from \($0) to connect coding agents on this computer?",
+                                  "Rozłączyć się z \($0), aby podłączyć agentów na tym komputerze?") },
+                  confirm: L.t("Disconnect and Continue", "Rozłącz i kontynuuj"))
+    }
+
+    /// Opens a dashboard route about this computer, asking to disconnect
+    /// first while the dashboard shows another one.
+    private func openLocal(route: String, question: (String) -> String, confirm: String) {
         guard let remote = store.remote else {
-            openDashboard(route: "/" + name + (terminal ? "/terminal" : ""))
+            openDashboard(route: route)
             return
         }
         popover.performClose(nil)
         NSApp.activate()
         let alert = NSAlert()
         alert.messageText = L.t("The dashboard shows \(remote.peer.name)", "Panel pokazuje \(remote.peer.name)")
-        alert.informativeText = L.t("Disconnect from \(remote.peer.name) to show \(name) on this computer?",
-                                    "Rozłączyć się z \(remote.peer.name), aby pokazać \(name) na tym komputerze?")
-        alert.addButton(withTitle: L.t("Disconnect and Show", "Rozłącz i pokaż"))
+        alert.informativeText = question(remote.peer.name)
+        alert.addButton(withTitle: confirm)
         alert.addButton(withTitle: L.t("Cancel", "Anuluj"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { @MainActor in
-            if await store.disconnectRemote() { openDashboard(route: "/" + name + (terminal ? "/terminal" : "")) }
+            if await store.disconnectRemote() { openDashboard(route: route) }
         }
     }
 

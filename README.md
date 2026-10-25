@@ -97,7 +97,6 @@ dir = "shop/apps/web"
 cmd = "pnpm dev --port {PORT}"
 port = 3001
 group = "shop"
-depends_on = ["api"]
 ```
 
 ## Documentation

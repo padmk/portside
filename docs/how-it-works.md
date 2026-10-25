@@ -24,7 +24,7 @@ A daemon from before this feature, or none at all, is stopped and started instea
 
 The macOS app (`macos/`, Swift) bundles the same binary in `Portside.app/Contents/Helpers/portside`, starts the daemon if needed and follows its event stream. Quitting the app leaves the daemon and your servers running; **Stop Daemon and Servers** in its menu stops them, and the panel and dashboard window then offer **Start**. When the config file does not load, the daemon keeps running on the last good settings and the app shows the error with **Edit**.
 
-While the dashboard shows another computer, the panel says so with **Disconnect**; opening a server from the panel or a notification asks to disconnect first, since the panel lists this computer's servers. A server whose port carries the other computer's forwarded server is labeled as such, and **Start** takes the port back.
+While the dashboard shows another computer, the panel says so with **Disconnect**; opening a server from the panel or a notification, or **Connect Coding Agents**, asks to disconnect first, since both are about this computer. A server whose port carries the other computer's forwarded server is labeled as such, and **Start** takes the port back.
 
 **Settings** in its menu holds **Launch at Login** (registers the app as a login item), the app icon, **Install Command Line Tool** and **Connect Coding Agents** (see [Coding agents](coding-agents.md#setup)).
 
