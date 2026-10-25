@@ -433,6 +433,7 @@ func TestScopeDependencies(t *testing.T) {
 		name     string
 		unscoped bool
 		dbStatus supervisor.Status
+		live     bool     // web and web-wt already run
 		web      []string // web's dependencies
 		tool     string
 		server   string
@@ -446,6 +447,10 @@ func TestScopeDependencies(t *testing.T) {
 		{name: "worktree copy", dbStatus: supervisor.Stopped, web: []string{"shared-db"}, tool: "ensure_server", server: "web-wt",
 			refusal: strings.Replace(refusal, "web", "web-wt", 1)},
 		{name: "restart", dbStatus: supervisor.Stopped, web: []string{"shared-db"}, tool: "restart_server", server: "web", refusal: refusal},
+		// A running server is reused as it is: the daemon starts none of its dependencies.
+		{name: "running server reused", live: true, dbStatus: supervisor.Stopped, web: []string{"shared-db"}, tool: "ensure_server", server: "web"},
+		// A restart starts the dependencies again, so it is still refused.
+		{name: "running server restart", live: true, dbStatus: supervisor.Stopped, web: []string{"shared-db"}, tool: "restart_server", server: "web", refusal: refusal},
 		{name: "unscoped", unscoped: true, dbStatus: supervisor.Stopped, web: []string{"lib"}, tool: "ensure_server", server: "web"},
 	}
 	for _, tt := range tests {
@@ -454,6 +459,9 @@ func TestScopeDependencies(t *testing.T) {
 			sv := f.state.Servers
 			sv[0].DependsOn = tt.web // web
 			sv[1].DependsOn = tt.web // web-wt carries its origin's dependencies
+			if tt.live {
+				sv[0].Status, sv[1].Status = supervisor.Running, supervisor.Running
+			}
 			f.state.Servers = append(sv,
 				supervisor.View{Name: "lib", Dir: filepath.Join(sv[0].Dir, "lib"), Status: supervisor.Stopped, DependsOn: []string{"shared-db"}},
 				supervisor.View{Name: "shared-db", Dir: filepath.Join(filepath.Dir(sv[2].Dir), "db"), Status: tt.dbStatus})

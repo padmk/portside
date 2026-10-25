@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Agents:** with `portside mcp --dir`, `ensure_server` reuses a server that already runs even when a dependency outside the scope is stopped, since nothing would be started; `restart_server` still refuses then.
+
 ## 0.3.1
 
 - **Agents:** with `portside mcp --dir`, `ensure_server` and `restart_server` no longer start servers outside the scope through `depends_on`: when such a dependency does not run, they refuse and name it, so the agent asks you to start it.

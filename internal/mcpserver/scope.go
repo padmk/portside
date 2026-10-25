@@ -112,8 +112,10 @@ func (t *tools) checkServer(ctx context.Context, g target, name string) error {
 // checkStart refuses what checkServer refuses, and a start that would
 // launch a server outside the scope: the daemon first starts every server
 // in the depends_on chain that does not run, so each one outside the scope
-// must already be running or starting.
-func (t *tools) checkStart(ctx context.Context, g target, name string) error {
+// must already be running or starting. With reuse (ensure without a
+// worktree), a server that runs or starts already is reused as it is and
+// the daemon starts none of its dependencies, so nothing is refused.
+func (t *tools) checkStart(ctx context.Context, g target, name string, reuse bool) error {
 	if t.scope.all() {
 		return nil
 	}
@@ -124,6 +126,13 @@ func (t *tools) checkStart(ctx context.Context, g target, name string) error {
 	in := t.scope.servers(st.Servers)
 	if !in[name] {
 		return fmt.Errorf("unknown server %q", name)
+	}
+	if reuse {
+		for _, v := range st.Servers {
+			if v.Name == name && (v.Status == supervisor.Running || v.Status == supervisor.Starting) {
+				return nil
+			}
+		}
 	}
 	return outsideDeps(in, st.Servers, name)
 }
