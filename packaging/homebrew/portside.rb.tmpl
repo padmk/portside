@@ -37,7 +37,7 @@ cask "portside" do
           'pids=$(lsof -t -- "$lock" 2>/dev/null); [ -n "$pids" ] && kill -TERM $pids; i=0; ' \
           'while lsof -t -- "$lock" >/dev/null 2>&1; do ' \
           '[ $i -ge 600 ] && { echo "portside is still stopping its servers after 10 minutes; ' \
-          'check with: lsof $HOME/.local/state/portside/daemon.lock; when it has exited, ' \
+          "check with: lsof $HOME/.local/state/portside/daemon.lock; when it has exited, " \
           'run brew uninstall --zap --cask portside again" >&2; exit 1; }; ' \
           "sleep 1; i=$((i+1)); done",
         ],
