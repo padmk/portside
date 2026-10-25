@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - **Agents:** with `portside mcp --dir`, `ensure_server` and `restart_server` no longer start servers outside the scope through `depends_on`: when such a dependency does not run, they refuse and name it, so the agent asks you to start it.
+
+- **Benchmark:** `scripts/bench-idle.sh` measures the daemon's idle CPU and `ps` calls with no client, the app's closed panel and an open dashboard, so the numbers in How it works can be checked on any Mac.
 
 ## 0.3.0
 
