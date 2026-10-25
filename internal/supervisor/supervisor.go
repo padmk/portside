@@ -119,6 +119,11 @@ type Supervisor struct {
 	// desktopClients counts connected apps that show crash notifications
 	// themselves; while any is connected the daemon stays quiet.
 	desktopClients int
+	// usageWatchers counts connected clients that show resource usage now;
+	// while there are none, usage is sampled every IdleSampleInterval.
+	usageWatchers int
+	// sampleNow asks Run for a sample at once (buffered, holds one request).
+	sampleNow chan struct{}
 	// activePorts holds the ports of servers that are starting or running,
 	// updated on every change, for readers that must not take mu.
 	activePorts atomic.Pointer[map[int]bool]
@@ -149,11 +154,12 @@ func (s *Supervisor) AddDesktopClient() func() {
 // New creates a supervisor for cfg. Logs and state go below stateDir.
 func New(cfg *config.Config, stateDir string) *Supervisor {
 	s := &Supervisor{
-		procs:    map[string]*proc{},
-		logDir:   paths.LogDir(stateDir),
-		state:    statePath(stateDir),
-		notifier: Notify,
-		selfPID:  os.Getpid(),
+		procs:     map[string]*proc{},
+		logDir:    paths.LogDir(stateDir),
+		state:     statePath(stateDir),
+		notifier:  Notify,
+		selfPID:   os.Getpid(),
+		sampleNow: make(chan struct{}, 1),
 	}
 	s.applyLocked(cfg)
 	s.previous = s.load()

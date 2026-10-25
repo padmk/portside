@@ -67,6 +67,8 @@ export interface Health {
   startedAt: string
   /** Spacing of the cpuHistory and memHistory samples. */
   sampleIntervalMs?: number
+  /** Spacing of usage samples while no client shows usage; set by daemons that take {"usage": bool} on the events stream. */
+  idleSampleIntervalMs?: number
 }
 
 export interface ConfigInfo {

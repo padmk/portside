@@ -57,6 +57,8 @@ struct Container: Decodable, Hashable {
 
 struct Health: Decodable {
     let version: String
+    /// Set by daemons that take `{"usage": bool}` on the events stream.
+    let idleSampleIntervalMs: Int?
 }
 
 struct ConfigInfo: Decodable {

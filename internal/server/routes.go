@@ -86,11 +86,16 @@ type Health struct {
 	StartedAt time.Time `json:"startedAt"`
 	// SampleIntervalMs is the spacing of cpuHistory/memHistory samples.
 	SampleIntervalMs int `json:"sampleIntervalMs"`
+	// IdleSampleIntervalMs is the spacing of usage samples while no client
+	// shows usage. Its presence tells events clients they may send
+	// {"usage": bool} to say whether they show usage now.
+	IdleSampleIntervalMs int `json:"idleSampleIntervalMs"`
 }
 
 func (s *Server) healthInfo() Health {
 	return Health{App: app.ID, Name: app.Name, Version: app.Version, PID: os.Getpid(), Port: s.opt.Port, StartedAt: s.started,
-		SampleIntervalMs: int(supervisor.SampleInterval / time.Millisecond)}
+		SampleIntervalMs:     int(supervisor.SampleInterval / time.Millisecond),
+		IdleSampleIntervalMs: int(supervisor.IdleSampleInterval / time.Millisecond)}
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -157,10 +162,31 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.CloseNow()
-	ctx := c.CloseRead(r.Context())
 	if r.URL.Query().Get("notifier") == "1" {
 		defer s.sup.AddDesktopClient()()
 	}
+	// A client shows resource usage until it says otherwise, with `usage=0`
+	// in the URL or {"usage": false}; usage is sampled often only while one
+	// does. The app, connected in the background, says when its panel shows it.
+	usage := newUsageWatch(s.sup.WatchUsage, r.URL.Query().Get("usage") != "0")
+	defer usage.close()
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	go func() {
+		defer cancel()
+		for {
+			typ, data, err := c.Read(ctx)
+			if err != nil {
+				return
+			}
+			var msg struct {
+				Usage *bool `json:"usage"`
+			}
+			if typ == websocket.MessageText && json.Unmarshal(data, &msg) == nil && msg.Usage != nil {
+				usage.set(*msg.Usage)
+			}
+		}
+	}()
 	ch := s.sup.Subscribe()
 	defer s.sup.Unsubscribe(ch)
 	dch := s.opt.Docker.Subscribe()
@@ -195,6 +221,44 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		if send() != nil {
 			return
 		}
+	}
+}
+
+// usageWatch keeps one events client registered with the supervisor as
+// showing resource usage while it says it does.
+type usageWatch struct {
+	mu      sync.Mutex
+	watch   func() func()
+	release func() // set while registered
+	closed  bool
+}
+
+func newUsageWatch(watch func() func(), on bool) *usageWatch {
+	u := &usageWatch{watch: watch}
+	u.set(on)
+	return u
+}
+
+func (u *usageWatch) set(on bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	switch {
+	case on && u.release == nil && !u.closed:
+		u.release = u.watch()
+	case !on && u.release != nil:
+		u.release()
+		u.release = nil
+	}
+}
+
+// close unregisters the client for good, also against a late set.
+func (u *usageWatch) close() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.closed = true
+	if u.release != nil {
+		u.release()
+		u.release = nil
 	}
 }
 

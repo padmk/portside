@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/padmk/portside/internal/config"
@@ -74,18 +75,32 @@ func childIndex(table map[int]procSample) map[int][]int {
 	return idx
 }
 
-// history is a fixed-size ring of recent samples for sparklines.
+// history is a fixed-size ring of recent samples for sparklines, evenly
+// spaced: a sample after a longer gap starts it over.
 type history struct {
 	cpu []float64
 	mem []int64
+	at  time.Time // when the last sample was added
 }
 
 const historyLen = 60
 
-// SampleInterval is how often usage is sampled; histories hold historyLen samples.
+// SampleInterval is how often usage is sampled while a client shows it,
+// and how often ports are checked; histories hold historyLen samples at
+// this spacing.
 const SampleInterval = 2 * time.Second
 
-func (h *history) add(cpu float64, mem int64) {
+// IdleSampleInterval is how often usage is sampled while no client shows it.
+const IdleSampleInterval = 30 * time.Second
+
+// historyGap is the longest spacing kept within one history.
+const historyGap = 3 * SampleInterval
+
+func (h *history) add(cpu float64, mem int64, now time.Time) {
+	if !h.at.IsZero() && now.Sub(h.at) > historyGap {
+		h.reset()
+	}
+	h.at = now
 	h.cpu = append(h.cpu, cpu)
 	h.mem = append(h.mem, mem)
 	if len(h.cpu) > historyLen {
@@ -94,7 +109,32 @@ func (h *history) add(cpu float64, mem int64) {
 	}
 }
 
-func (h *history) reset() { h.cpu, h.mem = nil, nil }
+func (h *history) reset() { h.cpu, h.mem, h.at = nil, nil, time.Time{} }
+
+// WatchUsage registers a client that shows resource usage now, such as an
+// open dashboard, and returns a function that unregisters it. While any is
+// registered usage is sampled every SampleInterval; the first one gets a
+// sample at once.
+func (s *Supervisor) WatchUsage() func() {
+	s.mu.Lock()
+	s.usageWatchers++
+	first := s.usageWatchers == 1
+	s.mu.Unlock()
+	if first {
+		select {
+		case s.sampleNow <- struct{}{}:
+		default:
+		}
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.mu.Lock()
+			s.usageWatchers--
+			s.mu.Unlock()
+		})
+	}
+}
 
 // Run performs periodic bookkeeping until ctx ends: resource sampling,
 // listening checks and detection of foreign processes on configured ports.
@@ -114,19 +154,41 @@ func (s *Supervisor) Run(ctx context.Context) {
 		}
 	}()
 	knownExternal := map[string]int{}
+	var lastUsage time.Time
 	for {
-		s.sample(ctx, knownExternal)
+		s.mu.Lock()
+		watched := s.usageWatchers > 0
+		s.mu.Unlock()
+		usage := watched || time.Since(lastUsage) >= IdleSampleInterval-SampleInterval/2
+		if usage {
+			lastUsage = time.Now()
+		}
+		s.check(ctx, knownExternal, usage)
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		case <-s.sampleNow:
 		}
 	}
 }
 
+// sample samples usage and checks the ports of all servers.
 func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
-	table := sampleProcesses(ctx)
-	children := childIndex(table)
+	s.check(ctx, knownExternal, true)
+}
+
+// check checks the ports of all servers and, with usage, samples the CPU
+// and memory of their process trees (one ps call for all) and which tool a
+// restart would use. It signals a change only when something changed.
+func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, usage bool) {
+	var table map[int]procSample
+	var children map[int][]int
+	if usage {
+		table = sampleProcesses(ctx)
+		children = childIndex(table)
+	}
+	now := time.Now()
 
 	type check struct {
 		name  string
@@ -136,7 +198,7 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 		start string
 	}
 	var checks []check
-	hasLive := false
+	changed := false
 	forwarded := map[string]bool{} // stopped servers whose port forwards to another computer
 	type detection struct {
 		name string
@@ -147,18 +209,19 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 	s.mu.Lock()
 	prepend, globalEnv := s.cfg.PathPrepend, s.cfg.Env
 	for name, p := range s.procs {
-		if p.pid != 0 {
-			hasLive = true
+		if p.pid != 0 && usage {
 			if p.launch != nil {
 				detections = append(detections, detection{name, p.pid, p.cfg})
 			}
 			cpu, mem, ok := treeUsage(table, children, p.pid)
 			if ok {
 				p.cpu, p.mem = cpu, mem
-				p.hist.add(cpu, mem)
+				p.hist.add(cpu, mem, now)
+				changed = true
 			}
 		}
-		if p.cfg.Port > 0 && p.status != Starting && p.status != Stopping {
+		// watchReady keeps the listener of a starting or running server current.
+		if p.cfg.Port > 0 && p.status != Starting && p.status != Stopping && !(p.pid != 0 && p.status == Running) {
 			port := p.cfg.Port
 			if p.pid != 0 {
 				port = p.running.Port
@@ -173,15 +236,16 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 	}
 	s.mu.Unlock()
 
-	if hasLive {
+	if len(detections) > 0 {
 		base := s.env.get()
 		// Files such as a new .envrc change which tool a restart would use.
 		for _, d := range detections {
 			env := launchEnv(base, d.cfg, prepend, globalEnv)
 			key := detectTool(d.cfg, lookupEnv(env, "PATH"), nvmScript(env)).key()
 			s.mu.Lock()
-			if p := s.procs[d.name]; p != nil && p.pid == d.pid {
+			if p := s.procs[d.name]; p != nil && p.pid == d.pid && (p.detected == nil || *p.detected != key) {
 				p.detected = &key
+				changed = true
 			}
 			s.mu.Unlock()
 		}
@@ -207,6 +271,7 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 		p, ok := s.procs[c.name]
 		if ok && c.alive == (p.pid != 0) {
 			if c.alive {
+				changed = changed || p.listening != listening
 				p.listening = listening
 			} else if !listening {
 				if p.external != nil {
@@ -215,9 +280,11 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 						p.status = Stopped
 						p.note = ""
 					}
+					changed = true
 				}
 				delete(knownExternal, c.name)
 			} else if owner != nil {
+				changed = changed || p.external == nil || *p.external != *owner || p.externalStart != identity
 				p.external = owner
 				p.externalStart = identity
 				knownExternal[c.name] = c.port
@@ -225,7 +292,9 @@ func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
 		}
 		s.mu.Unlock()
 	}
-	s.mu.Lock()
-	s.changedLocked()
-	s.mu.Unlock()
+	if changed {
+		s.mu.Lock()
+		s.changedLocked()
+		s.mu.Unlock()
+	}
 }

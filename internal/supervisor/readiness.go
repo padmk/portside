@@ -56,9 +56,18 @@ func probeReady(port int, health string) (host, reason string) {
 	return host, reason
 }
 
+// Readiness is probed every startingProbe until a server is running, then
+// every runningProbe, which still reports a lost listener soon after
+// listenerLossDelay.
+const (
+	startingProbe = 400 * time.Millisecond
+	runningProbe  = time.Second
+)
+
 // watchReady keeps readiness current while tolerating short hot reload gaps.
 func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
-	tick := time.NewTicker(400 * time.Millisecond)
+	every := startingProbe
+	tick := time.NewTicker(every)
 	defer tick.Stop()
 	var lastPorts time.Time
 	for range tick.C {
@@ -68,7 +77,15 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 			return
 		}
 		port, health, started, pid := p.running.Port, p.running.Health, p.startedAt, p.pid
+		next := startingProbe
+		if p.status == Running {
+			next = runningProbe
+		}
 		s.mu.Unlock()
+		if next != every {
+			every = next
+			tick.Reset(every)
+		}
 
 		host, reason := "", ""
 		ready := time.Since(started) > 1500*time.Millisecond

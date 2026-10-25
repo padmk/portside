@@ -72,6 +72,14 @@ final class Store {
     private var connectedEpoch: String?
 
     private var task: URLSessionWebSocketTask?
+    /// Whether the connected daemon takes `{"usage": bool}`; such a daemon
+    /// counts this connection (`usage=0`) as not showing usage until told.
+    private var takesUsage = false
+    /// Whether the panel shows CPU and memory now; the daemon samples them
+    /// more often while a client does.
+    var showsUsage = false {
+        didSet { if showsUsage != oldValue { sendUsage() } }
+    }
     private var loop: Task<Void, Never>?
     /// The last crash reported per server (exit time and note).
     private var notifiedCrash: [String: String] = [:]
@@ -238,7 +246,9 @@ final class Store {
         var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         comps.scheme = "ws"
         comps.path = "/api/events"
-        comps.queryItems = [URLQueryItem(name: "notifier", value: "1")]
+        // usage=0: the panel is closed until told otherwise (daemons without
+        // usage sampling ignore it).
+        comps.queryItems = [URLQueryItem(name: "notifier", value: "1"), URLQueryItem(name: "usage", value: "0")]
         var retried = false
         while true {
             let epoch = try await DaemonHandshake.shared.epoch(base: base, token: token)
@@ -247,6 +257,7 @@ final class Store {
             let ws = URLSession.shared.webSocketTask(with: req)
             ws.maximumMessageSize = 32 << 20
             task = ws
+            takesUsage = false
             ws.resume()
             defer { ws.cancel(with: .goingAway, reason: nil) }
             var msg: URLSessionWebSocketTask.Message
@@ -288,7 +299,16 @@ final class Store {
         }
     }
 
+    private func sendUsage() {
+        guard takesUsage, let task else { return }
+        task.send(.string(showsUsage ? #"{"usage":true}"# : #"{"usage":false}"#)) { _ in }
+    }
+
     private func apply(_ state: DaemonState) {
+        if !takesUsage, state.daemon.idleSampleIntervalMs != nil {
+            takesUsage = true
+            if showsUsage { sendUsage() }
+        }
         connection = .connected
         daemonStopped = false
         daemonRefused = false

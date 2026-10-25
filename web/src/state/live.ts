@@ -89,6 +89,17 @@ let socket: WebSocket | null = null
 let retry = 0
 let timer: number | undefined
 let started = false
+/**
+ * Whether the local stream's daemon takes {"usage": bool}. The daemon counts
+ * a stream as showing usage until told otherwise, and samples less often
+ * while none does, so a hidden tab says it shows nothing.
+ */
+let usageSent = false
+
+function sendUsage() {
+  if (!usageSent || store.get().remote || socket?.readyState !== WebSocket.OPEN) return
+  socket.send(JSON.stringify({ usage: !document.hidden }))
+}
 
 const backoff = () => Math.min(10_000, 500 * 2 ** retry++)
 
@@ -132,6 +143,7 @@ async function openLocal() {
   if (socket) return
   const ws = new WebSocket(wsUrl('/api/events'))
   socket = ws
+  usageSent = false
   ws.onopen = () => {
     // During a hand-off from the remote stream the peer stream's own retries count.
     if (store.get().remote) return
@@ -154,6 +166,10 @@ async function openLocal() {
     leaveRemote()
     // A hand-off from the remote stream ends here; this stream's own retries start over.
     retry = 0
+    if (!usageSent && msg.daemon?.idleSampleIntervalMs) {
+      usageSent = true
+      if (document.hidden) sendUsage()
+    }
     raw = msg
     publish({ state: normalize(msg, null), connection: 'open' })
   }
@@ -207,6 +223,7 @@ export function startLive() {
   if (started) return
   started = true
   void openLocal()
+  document.addEventListener('visibilitychange', sendUsage)
   window.addEventListener('online', () => {
     if (!socket) {
       retry = 0

@@ -12,6 +12,19 @@ Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs
 
 State (which servers you want running, the process groups in flight, and last exit codes, times and notes) is saved to `~/.local/state/portside/state.json`. A validated copy of the config is cached as `last-good-config.json` beside it. The config and server logs can contain environment values and credentials, so files in the state directory and the config file are created with mode `0600` and the directories with `0700`; each daemon start removes group and other access from the config file, from `~/.config/portside` and `~/.local/state/portside` with their contents, and, for a state directory set with `PORTSIDE_STATE_DIR`, from that directory, its `logs` and the files Portside keeps in it (never from parent directories or other files). After a crash of the daemon itself, leftover process groups are verified by start time (read from `ps` in the C locale, so a daemon started under another locale still recognizes them) and stopped before servers are restored.
 
+## Periodic checks
+
+Process exits are noticed as they happen; crashes and restart policies need no polling. On a timer the daemon checks:
+
+- Readiness: the port (and `health` path) of each starting server every 400 ms until it is running, then every second. A running server warns once a listener or health failure has lasted 4 seconds.
+- Ports: every 2 seconds, a TCP connection to the port of each server that is not running, to show one taken by another process. Its owner is looked up with `lsof` (or `ss`) only when it is new.
+- CPU and memory: one `ps` call for all servers, every 2 seconds while a client shows usage, otherwise every 30 seconds. An events client (`/api/events`) shows usage unless it connects with `usage=0` or sends `{"usage": false}`, and sends `{"usage": true}` when it shows usage again. The dashboard says so when its tab or window is hidden, and the menu bar app shows usage only while its panel is open. The first client that shows usage gets a new sample at once. The sparkline history holds 2-second samples and starts over after a longer gap. The daemon sends state to clients only when something changed.
+- The config file's modification time, every second.
+- Containers: the Docker event stream, a full resync every 30 seconds and a stats stream per running container (see [Containers](containers.md)).
+- While connected to another computer: a ping every 15 seconds and a check of the forwarded ports every 2 seconds.
+
+Measured on an Apple M4 Pro (macOS 27, about 750 processes) with 5 running `python3 -m http.server` servers out of 21 configured, no containers, and one events client connected the way the menu bar app is with its panel closed: the daemon used about 0.32 s of CPU per minute and its 2 `ps` calls about 0.03 s, together about 0.6 % of one core. With the dashboard open, its 30 `ps` calls per minute add about 0.45 s.
+
 ## Upgrades in place
 
 `portside daemon restart` upgrades a running daemon in place: it asks the daemon to run the CLI's own binary, the daemon checks that binary (`<binary> version`) and then re-executes it in the same process. Servers stay its children and their terminals stay open, the listening sockets carry over (requests made meanwhile wait instead of failing), and launchd or systemd see no exit.

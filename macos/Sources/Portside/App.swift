@@ -123,6 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    // The panel shows CPU and memory; the daemon samples them often only while it is open.
+    func popoverWillShow(_ notification: Notification) { store.showsUsage = true }
+    func popoverDidClose(_ notification: Notification) { store.showsUsage = false }
+
     @objc private func togglePopover(_ sender: NSStatusBarButton) {
         if popover.isShown {
             popover.performClose(sender)
