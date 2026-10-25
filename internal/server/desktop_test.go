@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,11 @@ func TestOpenLogsRefusesPaths(t *testing.T) {
 	if code := open("web"); code != http.StatusOK {
 		t.Fatalf("open logs web: status %d, want 200", code)
 	}
+	// macOS reveals the log file; elsewhere the opener gets its folder.
 	want := filepath.Join(paths.LogDir(state), "web.log")
+	if runtime.GOOS != "darwin" {
+		want = paths.LogDir(state)
+	}
 	var got string
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if b, err := os.ReadFile(launched); err == nil && strings.Contains(string(b), want) {
