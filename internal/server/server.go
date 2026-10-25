@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -25,6 +24,7 @@ import (
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/docker"
+	"github.com/padmk/portside/internal/hostport"
 	"github.com/padmk/portside/internal/remote"
 	"github.com/padmk/portside/internal/share"
 	"github.com/padmk/portside/internal/signing"
@@ -117,7 +117,7 @@ func New(opt Options) *Server {
 // serve the API to signed clients and a page on how to open the dashboard.
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := hostname(r.Host)
+		host := hostport.Host(r.Host)
 		dashboard := s.opt.DashboardHost != "" && host == s.opt.DashboardHost
 		if sub, ok := strings.CutSuffix(host, ".localhost"); ok && !dashboard && sub != app.ID && sub != "" {
 			if config.IsDashboardLabel(sub) {
@@ -206,14 +206,6 @@ func (b *replyBuffer) Write(p []byte) (int, error) {
 	return b.body.Write(p)
 }
 
-func hostname(hostport string) string {
-	h := hostport
-	if host, _, err := net.SplitHostPort(hostport); err == nil {
-		h = host
-	}
-	return strings.ToLower(strings.Trim(h, "[]"))
-}
-
 // allowedHost reports whether h names this daemon rather than a server:
 // the dashboard host or a loopback name.
 func (s *Server) allowedHost(h string) bool {
@@ -242,7 +234,7 @@ func (s *Server) originAllowed(r *http.Request) bool {
 	if port == "" {
 		port = "80"
 	}
-	return s.allowedHost(hostname(u.Host)) && port == strconv.Itoa(s.opt.Port)
+	return s.allowedHost(hostport.Host(u.Host)) && port == strconv.Itoa(s.opt.Port)
 }
 
 func isWebSocket(r *http.Request) bool {

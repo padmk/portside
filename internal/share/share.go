@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/hostport"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/signing"
 	"github.com/padmk/portside/internal/tailnet"
@@ -487,13 +488,6 @@ func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg, "code": code})
 }
 
-func hostOnly(h string) string {
-	if host, _, err := net.SplitHostPort(h); err == nil {
-		h = host
-	}
-	return strings.ToLower(strings.Trim(h, "[]"))
-}
-
 func (m *Manager) guard() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		refuse := func(msg string) { writeJSONError(w, http.StatusForbidden, "refused", msg) }
@@ -528,7 +522,7 @@ func (m *Manager) guard() http.Handler {
 		if fwd == "" {
 			fwd = r.Host
 		}
-		host := hostOnly(strings.TrimSpace(fwd[strings.LastIndex(fwd, ",")+1:]))
+		host := hostport.Host(strings.TrimSpace(fwd[strings.LastIndex(fwd, ",")+1:]))
 		hostOK := host == strings.ToLower(st.Self.DNSName) || host == st.Self.Label
 		for _, ip := range st.Self.IPs {
 			hostOK = hostOK || host == ip

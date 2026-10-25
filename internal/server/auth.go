@@ -21,6 +21,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/hostport"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
 	"github.com/padmk/portside/internal/signing"
@@ -301,7 +302,7 @@ func (s *Server) authenticate(r *http.Request) error {
 func (s *Server) authorized(r *http.Request) bool { return s.authenticate(r) == nil }
 
 func (s *Server) onDashboardHost(r *http.Request) bool {
-	return s.opt.DashboardHost != "" && hostname(r.Host) == s.opt.DashboardHost
+	return s.opt.DashboardHost != "" && hostport.Host(r.Host) == s.opt.DashboardHost
 }
 
 // public endpoints work without credentials: identity, the session probe and
