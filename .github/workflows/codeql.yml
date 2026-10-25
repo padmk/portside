@@ -12,14 +12,18 @@ permissions:
 
 jobs:
   analyze:
-    # Go compiles without a built dashboard (web/dist keeps a placeholder), so
-    # neither language needs a build. The Swift app is not analyzed: it needs a
-    # macOS runner with Xcode.
+    # CodeQL traces a Go build; it compiles without a built dashboard
+    # (web/dist keeps a placeholder). The dashboard needs no build. The Swift
+    # app is not analyzed: it needs a macOS runner with Xcode.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        language: [go, javascript-typescript]
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -29,7 +33,9 @@ jobs:
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: ${{ matrix.build-mode }}
+      - if: matrix.build-mode == 'manual'
+        run: go build ./...
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: /language:${{ matrix.language }}

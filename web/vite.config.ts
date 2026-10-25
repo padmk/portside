@@ -9,13 +9,17 @@ const brand = { name: 'portside', storage: 'portside' }
 
 const target = `http://127.0.0.1:${process.env.PORTSIDE_PORT || 7980}`
 
+/** A JSON literal safe inside an inline <script>: no tag, comment or line separator can end it. */
+const scriptLiteral = (value: unknown): string =>
+  JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+
 /**
  * Applies the stored theme before first paint. Mirrors state/prefs.ts: family and
  * mode come from localStorage, a missing mode follows the system setting.
  */
 function themeInitScript(): string {
   const map = Object.fromEntries(FAMILIES.map((f) => [f.id, { dark: f.dark, light: f.light }]))
-  return `(function(){try{var F=${JSON.stringify(map)};var s=localStorage;var f=s.getItem('${brand.storage}.themeFamily');var m=s.getItem('${brand.storage}.themeMode')||s.getItem('${brand.storage}.theme');if(!F[f])f=${JSON.stringify(DEFAULT_FAMILY)};if(m!=='light'&&m!=='dark')m=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var r=document.documentElement;r.dataset.theme=F[f][m];r.dataset.mode=m;r.style.colorScheme=m}catch(e){}})()`
+  return `(function(){try{var F=${scriptLiteral(map)};var s=localStorage;var f=s.getItem('${brand.storage}.themeFamily');var m=s.getItem('${brand.storage}.themeMode')||s.getItem('${brand.storage}.theme');if(!F[f])f=${scriptLiteral(DEFAULT_FAMILY)};if(m!=='light'&&m!=='dark')m=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var r=document.documentElement;r.dataset.theme=F[f][m];r.dataset.mode=m;r.style.colorScheme=m}catch(e){}})()`
 }
 
 const SWATCH_MODULE = 'virtual:theme-swatches'
