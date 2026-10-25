@@ -72,8 +72,6 @@ const settingsDialog = async () => {
   await open()
   await evaluate(`for (const key of ['g', 's']) document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))`)
   await sleep(1500)
-  await evaluate(`document.querySelector('#set-editor')?.scrollIntoView({ block: 'center' })`)
-  await sleep(300)
 }
 
 // Settings on the coding agents, as the menu bar app's Connect Coding Agents opens it.
@@ -118,12 +116,12 @@ if (set === 'portfolio') {
   await theme('rose-pine', 'dark'); await open(); await shot('overview-dark.png')
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false })
   await evaluate("localStorage.setItem('portside.layout', 'list'); localStorage.removeItem('portside.collapsed')")
-  await theme('everforest', 'light'); await open(); await shot('list.png')
+  await theme('rose-pine', 'dark'); await open(); await shot('list.png')
   await evaluate("localStorage.removeItem('portside.layout')")
-  await theme('tokyo-night', 'dark'); await open('#/web', 3500); await shot('detail.png')
-  await theme('catppuccin', 'light'); await open('#/blog', 3000); await shot('crashed.png')
-  await theme('nord', 'dark'); await containersTab('api'); await shot('containers.png')
-  await theme('rose-pine', 'light'); await settingsDialog(); await shot('settings.png')
+  await theme('rose-pine', 'dark'); await open('#/web', 3500); await shot('detail.png')
+  await theme('rose-pine', 'dark'); await open('#/blog', 3000); await shot('crashed.png')
+  await theme('rose-pine', 'dark'); await containersTab('api'); await shot('containers.png')
+  await theme('rose-pine', 'dark'); await settingsDialog(); await shot('settings.png')
   await theme('rose-pine', 'dark'); await agentsDialog(); await shot('agents.png')
 }
 

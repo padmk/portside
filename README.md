@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="design/screenshots/overview-dark.png" width="900" alt="Portside dashboard in Rosé Pine: server cards grouped by project, with running, stopped and crashed servers">
+  <img src="design/screenshots/overview-dark.png" width="900" alt="Portside dashboard: server cards grouped by project, with running, stopped and crashed servers">
 </p>
 
 Portside is a menu bar app, a CLI and a web dashboard for the dev servers you run every day: Next.js, Vite, Python APIs, `docker compose` stacks, workers. It starts them in real terminals, keeps their ports stable and shows status, logs and resource use on one calm page. Coding agents use the same servers through MCP, so they reuse a running server and read its logs instead of starting a duplicate on a random port and losing track of it.
@@ -30,19 +30,15 @@ One static binary, no runtime dependencies, no account, no telemetry, and nothin
 - **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure_server` starts a server if needed and returns its URL, agents read logs instead of guessing, and `--read-only` limits them to looking.
 - **Other computers.** Over Tailscale, drive the servers of another of your machines and open its sites locally.
 
-<table>
-  <tr>
-    <td><img src="design/screenshots/detail.png" alt="A server's live terminal with every server one click away in the side rail (Tokyo Night)"></td>
-    <td><img src="design/screenshots/crashed.png" alt="A crashed server with its exit code and the error that caused it (Catppuccin Latte)"></td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="design/screenshots/containers.png" alt="A server's Compose containers with their state, usage and live logs (Nord)"></td>
-  </tr>
-  <tr>
-    <td><picture><source media="(prefers-color-scheme: dark)" srcset="design/screenshots/menubar-dark.png"><img src="design/screenshots/menubar-light.png" width="360" alt="The menu bar panel: every server with its project icon, state, memory and port, grouped by project"></picture></td>
-    <td><img src="design/screenshots/agents.png" alt="Settings on the coding agents: Claude Code and Codex with their MCP server and skill, Connect, and the prompt to copy for an agent (Rosé Pine)"></td>
-  </tr>
-</table>
+<p align="center"><img src="design/screenshots/detail.png" width="900" alt="A server's live terminal with every server one click away in the side rail"></p>
+
+<p align="center"><img src="design/screenshots/crashed.png" width="900" alt="A crashed server with its exit code and the error that caused it"></p>
+
+<p align="center"><img src="design/screenshots/containers.png" width="900" alt="A server's Compose containers with their state, usage and live logs"></p>
+
+<p align="center"><img src="design/screenshots/agents.png" width="900" alt="Settings on the coding agents: Claude Code and Codex with their MCP server and skill, Connect, and the prompt to copy for an agent"></p>
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="design/screenshots/menubar-dark.png"><img src="design/screenshots/menubar-light.png" width="420" alt="The menu bar panel: every server with its project icon, state, memory and port, grouped by project"></picture></p>
 
 ## Install
 

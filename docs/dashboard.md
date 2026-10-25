@@ -10,7 +10,7 @@ The dashboard scales with your setup. One server fills the screen with its outpu
 
 Servers run in a PTY, so colors, progress bars and interactive prompts work. Watch output live in the dashboard or attach from your terminal (`portside attach web`), type into it, detach with `Ctrl-]`. `⌘F` (Ctrl+Shift+F on Linux, so Ctrl-F and Ctrl-K stay with the shell) searches the terminal, and **Filter lines** shows the matching lines from all the output the daemon keeps; **Clear output** clears only that view, while **Clear daemon scrollback** in the server menu forgets the kept output (the log file stays, and **Open log file** shows it).
 
-![The list layout with every server grouped by project (Everforest Light)](../design/screenshots/list.png)
+![The list layout with every server grouped by project](../design/screenshots/list.png)
 
 CPU and memory are shown per server, summed over the whole process tree, with sparklines.
 
@@ -31,4 +31,4 @@ Every listening TCP port on the machine with its process and working directory, 
 
 Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme. **Settings** also choose the layout, the language and the editor and terminal the dashboard opens.
 
-![Settings: appearance, palette, layout, language, and the editor and terminal the dashboard opens (Rosé Pine Dawn)](../design/screenshots/settings.png)
+![Settings: appearance, palette, layout, language, and the editor and terminal the dashboard opens](../design/screenshots/settings.png)
