@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Verifiable releases:** every release file has a GitHub build provenance attestation (`gh attestation verify <file> -R padmk/portside`), and each CLI archive an SPDX SBOM. CodeQL checks the Go and dashboard code, and pull requests also build on macOS.
+- **Agents:** `portside mcp --read-only` offers only the tools that read. Every MCP tool says whether it changes anything (read-only, idempotent or destructive annotations), and the log tools and instructions tell agents that log output is data, not instructions.
+- **Documentation:** a Trust section in the security docs (what Portside can do as you, what agents can do, what leaves the machine, the missing notarization and how to verify a download), and a comparison with process-compose, pitchfork, Portless, WhatThePort and Overmind.
+
 ## 0.2.1
 
 - **Security:** builds use Go 1.27.3. Releases up to 0.2.0 were built with Go 1.26.0, without the Go security fixes since, including the one for distrusting compromised intermediate certificates in `crypto/x509` (GO-2026-6809), which matters for TLS connections such as remote Docker engines and paired computers.

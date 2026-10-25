@@ -16,9 +16,9 @@
   <img src="design/screenshots/overview-dark.png" width="900" alt="Portside dashboard in Rosé Pine: server cards grouped by project, with running, stopped and crashed servers">
 </p>
 
-Portside is a menu bar app, a CLI and a web dashboard for the dev servers you run every day: Next.js, Vite, Python APIs, `docker compose` stacks, workers. It starts them in real terminals, keeps their ports stable, shows status, logs and resource use on one calm page, and lets coding agents reuse the same servers instead of launching duplicates.
+Portside is a menu bar app, a CLI and a web dashboard for the dev servers you run every day: Next.js, Vite, Python APIs, `docker compose` stacks, workers. It starts them in real terminals, keeps their ports stable and shows status, logs and resource use on one calm page. Coding agents use the same servers through MCP, so they reuse a running server and read its logs instead of starting a duplicate on a random port and losing track of it.
 
-One static binary, no runtime dependencies, no account, and nothing leaves `127.0.0.1` unless you turn on sharing with your other computers.
+One static binary, no runtime dependencies, no account, no telemetry, and nothing leaves `127.0.0.1` unless you turn on sharing with your other computers.
 
 ## Highlights
 
@@ -27,7 +27,7 @@ One static binary, no runtime dependencies, no account, and nothing leaves `127.
 - **Real terminals, honest status.** Servers run in a PTY with live output, search and `portside attach`. `starting` lasts until the port answers, crashes show the exit code, and foreign processes holding a port are named.
 - **Survives restarts and updates.** Restart policies with backoff, crash notifications, and servers that keep running through a daemon upgrade or come back after a reboot.
 - **Containers.** Compose containers appear next to their server with state, health, logs, a shell and recreate, for Docker Desktop, OrbStack, Colima, Podman and remote engines.
-- **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure` starts a server if needed and returns its URL, and agents read logs instead of guessing.
+- **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure_server` starts a server if needed and returns its URL, agents read logs instead of guessing, and `--read-only` limits them to looking.
 - **Other computers.** Over Tailscale, drive the servers of another of your machines and open its sites locally.
 
 <table>
@@ -51,6 +51,8 @@ Requires macOS 26 (Tahoe) or later on Apple Silicon. With Homebrew, this install
 ```sh
 brew install --cask padmk/tap/portside
 ```
+
+The app is not notarized by Apple yet, and the cask removes the quarantine flag so that macOS lets it start. You rely on the public source and on release files built by GitHub Actions with a verifiable attestation instead; [Trust](docs/security.md#trust) says what that covers and how to check a download, or build it from source as below.
 
 <details>
 <summary>Other ways to install, update and uninstall</summary>
@@ -108,7 +110,8 @@ group = "shop"
 - [Containers](docs/containers.md): engines, ownership, actions
 - [Other computers](docs/other-computers.md): pairing and sharing over Tailscale, or with your coding agent's help
 - [How it works](docs/how-it-works.md): processes, state, upgrades in place, the login service
-- [Security model](docs/security.md)
+- [Security model](docs/security.md): what Portside can do as you, what agents can do, how to verify a release
+- [Compared with other tools](docs/comparison.md): process-compose, pitchfork, Portless, WhatThePort, Overmind
 - [Development](docs/development.md) and the [changelog](CHANGELOG.md)
 
 ## License

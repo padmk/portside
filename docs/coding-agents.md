@@ -55,7 +55,7 @@ Agents get these tools, plus instructions to reuse running servers rather than s
 | `container_action` | yes, interrupts | `name`, `action` (`start`, `stop`, `restart` or `recreate`), and optional `build` or `pull` for recreation; recreate waits and returns its last 100 output lines, including failures. |
 | `list_ports` | no | Every listening TCP port and its owner. |
 
-The tools carry MCP annotations that clients use for their approval prompts: the reading tools are read-only, `ensure_server` is idempotent and not destructive, and the tools that interrupt running processes are destructive.
+The tools carry MCP annotations, which clients can use for their approval prompts: the reading tools are read-only, `ensure_server` is idempotent and not destructive, and the tools that interrupt running processes are destructive.
 
 Through MCP an agent can start, stop and restart the configured servers, start, stop, restart and recreate containers, and read the logs and ports of every project on this computer. It cannot run arbitrary commands, delete volumes or edit the config through MCP; a server runs whatever command the config gives it. An agent that also has a shell can run the CLI anyway, so this limits the tools, not the agent: it is not a sandbox.
 

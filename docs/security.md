@@ -2,6 +2,18 @@
 
 The daemon runs arbitrary commands from your config, so its API must only be reachable by you. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
+## Trust
+
+What Portside can do, and how to check what you install.
+
+- **It acts as you.** The daemon runs the commands in your config with your account's permissions, in no sandbox. Treat a server definition like a script you run yourself.
+- **Nothing leaves the machine on its own.** Portside sends no telemetry and checks for no updates. It listens only on loopback; it connects out only to the Docker engine of your active Docker context, and to your own computers over Tailscale once you turn on sharing or pair one.
+- **Coding agents get the MCP tools, not a shell.** Through MCP an agent can list and read every project's servers, containers, logs and ports, start or reuse configured servers, restart and stop them, and start, stop, restart or recreate containers. It cannot run other commands, edit the config or remove volumes through MCP. `portside mcp --read-only` offers only the reading tools ([Coding agents](coding-agents.md#read-only-tools)). An agent that also has a shell can use the CLI anyway, so this limits the MCP tools, not the agent.
+- **What it stores.** The config and the state directory (`~/.config/portside`, `~/.local/state/portside`) hold the token, server logs and pairing keys, readable only by your account. Server logs keep whatever your servers print, secrets included.
+- **The macOS app is not notarized.** It is signed ad hoc, not with an Apple Developer ID, so Apple has not scanned it, and the Homebrew cask removes the quarantine flag so that Gatekeeper does not block the first launch. What you rely on instead is that the source is public and each release is built from a tagged commit by the [release workflow](../.github/workflows/release.yml) on GitHub Actions.
+- **Checking a download.** From 0.3.0, every release file carries a build provenance attestation that ties it to that workflow run and commit: `gh attestation verify Portside-<version>.zip -R padmk/portside` (the same for the CLI archives and `checksums.txt`). Each CLI archive also has an SBOM. To avoid the prebuilt app altogether, build it from source (README, "Other ways to install").
+- **Removing it.** `brew uninstall --zap --cask portside` stops the daemon and its servers and trashes the config and state; agent registrations are removed with the agents' own commands (`claude mcp remove --scope user portside`, `codex mcp remove portside`) and the `portside` skill folder in `~/.claude/skills` and `~/.agents/skills` (or `$CODEX_HOME/skills`).
+
 ## Loopback only
 
 The daemon binds to loopback only, on both `127.0.0.1` and `[::1]` wherever the system has IPv6 loopback. Browsers try `::1` first for `*.localhost`, so the daemon refuses to start while another program holds `[::1]:<port>` (it would receive every dashboard request and its cookie), names the address in the error, and `portside doctor` checks that the daemon itself answers on both. Clients dial `127.0.0.1` by address.
