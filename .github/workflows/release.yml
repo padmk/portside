@@ -53,7 +53,7 @@ jobs:
             dist/checksums.txt
 
   app:
-    # macOS menu bar app, attached to the same release and published as a Homebrew cask.
+    # macOS menu bar app, attached to the same release and published as a Homebrew cask, next to a formula that builds the CLI from the tag's source.
     needs: cli
     runs-on: macos-26
     permissions:
@@ -86,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" "dist/macos/Portside-${GITHUB_REF_NAME#v}.zip" --clobber
-      - name: Update the Homebrew cask
+      - name: Update the Homebrew cask and formula
         # Skipped until the tap repository and its token are set up.
         if: env.HAS_TAP_TOKEN == 'true'
         env:
@@ -98,15 +98,20 @@ jobs:
           bundle=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' dist/macos/Portside.app/Contents/Info.plist)
           # The app's bundle ID is the service label plus ".app" (internal/app).
           label="${bundle%.app}"
+          # The formula builds from the tag's source archive.
+          curl -fsSL -o "$RUNNER_TEMP/source.tar.gz" "https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$GITHUB_REF_NAME.tar.gz"
+          source_sha=$(shasum -a 256 "$RUNNER_TEMP/source.tar.gz" | cut -d' ' -f1)
           gh auth setup-git
           git clone "https://github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
-          mkdir -p tap/Casks
+          mkdir -p tap/Casks tap/Formula
           sed -e "s/__VERSION__/$version/" -e "s/__SHA256__/$sha/" -e "s#__REPO__#$GITHUB_REPOSITORY#" \
             -e "s/__BUNDLE_ID__/$bundle/" -e "s/__SERVICE_LABEL__/$label/" \
             packaging/homebrew/portside.rb.tmpl > tap/Casks/portside.rb
+          sed -e "s/__VERSION__/$version/" -e "s/__SOURCE_SHA256__/$source_sha/" -e "s#__REPO__#$GITHUB_REPOSITORY#" \
+            packaging/homebrew/portside-formula.rb.tmpl > tap/Formula/portside.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/portside.rb
+          git add Casks/portside.rb Formula/portside.rb
           git commit -m "portside $version"
           git push

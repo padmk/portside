@@ -48,12 +48,16 @@ Requires macOS 26 (Tahoe) or later on Apple Silicon. With Homebrew, this install
 brew install --cask padmk/tap/portside
 ```
 
-The app is not notarized by Apple yet, and the cask removes the quarantine flag so that macOS lets it start. You rely on the public source and on release files built by GitHub Actions with a verifiable attestation instead; [Trust](docs/security.md#trust) says what that covers and how to check a download, or build it from source as below.
+If you prefer to build from source, `brew install --formula padmk/tap/portside` builds the command-line tool and dashboard on your Mac, without the menu bar app (**Build with Homebrew** below).
+
+The app is not notarized by Apple yet, and the cask removes the quarantine flag so that macOS lets it start. You rely on the public source and on release files built by GitHub Actions with a verifiable attestation instead; [Trust](docs/security.md#trust) says what that covers and how to check a download.
 
 <details>
 <summary>Other ways to install, update and uninstall</summary>
 
 **Download.** Get `Portside-<version>.zip` from the [releases](https://github.com/padmk/portside/releases), move `Portside.app` to Applications, and choose **Settings > Install Command Line Tool** in its menu. The app is signed ad hoc and not notarized, so macOS blocks the first launch of a downloaded copy: open it once, then choose **Open Anyway** in **System Settings > Privacy & Security** and confirm ([Apple's instructions](https://support.apple.com/en-us/102445)). The Homebrew cask clears the quarantine flag itself.
+
+**Build with Homebrew.** `brew install --formula padmk/tap/portside` downloads the release's tagged source and builds the `portside` command with its embedded dashboard (with Homebrew's Go, Node and pnpm, needed only for the build). There is no menu bar app: open the dashboard in your browser with `portside open`. Update with `brew upgrade portside`, then `portside daemon restart`. The formula and the cask both install `portside`, so install only one of them.
 
 **Linux (preview).** The CLI, daemon and dashboard run on x86-64 and arm64, but macOS is the platform Portside is built and tested for. Download `portside_<version>_linux_<arch>.tar.gz` from the releases, put `portside` on your `PATH`, and run `portside service install` to start the daemon at login.
 

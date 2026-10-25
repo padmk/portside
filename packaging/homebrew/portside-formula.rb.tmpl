@@ -1,0 +1,48 @@
+# Rendered by .github/workflows/release.yml into the tap as Formula/portside.rb.
+# Builds the command-line tool and its embedded dashboard from the tagged
+# source; the cask (portside.rb.tmpl) installs the prebuilt app instead.
+class Portside < Formula
+  desc "Keep your local dev servers running, in one place"
+  homepage "https://github.com/__REPO__"
+  url "https://github.com/__REPO__/archive/refs/tags/v__VERSION__.tar.gz"
+  sha256 "__SOURCE_SHA256__"
+  license "MIT"
+
+  depends_on "go" => :build
+  depends_on "node" => :build
+  # Switches to the pnpm version pinned by web/package.json's packageManager.
+  depends_on "pnpm" => :build
+  depends_on :macos
+
+  # Homebrew records but does not enforce a conflict with a cask (and a cask
+  # cannot name a formula): with the cask installed this formula is not
+  # linked, and the cask skips linking its binary over this one.
+  conflicts_with because: "both install a `portside` binary", cask: "portside"
+
+  def install
+    # Homebrew builds with GOTOOLCHAIN=local; auto lets go.mod's toolchain
+    # line win when Homebrew's Go is older (fetched from the Go module
+    # proxy and checked against the checksum database).
+    ENV["GOTOOLCHAIN"] = "auto"
+    ENV["CGO_ENABLED"] = "0"
+    # The dashboard must exist before Go embeds it (web/embed.go).
+    system "pnpm", "--dir", "web", "install", "--frozen-lockfile"
+    system "pnpm", "--dir", "web", "build"
+    system "go", "build", *std_go_args(ldflags: "-X main.version=#{version}"), "./cmd/portside"
+  end
+
+  def caveats
+    <<~EOS
+      This installs the command-line tool and the daemon with its dashboard,
+      without the menu bar app. Open the dashboard in your browser with:
+        portside open
+      To connect coding agents (Claude Code, Codex), run:
+        portside setup
+      After `brew upgrade portside`, run `portside daemon restart`.
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/portside version")
+  end
+end
