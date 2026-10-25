@@ -10,6 +10,10 @@ jobs:
   cli:
     # Linux and macOS command-line archives with the embedded dashboard.
     runs-on: macos-26
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,6 +29,10 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
+      # syft on PATH for GoReleaser's SBOMs.
+      - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: v1.55.0
       - name: Release notes from CHANGELOG.md
         # The section of this version, without its heading; a tag without one stops here.
         run: |
@@ -37,11 +45,21 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.sbom.json
+            dist/checksums.txt
 
   app:
     # macOS menu bar app, attached to the same release and published as a Homebrew cask.
     needs: cli
     runs-on: macos-26
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
@@ -61,6 +79,9 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - name: Build Portside.app
         run: VERSION="${GITHUB_REF_NAME#v}" scripts/build-macos-app.sh --zip
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/macos/Portside-*.zip
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

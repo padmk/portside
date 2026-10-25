@@ -27,6 +27,9 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files: [LICENSE, README.md, THIRD_PARTY_NOTICES.txt, docs/*.md]
 
+# One SPDX SBOM per archive (syft, installed by release.yml).
+sboms:
+  - artifacts: archive
 
 checksum:
   name_template: checksums.txt

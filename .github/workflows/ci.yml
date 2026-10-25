@@ -3,9 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Pushes and pull requests get the Linux checks only, which also cover the
-  # Go and dashboard code shared with macOS. The macOS build (including the
-  # menu bar app) runs on demand here and for every release tag in release.yml.
+  # Pushes to main get the Linux checks only, which also cover the Go and
+  # dashboard code shared with macOS. The macOS build (including the menu bar
+  # app) also runs for pull requests, on demand here and for every release tag
+  # in release.yml.
   workflow_dispatch:
     inputs:
       macos:
@@ -42,7 +43,7 @@ jobs:
       - run: ./bin/portside version
 
   macos:
-    if: github.event_name == 'workflow_dispatch' && inputs.macos
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.macos)
     runs-on: macos-26
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
