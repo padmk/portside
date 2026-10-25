@@ -48,7 +48,7 @@ Requires macOS 26 (Tahoe) or later on Apple Silicon. With Homebrew, this install
 brew install --cask padmk/tap/portside
 ```
 
-The app is not notarized by Apple yet, and the cask removes the quarantine flag so that macOS lets it start. You rely on the public source and on release files built by GitHub Actions with a verifiable attestation instead; [Trust](docs/security.md#trust) says what that covers and how to check a download. If you would rather not run a prebuilt app, `brew install --formula padmk/tap/portside` builds the command-line tool and dashboard from source on your Mac, without the menu bar app (**Build with Homebrew** below).
+The app is not notarized by Apple yet, and the cask removes the quarantine flag so that macOS lets it start. You rely on the public source and on release files built by GitHub Actions instead, each with a verifiable attestation from 0.3.0; [Trust](docs/security.md#trust) says what that covers and how to check a download. If you would rather not run a prebuilt app, `brew install --formula padmk/tap/portside` (from 0.3.0) builds the command-line tool and dashboard from source on your Mac, without the menu bar app (**Build with Homebrew** below).
 
 <details>
 <summary>Other ways to install, update and uninstall</summary>

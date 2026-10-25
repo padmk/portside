@@ -3,10 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Pushes to main get the Linux checks only, which also cover the Go and
-  # dashboard code shared with macOS. The macOS build (including the menu bar
-  # app) also runs for pull requests, on demand here and for every release tag
-  # in release.yml.
+  # Linux runs the full checks. macOS builds the menu bar app and runs the Go
+  # tests on pushes to main, pull requests, on demand (the input below) and
+  # for every release tag in release.yml.
   workflow_dispatch:
     inputs:
       macos:
@@ -43,7 +42,7 @@ jobs:
       - run: ./bin/portside version
 
   macos:
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.macos)
+    if: github.event_name != 'workflow_dispatch' || inputs.macos
     runs-on: macos-26
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,3 +58,4 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: scripts/build-macos-app.sh
+      - run: go test ./...
