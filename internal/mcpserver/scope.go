@@ -109,6 +109,62 @@ func (t *tools) checkServer(ctx context.Context, g target, name string) error {
 	return nil
 }
 
+// checkStart refuses what checkServer refuses, and a start that would
+// launch a server outside the scope: the daemon first starts every server
+// in the depends_on chain that does not run, so each one outside the scope
+// must already be running or starting.
+func (t *tools) checkStart(ctx context.Context, g target, name string) error {
+	if t.scope.all() {
+		return nil
+	}
+	st, err := g.state(ctx)
+	if err != nil {
+		return err
+	}
+	in := t.scope.servers(st.Servers)
+	if !in[name] {
+		return fmt.Errorf("unknown server %q", name)
+	}
+	return outsideDeps(in, st.Servers, name)
+}
+
+// outsideDeps walks the transitive dependencies of name and reports the
+// first one outside the scope (in) that the daemon would have to start. A
+// temporary server's view carries its origin's dependencies, which name
+// configured servers, as the daemon resolves them.
+func outsideDeps(in map[string]bool, views []supervisor.View, name string) error {
+	byName := map[string]supervisor.View{}
+	for _, v := range views {
+		byName[v.Name] = v
+	}
+	seen := map[string]bool{name: true}
+	var visit func(n string, via []string) error
+	visit = func(n string, via []string) error {
+		for _, d := range byName[n].DependsOn {
+			if seen[d] {
+				continue
+			}
+			seen[d] = true
+			v, known := byName[d]
+			live := known && (v.Status == supervisor.Running || v.Status == supervisor.Starting)
+			if !in[d] && !live {
+				through := ""
+				if len(via) > 0 {
+					through = " (through " + strings.Join(via, ", ") + ")"
+				}
+				return fmt.Errorf("%s needs %s%s, which is outside this scope and not running; ask the user to start it", name, d, through)
+			}
+			// The daemon also starts the dependencies of a running
+			// dependency when they do not run.
+			if err := visit(d, append(slices.Clone(via), d)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return visit(name, nil)
+}
+
 // checkContainer refuses a container (by name or ID) that no server in
 // scope owns, with the daemon's own error for an unknown container.
 func (t *tools) checkContainer(ctx context.Context, g target, ref string) error {

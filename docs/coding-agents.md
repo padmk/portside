@@ -78,7 +78,7 @@ The instructions match the mode: in `start` mode they tell the agent to ask you 
 - the containers that belong to those servers (`list_containers`, the containers in `list_servers`, `container_logs` and `container_action`); other servers' names are left out of a container's `sharedWith` and `issueFor`;
 - in `list_ports`, the listeners of those servers and their containers, and processes whose working directory is inside a path (a process that changed its directory after starting is placed by its current one).
 
-Another server's name gets the same `unknown server` error as a name that does not exist, and another container `no container`; the check happens before anything is sent to the daemon. The `computer` argument is refused, since another computer's directories differ.
+Another server's name gets the same `unknown server` error as a name that does not exist, and another container `no container`; the check happens before anything is sent to the daemon. The scope is also a boundary for starting processes: `ensure_server` and `restart_server` first walk the server's `depends_on` chain (a temporary copy has its configured server's dependencies), and when a dependency outside the scope is neither running nor starting, they refuse without asking the daemon, naming it (`web needs shared-db, which is outside this scope and not running; ask the user to start it`). Dependencies outside the scope that already run are fine, and dependencies inside it start as usual. The `computer` argument is refused, since another computer's directories differ.
 
 To register a mode, remove an existing entry first: `portside setup` and `doctor` recognize the entry by its name only, and the agents' CLIs do not replace an entry that exists.
 

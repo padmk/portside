@@ -422,3 +422,64 @@ func TestScopeNeedsDirectory(t *testing.T) {
 		t.Error("empty --dir accepted")
 	}
 }
+
+// TestScopeDependencies checks that a scoped session never makes the daemon
+// start a server outside the scope through depends_on: a dependency outside
+// it that does not run refuses the start before any request reaches the
+// daemon.
+func TestScopeDependencies(t *testing.T) {
+	const refusal = "web needs shared-db, which is outside this scope and not running; ask the user to start it"
+	tests := []struct {
+		name     string
+		unscoped bool
+		dbStatus supervisor.Status
+		web      []string // web's dependencies
+		tool     string
+		server   string
+		refusal  string // "" when the request must reach the daemon
+	}{
+		{name: "stopped outside", dbStatus: supervisor.Stopped, web: []string{"shared-db"}, tool: "ensure_server", server: "web", refusal: refusal},
+		{name: "running outside", dbStatus: supervisor.Running, web: []string{"shared-db"}, tool: "ensure_server", server: "web"},
+		{name: "starting outside", dbStatus: supervisor.Starting, web: []string{"shared-db"}, tool: "ensure_server", server: "web"},
+		{name: "through a dependency in scope", dbStatus: supervisor.Crashed, web: []string{"lib"}, tool: "ensure_server", server: "web",
+			refusal: "web needs shared-db (through lib), which is outside this scope and not running; ask the user to start it"},
+		{name: "worktree copy", dbStatus: supervisor.Stopped, web: []string{"shared-db"}, tool: "ensure_server", server: "web-wt",
+			refusal: strings.Replace(refusal, "web", "web-wt", 1)},
+		{name: "restart", dbStatus: supervisor.Stopped, web: []string{"shared-db"}, tool: "restart_server", server: "web", refusal: refusal},
+		{name: "unscoped", unscoped: true, dbStatus: supervisor.Stopped, web: []string{"lib"}, tool: "ensure_server", server: "web"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, port, dir := scoped(t)
+			sv := f.state.Servers
+			sv[0].DependsOn = tt.web // web
+			sv[1].DependsOn = tt.web // web-wt carries its origin's dependencies
+			f.state.Servers = append(sv,
+				supervisor.View{Name: "lib", Dir: filepath.Join(sv[0].Dir, "lib"), Status: supervisor.Stopped, DependsOn: []string{"shared-db"}},
+				supervisor.View{Name: "shared-db", Dir: filepath.Join(filepath.Dir(sv[2].Dir), "db"), Status: tt.dbStatus})
+			opts := Options{Mode: Full, Dirs: []string{dir}}
+			if tt.unscoped {
+				opts.Dirs = nil
+			}
+			cs := connect(t, port, opts)
+			text, failed := call(t, cs, tt.tool, map[string]any{"name": tt.server})
+			action := "ensure"
+			if tt.tool == "restart_server" {
+				action = "restart"
+			}
+			asked := slices.Contains(f.paths(), "POST /api/servers/"+tt.server+"/"+action)
+			if tt.refusal != "" {
+				if !failed || text != tt.refusal {
+					t.Errorf("%s %s = %q (error %v), want %q", tt.tool, tt.server, text, failed, tt.refusal)
+				}
+				if asked {
+					t.Errorf("the daemon received the %s request: %v", action, f.paths())
+				}
+				return
+			}
+			if failed || !asked {
+				t.Errorf("%s %s = %q (error %v), asked %v; want the request to reach the daemon", tt.tool, tt.server, text, failed, f.paths())
+			}
+		})
+	}
+}

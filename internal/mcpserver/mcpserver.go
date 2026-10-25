@@ -430,7 +430,7 @@ func (t *tools) ensure(ctx context.Context, _ *mcp.CallToolRequest, in ensureSer
 	if err != nil {
 		return nil, Server{}, err
 	}
-	if err := t.checkServer(ctx, g, in.Name); err != nil {
+	if err := t.checkStart(ctx, g, in.Name); err != nil {
 		return nil, Server{}, err
 	}
 	timeout := in.Timeout
@@ -487,7 +487,7 @@ func (t *tools) restart(ctx context.Context, _ *mcp.CallToolRequest, in ensureIn
 	if err != nil {
 		return nil, Server{}, err
 	}
-	if err := t.checkServer(ctx, g, in.Name); err != nil {
+	if err := t.checkStart(ctx, g, in.Name); err != nil {
 		return nil, Server{}, err
 	}
 	timeout := in.Timeout

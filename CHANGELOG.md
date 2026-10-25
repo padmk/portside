@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Agents:** with `portside mcp --dir`, `ensure_server` and `restart_server` no longer start servers outside the scope through `depends_on`: when such a dependency does not run, they refuse and name it, so the agent asks you to start it.
+
 ## 0.3.0
 
 - **Verifiable releases:** every release file has a GitHub build provenance attestation (`gh attestation verify <file> -R padmk/portside`), and each CLI archive an SPDX SBOM. CodeQL checks the Go and dashboard code, and CI builds the app and runs the Go tests on macOS for every push and pull request.
