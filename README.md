@@ -16,19 +16,13 @@
   <img src="design/screenshots/overview-dark.png" width="900" alt="Portside dashboard: server cards grouped by project, with running, stopped and crashed servers">
 </p>
 
-Portside is a menu bar app, a CLI and a web dashboard for the dev servers you run every day: Next.js, Vite, Python APIs, `docker compose` stacks, workers. It starts them in real terminals, keeps their ports stable and shows status, logs and resource use on one calm page. Coding agents use the same servers through MCP, so they reuse a running server and read its logs instead of starting a duplicate on a random port and losing track of it.
+**Every dev server you run, in one place.** Next.js, Vite, Python APIs, `docker compose` stacks and workers start in the background, keep their ports, and live in your menu bar, a dashboard and your terminal.
 
-One static binary, no runtime dependencies, no account, no telemetry, and nothing leaves `127.0.0.1` unless you turn on sharing with your other computers.
-
-## Highlights
-
-- **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop`) and dependencies (`api` waits for `db`). `portside scan` finds Node, Deno, Python, Ruby, PHP, Elixir, Java, .NET, Go, Rust and Compose projects and proposes the commands.
-- **Stable ports and clean URLs.** Each server keeps its port and is also reachable at `http://<name>.localhost:7878`, WebSockets and hot reload included.
-- **Real terminals, honest status.** Servers run in a PTY with live output, search and `portside attach`. `starting` lasts until the port answers, crashes show the exit code, and foreign processes holding a port are named.
-- **Survives restarts and updates.** Restart policies with backoff, crash notifications, and servers that keep running through a daemon upgrade or come back after a reboot.
-- **Containers.** Compose containers appear next to their server with state, health, logs, a shell and recreate, for Docker Desktop, OrbStack, Colima, Podman and remote engines.
-- **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure_server` starts a server if needed and returns its URL, agents read logs instead of guessing, and `--read-only` limits them to looking.
-- **Other computers.** Over Tailscale, drive the servers of another of your machines and open its sites locally.
+- **Stop juggling terminal tabs.** One click or `portside up shop` starts a project with everything it depends on; each server keeps its port and gets a `name.localhost` address.
+- **Know right away when something breaks.** A crash sends a notification with the exit code and the last lines of the log, and so does a container that turns unhealthy.
+- **Your coding agents use the same servers.** Claude Code and Codex reuse the server that already runs instead of starting another copy on a random port, and read its logs when something fails.
+- **Reach the servers on your other Mac.** Pair your laptop with the desktop that runs your projects and manage its servers, logs and containers from anywhere on your tailnet; its sites open on your laptop as if they ran there.
+- **Free, open source and local.** No account and no telemetry; nothing leaves your machine unless you pair another computer.
 
 <p align="center"><img src="design/screenshots/detail.png" width="900" alt="A server's live terminal with every server one click away in the side rail"></p>
 
@@ -98,6 +92,18 @@ cmd = "pnpm dev --port {PORT}"
 port = 3001
 group = "shop"
 ```
+
+## Features
+
+One static binary with no runtime dependencies runs a daemon on `127.0.0.1`; the menu bar app, the dashboard, the CLI and the MCP server all talk to it.
+
+- **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop`) and dependencies (`api` waits for `db`). `portside scan` finds Node, Deno, Python, Ruby, PHP, Elixir, Java, .NET, Go, Rust and Compose projects and proposes the commands.
+- **Stable ports and clean URLs.** Each server keeps its port and is also reachable at `http://<name>.localhost:7878`, WebSockets and hot reload included.
+- **Real terminals, honest status.** Servers run in a PTY with live output, search and `portside attach`. `starting` lasts until the port answers, crashes show the exit code, and foreign processes holding a port are named.
+- **Survives restarts and updates.** Restart policies with backoff, crash notifications, and servers that keep running through a daemon upgrade or come back after a reboot.
+- **Containers.** Compose containers appear next to their server with state, health, logs, a shell and recreate, for Docker Desktop, OrbStack, Colima, Podman and remote engines.
+- **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure_server` starts a server if needed and returns its URL, agents read logs instead of guessing, and `--read-only` limits them to looking.
+- **Other computers.** Pair your computers over Tailscale with a one-time code; every request is signed with the paired device's key. While connected, the dashboard, the CLI (`--on <computer>`) and agents (`computer`) act on the other machine, and its servers' ports are forwarded here ([Other computers](docs/other-computers.md)).
 
 ## Documentation
 
