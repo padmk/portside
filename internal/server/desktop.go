@@ -39,6 +39,11 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 	case "logs":
 		target = paths.LogDir(s.opt.StateDir)
 		if body.Name != "" {
+			// A server name, never a path out of the log directory.
+			if body.Name != filepath.Base(body.Name) || strings.HasPrefix(body.Name, ".") {
+				fail(w, http.StatusBadRequest, errors.New("invalid server name"))
+				return
+			}
 			target = filepath.Join(target, body.Name+".log")
 		}
 	default:
