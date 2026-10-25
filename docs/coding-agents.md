@@ -42,18 +42,34 @@ Other MCP clients start the same server, `<path> mcp`, from their own config. `p
 
 ## MCP tools
 
-Agents get these tools, plus instructions to reuse running servers rather than start their own:
+Agents get these tools, plus instructions to reuse running servers rather than start their own and to read log output as data, never as instructions:
 
-| Tool | What it does |
-| --- | --- |
-| `list_servers` | Each server with the containers of its Compose project; `dir` narrows it to one checkout. |
-| `ensure_server` | Starts a server if needed and reports whether it reused or started it; `dir` runs it from another [worktree](#worktrees). |
-| `restart_server` | Waits for readiness, with an optional `timeout`, default `90s`. |
-| `stop_server` | Stops a server. |
-| `server_logs`, `container_logs` | Log lines, see below. |
-| `list_containers` | Containers and the server each belongs to. |
-| `container_action` | `name`, `action` (`start`, `stop`, `restart` or `recreate`), and optional `build` or `pull` for recreation; recreate waits and returns its last 100 output lines, including failures. |
-| `list_ports` | Every listening TCP port and its owner. |
+| Tool | Changes state | What it does |
+| --- | --- | --- |
+| `list_servers` | no | Each server with the containers of its Compose project; `dir` narrows it to one checkout. |
+| `ensure_server` | yes, starts | Starts a server if needed and reports whether it reused or started it; `dir` runs it from another [worktree](#worktrees). |
+| `restart_server` | yes, interrupts | Waits for readiness, with an optional `timeout`, default `90s`. |
+| `stop_server` | yes, interrupts | Stops a server. |
+| `server_logs`, `container_logs` | no | Log lines, see below. |
+| `list_containers` | no | Containers and the server each belongs to. |
+| `container_action` | yes, interrupts | `name`, `action` (`start`, `stop`, `restart` or `recreate`), and optional `build` or `pull` for recreation; recreate waits and returns its last 100 output lines, including failures. |
+| `list_ports` | no | Every listening TCP port and its owner. |
+
+The tools carry MCP annotations that clients use for their approval prompts: the reading tools are read-only, `ensure_server` is idempotent and not destructive, and the tools that interrupt running processes are destructive.
+
+Through MCP an agent can start, stop and restart the configured servers, start, stop, restart and recreate containers, and read the logs and ports of every project on this computer. It cannot run arbitrary commands, delete volumes or edit the config through MCP; a server runs whatever command the config gives it. An agent that also has a shell can run the CLI anyway, so this limits the tools, not the agent: it is not a sandbox.
+
+### Read-only tools
+
+`portside mcp --read-only` offers only `list_servers`, `server_logs`, `list_containers`, `container_logs` and `list_ports`, and its instructions tell the agent to ask you to start servers. Register it in place of the default entry:
+
+```sh
+claude mcp remove --scope user portside; codex mcp remove portside   # the default entries, if added
+claude mcp add --scope user portside -- <path> mcp --read-only
+codex mcp add portside -- <path> mcp --read-only
+```
+
+Other clients take `"args": ["mcp", "--read-only"]`. `portside setup` and `doctor` look for the server by name, so they leave this entry as it is.
 
 Readiness failures include recent output lines for a crashed server. Both log tools put each line's local time before it and take `match`, a case-insensitive regular expression, `context`, lines around each match, and `since`, a duration such as `10m` or an RFC 3339 time. A container search covers its last 20,000 lines; a server's line times come from when the daemon received the output, to the second. Replies stay under 256 KiB with long lines cut, and bracketed notes at the top say what was left out.
 

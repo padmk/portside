@@ -169,7 +169,7 @@ func init() {
 		{names: []string{"daemon"}, section: "Daemon", usage: "daemon [start|stop|restart|status|info [--no-start]|logs]", summary: "Run the daemon in the foreground, or control it", run: cmdDaemon},
 		{names: []string{"service"}, section: "Daemon", usage: "service install|uninstall|status", summary: "Start the daemon at login (launchd / systemd)", run: cmdService},
 		{names: []string{"share"}, section: "Daemon", usage: "share [on|off|code|devices|revoke <device>]", summary: "Let your paired devices on Tailscale connect to this computer", run: cmdShare},
-		{names: []string{"mcp"}, section: "Daemon", usage: "mcp", summary: "MCP server on stdio for coding agents", run: cmdMCP},
+		{names: []string{"mcp"}, section: "Daemon", usage: "mcp [--read-only]", summary: "MCP server on stdio for coding agents; --read-only offers only the tools that read", run: cmdMCP},
 		{names: []string{"skill"}, section: "Daemon", usage: "skill install [--force] | print", summary: "Install the agent skill for Claude Code and Codex", run: cmdSkill},
 		{names: []string{"setup"}, section: "Daemon", usage: "setup [--yes] [--json] | --apply <id>[,<id>...] --yes | --print-mcp | --print-prompt", summary: "Connect Claude Code and Codex: the MCP server and the agent skill", run: cmdSetup},
 		{names: []string{"doctor"}, section: "Daemon", usage: "doctor [--fix]", summary: "Check the setup and explain problems; --fix connects coding agents", run: cmdDoctor},

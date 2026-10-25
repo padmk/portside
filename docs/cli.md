@@ -34,7 +34,8 @@ portside pair <computer> <code>          pair with a computer using its code, th
 portside connect <computer> | disconnect connect to a paired computer, or end the connection
 portside --on <computer> <command>       run status, up, down, restart, ensure, logs, attach
                                          or containers on the connected computer
-portside mcp                             MCP server on stdio
+portside mcp [--read-only]               MCP server on stdio; --read-only offers only the tools
+                                         that read
 portside setup [--yes] [--json]          connect Claude Code and Codex (MCP server, skill);
                                          --print-mcp prints the entry for other MCP clients,
                                          --print-prompt a setup request for your coding agent
