@@ -1,7 +1,7 @@
-import { useSyncExternalStore } from 'react'
 import type { ServerView } from '../../api/types'
 import { storageKey } from '../../brand'
 import { write } from '../../state/prefs'
+import { createStore, useStore } from '../../state/store'
 import { groupOf, type StatusGroupId } from './status'
 
 export type Layout = 'cards' | 'list'
@@ -39,19 +39,17 @@ interface OverviewState {
   cursor: string | null
 }
 
-let snapshot: OverviewState = { filter: '', status: null, collapsed: loadCollapsed(), layoutChoice: loadLayout(), cursor: null }
-const listeners = new Set<() => void>()
+const store = createStore<OverviewState>({ filter: '', status: null, collapsed: loadCollapsed(), layoutChoice: loadLayout(), cursor: null })
 
 function publish(next: Partial<OverviewState>) {
-  snapshot = { ...snapshot, ...next }
-  listeners.forEach((l) => l())
+  store.set({ ...store.get(), ...next })
 }
 
 export const setFilter = (filter: string) => publish({ filter })
 export const setCursor = (cursor: string | null) => publish({ cursor })
 
 /** Clicking the active status again clears it. */
-export const toggleStatusFilter = (status: StatusGroupId) => publish({ status: snapshot.status === status ? null : status })
+export const toggleStatusFilter = (status: StatusGroupId) => publish({ status: store.get().status === status ? null : status })
 export const clearFilters = () => publish({ filter: '', status: null })
 
 export function setLayout(layout: Layout) {
@@ -60,17 +58,14 @@ export function setLayout(layout: Layout) {
 }
 
 export function toggleGroup(key: string) {
-  const next = new Set(snapshot.collapsed)
+  const next = new Set(store.get().collapsed)
   if (!next.delete(key)) next.add(key)
   write(COLLAPSED_KEY, JSON.stringify([...next]))
   publish({ collapsed: next })
 }
 
 export function useOverviewState(): OverviewState {
-  return useSyncExternalStore(
-    (cb) => (listeners.add(cb), () => listeners.delete(cb)),
-    () => snapshot,
-  )
+  return useStore(store)
 }
 
 export const layoutFor = (choice: Layout | null, count: number): Layout => choice ?? (count <= CARDS_MAX ? 'cards' : 'list')

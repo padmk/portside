@@ -21,6 +21,7 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/notify"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
 )
@@ -101,7 +102,7 @@ type Supervisor struct {
 	env      shellEnv
 	logDir   string
 	state    string
-	subs     map[chan struct{}]struct{}
+	changes  notify.Signals
 	closing  bool
 	notifier func(title, msg string)
 	selfPID  int
@@ -151,7 +152,6 @@ func New(cfg *config.Config, stateDir string) *Supervisor {
 		procs:    map[string]*proc{},
 		logDir:   paths.LogDir(stateDir),
 		state:    statePath(stateDir),
-		subs:     map[chan struct{}]struct{}{},
 		notifier: Notify,
 		selfPID:  os.Getpid(),
 	}
@@ -211,20 +211,10 @@ func (s *Supervisor) Config() *config.Config {
 }
 
 // Subscribe returns a channel that receives a signal whenever state changes.
-func (s *Supervisor) Subscribe() chan struct{} {
-	ch := make(chan struct{}, 1)
-	s.mu.Lock()
-	s.subs[ch] = struct{}{}
-	s.mu.Unlock()
-	return ch
-}
+func (s *Supervisor) Subscribe() chan struct{} { return s.changes.Subscribe() }
 
 // Unsubscribe stops change signals to ch.
-func (s *Supervisor) Unsubscribe(ch chan struct{}) {
-	s.mu.Lock()
-	delete(s.subs, ch)
-	s.mu.Unlock()
-}
+func (s *Supervisor) Unsubscribe(ch chan struct{}) { s.changes.Unsubscribe(ch) }
 
 func (s *Supervisor) changedLocked() {
 	active := map[int]bool{}
@@ -240,12 +230,7 @@ func (s *Supervisor) changedLocked() {
 	}
 	delete(active, 0)
 	s.activePorts.Store(&active)
-	for ch := range s.subs {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
+	s.changes.Notify()
 }
 
 // Apply swaps in a new configuration. Running servers keep running; if their

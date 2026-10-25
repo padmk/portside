@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from 'react'
 import { errorText } from '../api/client'
+import { createStore, useStore } from './store'
 
 export type ToastKind = 'error' | 'info'
 
@@ -16,22 +16,16 @@ export interface Toast {
   action?: ToastAction
 }
 
-let toasts: Toast[] = []
+const store = createStore<Toast[]>([])
 let nextId = 1
-const listeners = new Set<() => void>()
-
-function emit(next: Toast[]) {
-  toasts = next
-  listeners.forEach((l) => l())
-}
 
 export function dismissToast(id: number) {
-  emit(toasts.filter((t) => t.id !== id))
+  store.set(store.get().filter((t) => t.id !== id))
 }
 
 export function toast(message: string, kind: ToastKind = 'info', action?: ToastAction) {
   const id = nextId++
-  emit([...toasts.slice(-3), { id, kind, message, action }])
+  store.set([...store.get().slice(-3), { id, kind, message, action }])
   // A toast that offers an action stays long enough to reach it.
   window.setTimeout(() => dismissToast(id), action ? 12000 : kind === 'error' ? 7000 : 3500)
 }
@@ -43,8 +37,5 @@ export function toastError(e: unknown) {
 }
 
 export function useToasts(): Toast[] {
-  return useSyncExternalStore(
-    (cb) => (listeners.add(cb), () => listeners.delete(cb)),
-    () => toasts,
-  )
+  return useStore(store)
 }

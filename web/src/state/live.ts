@@ -1,7 +1,7 @@
-import { useSyncExternalStore } from 'react'
 import { api, isCurrent, setMachine, wsUrl } from '../api/client'
 import type { RemoteConnection, ServerView, State } from '../api/types'
 import { t } from '../i18n'
+import { createStore, useStore } from './store'
 import { toast } from './toasts'
 
 export type Connection = 'connecting' | 'open' | 'reconnecting' | 'unauthorized'
@@ -76,12 +76,10 @@ function normalize(s: State, remote: RemoteConnection | null): State {
 
 const normalizeRemote = (r: RemoteConnection): RemoteConnection => ({ ...r, mirrors: r.mirrors ?? [] })
 
-let snapshot: Live = { state: null, connection: 'connecting', remote: null }
-const listeners = new Set<() => void>()
+const store = createStore<Live>({ state: null, connection: 'connecting', remote: null })
 
 function publish(next: Partial<Live>) {
-  snapshot = { ...snapshot, ...next }
-  listeners.forEach((l) => l())
+  store.set({ ...store.get(), ...next })
 }
 
 /** The last state as the daemon sent it, before URLs are rewritten for the remote. */
@@ -97,13 +95,13 @@ const backoff = () => Math.min(10_000, 500 * 2 ** retry++)
 function enterRemote(next: RemoteConnection) {
   const remote = normalizeRemote(next)
   // Another computer's state never stands in for this one's, or for a different remote's.
-  if (snapshot.remote?.peer.dnsName !== remote.peer.dnsName) raw = null
+  if (store.get().remote?.peer.dnsName !== remote.peer.dnsName) raw = null
   setMachine(remote.peer.dnsName)
   publish({ remote, state: raw ? normalize(raw, remote) : null })
 }
 
 function leaveRemote() {
-  const was = snapshot.remote
+  const was = store.get().remote
   if (!was) return
   setMachine(null)
   raw = null
@@ -136,7 +134,7 @@ async function openLocal() {
   socket = ws
   ws.onopen = () => {
     // During a hand-off from the remote stream the peer stream's own retries count.
-    if (snapshot.remote) return
+    if (store.get().remote) return
     retry = 0
     publish({ connection: 'open' })
   }
@@ -186,7 +184,7 @@ function openPeer() {
       void openLocal()
       return
     }
-    if (snapshot.remote?.peer.dnsName !== msg.remote.peer.dnsName) enterRemote(msg.remote)
+    if (store.get().remote?.peer.dnsName !== msg.remote.peer.dnsName) enterRemote(msg.remote)
     const remote = normalizeRemote(msg.remote)
     // Until the remote answers, a frame carries only the connection.
     if (msg.daemon && msg.servers !== undefined) raw = msg as State
@@ -219,7 +217,7 @@ export function startLive() {
 
 /** Switches this tab to a connection made here, without waiting for the daemon's broadcast. */
 export function followRemote(remote: RemoteConnection) {
-  if (snapshot.remote?.peer.dnsName === remote.peer.dnsName) return
+  if (store.get().remote?.peer.dnsName === remote.peer.dnsName) return
   retry = 0
   enterRemote(remote)
   openPeer()
@@ -238,19 +236,14 @@ export function followLocal() {
 export function applyState(state: State) {
   if (!isCurrent(state)) return
   raw = state
-  publish({ state: normalize(state, snapshot.remote) })
+  publish({ state: normalize(state, store.get().remote) })
 }
 
 /** The state shown, for code outside React render. */
-export const currentState = () => snapshot.state
-
-function subscribe(cb: () => void) {
-  listeners.add(cb)
-  return () => listeners.delete(cb)
-}
+export const currentState = () => store.get().state
 
 export function useLive(): Live {
-  return useSyncExternalStore(subscribe, () => snapshot)
+  return useStore(store)
 }
 
 /** The connected remote, or null on this computer. */

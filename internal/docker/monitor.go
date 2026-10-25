@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/padmk/portside/internal/notify"
 )
 
 // Compose labels identify a container's project, service and files.
@@ -150,7 +152,7 @@ type Monitor struct {
 	killed    map[string]bool // containers signalled to stop since they last started
 	jobs      map[string]*Job // by container name
 	composeOK map[string]bool // CLIs whose compose subcommand works
-	subs      map[chan struct{}]struct{}
+	changes   notify.Signals
 	kick      chan struct{}
 }
 
@@ -166,35 +168,17 @@ func NewMonitor(host Host, interval time.Duration, custom func() string) *Monito
 		jobs:     map[string]*Job{},
 		killed:   map[string]bool{},
 		killedAt: map[string]time.Time{},
-		subs:     map[chan struct{}]struct{}{},
 		kick:     make(chan struct{}, 1),
 	}
 }
 
 // Subscribe returns a channel signalled on every change.
-func (m *Monitor) Subscribe() chan struct{} {
-	ch := make(chan struct{}, 1)
-	m.mu.Lock()
-	m.subs[ch] = struct{}{}
-	m.mu.Unlock()
-	return ch
-}
+func (m *Monitor) Subscribe() chan struct{} { return m.changes.Subscribe() }
 
 // Unsubscribe stops signals to ch.
-func (m *Monitor) Unsubscribe(ch chan struct{}) {
-	m.mu.Lock()
-	delete(m.subs, ch)
-	m.mu.Unlock()
-}
+func (m *Monitor) Unsubscribe(ch chan struct{}) { m.changes.Unsubscribe(ch) }
 
-func (m *Monitor) changedLocked() {
-	for ch := range m.subs {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
-}
+func (m *Monitor) changedLocked() { m.changes.Notify() }
 
 func (m *Monitor) getenv(key string) string {
 	prefix := key + "="

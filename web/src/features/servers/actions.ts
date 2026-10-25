@@ -1,34 +1,22 @@
-import { useSyncExternalStore } from 'react'
 import { api, ApiError, isCurrent } from '../../api/client'
 import type { BulkAction, OpenTarget, ServerView, State } from '../../api/types'
 import { applyState, currentState } from '../../state/live'
 import { isSelected, selectServer } from '../../state/route'
+import { createStore, useStore } from '../../state/store'
 import { toast, toastError } from '../../state/toasts'
 import { openDialog, resetTerminal } from '../../state/ui'
 import { t } from '../../i18n'
 import { canStop, hasProcess } from './format'
 
-const busy = new Set<string>()
-let version = 0
-const listeners = new Set<() => void>()
-const emit = () => {
-  version++
-  listeners.forEach((l) => l())
-}
+/** The keys whose request is in flight. */
+const busy = createStore<ReadonlySet<string>>(new Set())
 
-export function useBusy(key: string): boolean {
-  useSyncExternalStore(
-    (cb) => (listeners.add(cb), () => listeners.delete(cb)),
-    () => version,
-  )
-  return busy.has(key)
-}
+export const useBusy = (key: string): boolean => useStore(busy).has(key)
 
 /** Runs one request per key at a time and reports failures as toasts. */
 export async function run<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
-  if (busy.has(key)) return undefined
-  busy.add(key)
-  emit()
+  if (busy.get().has(key)) return undefined
+  busy.set(new Set(busy.get()).add(key))
   try {
     return await fn()
   } catch (e) {
@@ -36,8 +24,9 @@ export async function run<T>(key: string, fn: () => Promise<T>): Promise<T | und
     if (e instanceof ApiError && e.code === 'port_busy') selectServer(key)
     return undefined
   } finally {
-    busy.delete(key)
-    emit()
+    const next = new Set(busy.get())
+    next.delete(key)
+    busy.set(next)
   }
 }
 

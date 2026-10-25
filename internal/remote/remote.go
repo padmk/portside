@@ -31,6 +31,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/notify"
 	"github.com/padmk/portside/internal/share"
 	"github.com/padmk/portside/internal/tailnet"
 )
@@ -82,52 +83,31 @@ type Manager struct {
 	c        *conn
 	known    map[string]int // daemon port per peer, learned by discovery
 	wanted   func(port int) bool
-	subs     map[chan struct{}]struct{}
-	infoSubs map[chan struct{}]struct{}
+	subs     notify.Signals
+	infoSubs notify.Signals
 }
 
 // New creates a manager for the daemon listening on localPort that keeps
 // its pairings in stateDir.
 func New(localPort int, stateDir string, ts *tailnet.Cache) *Manager {
-	return &Manager{localPort: localPort, ts: ts, tokens: newTokens(stateDir), store: newStore(stateDir), known: map[string]int{},
-		subs: map[chan struct{}]struct{}{}, infoSubs: map[chan struct{}]struct{}{}}
+	return &Manager{localPort: localPort, ts: ts, tokens: newTokens(stateDir), store: newStore(stateDir), known: map[string]int{}}
 }
 
 // Subscribe returns a channel signalled on every change, including each new
 // remote state. SubscribeInfo is signalled only when Info changes.
-func (m *Manager) Subscribe() chan struct{}     { return m.sub(m.subs) }
-func (m *Manager) SubscribeInfo() chan struct{} { return m.sub(m.infoSubs) }
+func (m *Manager) Subscribe() chan struct{}     { return m.subs.Subscribe() }
+func (m *Manager) SubscribeInfo() chan struct{} { return m.infoSubs.Subscribe() }
 
 // Unsubscribe removes a channel from either set.
 func (m *Manager) Unsubscribe(ch chan struct{}) {
-	m.mu.Lock()
-	delete(m.subs, ch)
-	delete(m.infoSubs, ch)
-	m.mu.Unlock()
-}
-
-func (m *Manager) sub(set map[chan struct{}]struct{}) chan struct{} {
-	ch := make(chan struct{}, 1)
-	m.mu.Lock()
-	set[ch] = struct{}{}
-	m.mu.Unlock()
-	return ch
+	m.subs.Unsubscribe(ch)
+	m.infoSubs.Unsubscribe(ch)
 }
 
 func (m *Manager) notify(info bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	signal := func(set map[chan struct{}]struct{}) {
-		for ch := range set {
-			select {
-			case ch <- struct{}{}:
-			default:
-			}
-		}
-	}
-	signal(m.subs)
+	m.subs.Notify()
 	if info {
-		signal(m.infoSubs)
+		m.infoSubs.Notify()
 	}
 }
 

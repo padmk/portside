@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react'
 import { storageKey } from '../brand'
 import {
   DEFAULT_FAMILY,
@@ -10,6 +9,7 @@ import {
   type ThemeId,
   type ThemeMode,
 } from '../theme/registry'
+import { createStore, useStore } from './store'
 
 export type Locale = 'en' | 'pl'
 
@@ -70,50 +70,49 @@ function build(family: string, modeChoice: ModeChoice, locale: Locale): Prefs {
   return { family, modeChoice, mode, themeId: themeFor(family, mode), locale }
 }
 
-let snapshot = build(initialFamily(), initialMode(), initialLocale())
-const listeners = new Set<() => void>()
+const store = createStore(build(initialFamily(), initialMode(), initialLocale()))
 
-function apply() {
+/** Puts the theme, mode and language on the root element. */
+function apply(prefs: Prefs) {
   const root = document.documentElement
-  root.dataset.theme = snapshot.themeId
-  root.dataset.mode = snapshot.mode
-  root.style.colorScheme = snapshot.mode
-  root.lang = snapshot.locale
+  root.dataset.theme = prefs.themeId
+  root.dataset.mode = prefs.mode
+  root.style.colorScheme = prefs.mode
+  root.lang = prefs.locale
 }
 
 function publish(next: Prefs) {
-  snapshot = next
-  apply()
-  listeners.forEach((l) => l())
+  apply(next)
+  store.set(next)
 }
 
-apply()
-systemDark.addEventListener('change', () => publish(build(snapshot.family, snapshot.modeChoice, snapshot.locale)))
+apply(store.get())
+systemDark.addEventListener('change', () => {
+  const { family, modeChoice, locale } = store.get()
+  publish(build(family, modeChoice, locale))
+})
 
 export function setThemeFamily(family: string) {
   if (!isFamilyId(family)) return
   write(FAMILY_KEY, family)
-  publish(build(family, snapshot.modeChoice, snapshot.locale))
+  publish(build(family, store.get().modeChoice, store.get().locale))
 }
 
 export function setThemeMode(mode: ModeChoice) {
   write(MODE_KEY, mode)
-  publish(build(snapshot.family, mode, snapshot.locale))
+  publish(build(store.get().family, mode, store.get().locale))
 }
 
 /** Flips between light and dark within the current family. */
-export const toggleThemeMode = () => setThemeMode(snapshot.mode === 'dark' ? 'light' : 'dark')
+export const toggleThemeMode = () => setThemeMode(store.get().mode === 'dark' ? 'light' : 'dark')
 
 export function setLocale(locale: Locale) {
   write(LOCALE_KEY, locale)
-  publish(build(snapshot.family, snapshot.modeChoice, locale))
+  publish(build(store.get().family, store.get().modeChoice, locale))
 }
 
 export function usePrefs(): Prefs {
-  return useSyncExternalStore(
-    (cb) => (listeners.add(cb), () => listeners.delete(cb)),
-    () => snapshot,
-  )
+  return useStore(store)
 }
 
-export const getLocale = () => snapshot.locale
+export const getLocale = () => store.get().locale
