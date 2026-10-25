@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- **Security:** builds use Go 1.27.3. Releases up to 0.2.0 were built with Go 1.26.0, without the Go security fixes since, including the one for distrusting compromised intermediate certificates in `crypto/x509` (GO-2026-6809), which matters for TLS connections such as remote Docker engines and paired computers.
+
 ## 0.2.0
 
 - **Getting started:** the empty dashboard, which the macOS app opens on its first launch, connects the coding agents (MCP server and skill) next to finding projects. Settings has the same under **Coding agents**, also opened from the app's **Connect Coding Agents** and the command palette; the app's separate agent window is gone.
