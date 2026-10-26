@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - **macOS app:** when the daemon is a newer release than the app, the panel says to update the app instead of offering a restart that would downgrade it.
 - **Updating is `brew upgrade`:** the menu bar app upgrades a running daemon older than itself in place when it starts or reconnects (Homebrew reopens the app it quit for the upgrade), so servers keep running and no `portside daemon restart` is needed. It tries once per daemon version; a daemon it cannot upgrade in place keeps the **Restart** banner, now with the reason.
