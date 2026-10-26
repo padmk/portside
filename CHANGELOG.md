@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.2
 
 - **Dashboard, menu bar and CLI:** a running server that stopped answering on its port or `health` path shows as **not responding** (an amber diamond in the dashboard, an orange light in the menu bar, a yellow dot in `portside status`) and is counted apart from the running ones, as `portside check` already reported it.
 - **Upgrades in place:** the upgrade is refused, and the servers keep running under the current daemon, when the terminal of a server still waiting for its `ready_log` line cannot be paused, so that line cannot slip between the two daemons; for other servers it is only logged.
