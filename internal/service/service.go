@@ -405,19 +405,26 @@ func run(name string, args ...string) error {
 // LingerOff reports whether systemd ends the account's user services at
 // logout (Linux only), so the daemon neither outlives a session nor starts at
 // boot. It is false when this cannot be determined.
-func LingerOff() bool {
+func LingerOff() bool { return linger() == "no" }
+
+// LingerOn reports whether systemd keeps the account's user services running
+// without a session and starts them at boot (Linux only).
+func LingerOn() bool { return linger() == "yes" }
+
+// linger is loginctl's Linger value for this account, "" when unknown.
+func linger() string {
 	if runtime.GOOS != "linux" {
-		return false
+		return ""
 	}
 	user := os.Getenv("USER")
 	if user == "" {
-		return false
+		return ""
 	}
 	out, err := exec.Command("loginctl", "show-user", user, "-p", "Linger").Output()
 	if err != nil {
-		return false
+		return ""
 	}
-	return strings.TrimSpace(string(out)) == "Linger=no"
+	return strings.TrimPrefix(strings.TrimSpace(string(out)), "Linger=")
 }
 
 // MenuBarAppStartsDaemon reports whether the macOS menu bar app opens at

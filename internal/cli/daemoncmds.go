@@ -145,7 +145,11 @@ func cmdService(e *env, args []string) error {
 		if _, err := c.Ensure(e.ctx); err != nil {
 			return err
 		}
-		fmt.Fprintf(e.out, "%s Installed %s. The daemon now starts at login.\n", e.paint(green, "✓"), paths.ShortenHome(service.File()))
+		when := "login"
+		if service.LingerOn() {
+			when = "boot"
+		}
+		fmt.Fprintf(e.out, "%s Installed %s. The daemon now starts at %s.\n", e.paint(green, "✓"), paths.ShortenHome(service.File()), when)
 		if service.MenuBarAppStartsDaemon() {
 			fmt.Fprintf(e.errOut, "note: the %s app opens at login too and would start the daemon itself; one of the two is enough (turn off Launch at Login in the app, or `%s service uninstall`)\n", app.Name, app.ID)
 		}
