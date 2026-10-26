@@ -60,6 +60,11 @@ port = 0
 ready_log = "Worker ready"
 restart = "on-failure"
 
+[servers.slow]
+cmd = "sleep 4; echo Slow ready; while true; do sleep 1; done"
+port = 0
+ready_log = "^Slow ready$"
+
 [servers.failing]
 cmd = "echo boom >&2; exit 2"
 port = 0
@@ -71,7 +76,7 @@ portside service install | tee "$work/install"
 grep -q "starts at boot" "$work/install" || fail "service install did not say it starts at boot"
 wait_for 10 state_is active || fail "service not active: $(active_state)"
 portside doctor > "$work/doctor" || true
-grep -q "on_crash reports crashes of 3 of 3 servers" "$work/doctor" || { cat "$work/doctor"; fail "doctor did not count the crash commands"; }
+grep -q "on_crash reports crashes of 4 of 4 servers" "$work/doctor" || { cat "$work/doctor"; fail "doctor did not count the crash commands"; }
 
 step "servers, restarts and on_crash"
 portside up web worker failing > /dev/null
@@ -95,12 +100,18 @@ step "daemon logs from the journal"
 portside daemon logs -n 50 > "$work/logs"
 grep -q "on_crash for failing ran" "$work/logs" || { cat "$work/logs"; fail "daemon logs does not show the journal"; }
 
-step "in-place upgrade"
+step "in-place upgrade, with a server still waiting for its ready_log line"
+portside up slow > /dev/null
+sleep 1
+is slow starting || fail "slow is $(field slow status) before its ready_log line"
 pid=$(main_pid)
 install -m 755 "$next" ~/.local/bin/portside
 portside daemon restart
 [ "$(main_pid)" = "$pid" ] || fail "upgrade changed the pid: $pid -> $(main_pid)"
 is worker running || fail "worker did not survive the upgrade"
+is slow starting || fail "the upgrade let slow count as ready before its line: $(field slow status)"
+wait_for 10 is slow running || fail "slow not running after its line: $(field slow status)"
+portside down slow > /dev/null
 portside daemon info | python3 -c "import sys,json; v=json.load(sys.stdin)['version']; sys.exit(0 if v=='$(portside version | cut -d' ' -f2)' else 'daemon runs '+v)"
 
 step "restore after a service restart"

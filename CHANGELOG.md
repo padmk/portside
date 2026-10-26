@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Upgrades in place:** a server whose terminal cannot be paused for the upgrade is named in the daemon log, since a `ready_log` line it prints at that moment may be missed.
+- **CI:** the Linux service run also upgrades the daemon while a server is still waiting for its `ready_log` line.
+
 ## 0.7.1
 
 - **`portside check <name|group>...`** requires exactly the servers named, also after a stop, so a monitor can list what must run; an unknown or empty name exits 2 instead of passing.

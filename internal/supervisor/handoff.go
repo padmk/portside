@@ -68,12 +68,18 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	}
 	// Readers stop between reads, so what the processes write from now on
 	// stays in their terminals for the new daemon, and the state below
-	// (ready_log matches) covers everything read so far. A terminal that
-	// cannot be interrupted leaves a short window.
+	// (ready_log matches) covers everything read so far. A reader that does
+	// not stop leaves a window in which a ready_log line can be missed (its
+	// output still reaches the log file), which is logged rather than worth
+	// refusing the upgrade for.
 	var paused sync.WaitGroup
 	for _, name := range s.order {
 		if p := s.procs[name]; p != nil && p.pid != 0 && p.reader != nil {
-			paused.Go(func() { p.reader.Pause(2 * time.Second) })
+			paused.Go(func() {
+				if !p.reader.Pause(2 * time.Second) {
+					log.Printf("handoff: %s: its terminal could not be paused; a ready_log line it prints during the upgrade may be missed", name)
+				}
+			})
 		}
 	}
 	paused.Wait()
