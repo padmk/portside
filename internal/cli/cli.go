@@ -143,6 +143,7 @@ var commands []*command
 func init() {
 	commands = []*command{
 		{names: []string{"status", "ls", "ps", "st"}, section: "Servers", usage: "status [--json]", summary: "List servers with state, port and usage", run: cmdStatus, remote: true},
+		{names: []string{"check"}, section: "Servers", usage: "check [--json]", summary: "Exit 0 when every server that should run is ready, 1 when one is not, 2 when the daemon cannot tell", run: cmdCheck},
 		{names: []string{"up", "start"}, section: "Servers", usage: "up <name|group>... | --all [--wait] [--takeover]", summary: "Start servers (dependencies first)", run: cmdUp, remote: true},
 		{names: []string{"down", "stop"}, section: "Servers", usage: "down <name|group>... | --all", summary: "Stop servers gracefully (removes temporary ones)", run: cmdDown, remote: true},
 		{names: []string{"restart"}, section: "Servers", usage: "restart <name|group>...", summary: "Restart servers", run: cmdRestart, remote: true},

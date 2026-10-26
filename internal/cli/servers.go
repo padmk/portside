@@ -28,6 +28,11 @@ func (e *env) state() (*server.State, error) {
 	if err != nil {
 		return nil, err
 	}
+	return e.stateFrom(c)
+}
+
+// stateFrom reads the state from the daemon c talks to.
+func (e *env) stateFrom(c *client.Client) (*server.State, error) {
 	var st server.State
 	if err := c.Do(e.ctx, http.MethodGet, "/api/state", nil, &st); err != nil {
 		return nil, err

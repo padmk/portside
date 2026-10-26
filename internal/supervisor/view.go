@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
 )
@@ -71,6 +72,35 @@ type View struct {
 	NetworkWarning bool           `json:"networkWarning,omitempty"`
 	LAN            bool           `json:"lan,omitempty"`
 	Kind           string         `json:"kind,omitempty"`
+}
+
+// Health is whether a server should run and whether it is ready, the rule
+// behind monitoring checks. A server should run when it crashed, when it
+// exited although its restart policy is always (the policy gave up), and
+// while it is wanted (started and not stopped by the user). Reason explains
+// a server that should run and is not ready: its note, else its status.
+type Health struct {
+	Expected bool
+	Ready    bool
+	Reason   string
+}
+
+// Degraded reports a server that should run and is not ready.
+func (h Health) Degraded() bool { return h.Expected && !h.Ready }
+
+// Health classifies the server for monitoring.
+func (v View) Health() Health {
+	h := Health{
+		Expected: v.Wanted || v.Status == Crashed || (v.Status == Exited && v.Restart == config.RestartAlways),
+		Ready:    v.Status == Running,
+	}
+	if h.Degraded() {
+		h.Reason = v.Note
+		if h.Reason == "" {
+			h.Reason = string(v.Status)
+		}
+	}
+	return h
 }
 
 // Snapshot returns all servers in configuration order. daemonPort is used to
