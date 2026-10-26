@@ -1,6 +1,6 @@
 # Compared with other tools
 
-Several tools cover part of what Portside does, and some of them are the better choice for a given setup. This page was checked against each project's own repository and site in October 2026; their features change, so check them before you decide.
+Several tools cover part of what Portside does, and for some setups one of them fits better. This page was checked against each project's own repository and site in October 2026; their features change, so check them before you decide.
 
 | | Supervises servers (restart policies, readiness) | GUI | MCP for coding agents | Docker containers | Git worktrees | Platforms |
 | --- | --- | --- | --- | --- | --- | --- |

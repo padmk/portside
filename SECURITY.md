@@ -8,7 +8,7 @@ Include the version (`portside version`), the operating system, what an attacker
 
 ## Supported versions
 
-Only the latest release receives security fixes. Update with `brew upgrade --cask portside` or a new release download, then run `portside daemon restart`.
+Only the latest release receives security fixes. With the app, `brew upgrade --cask portside` also upgrades the running daemon. After `brew upgrade portside` (the formula) or a new release download, run `portside daemon restart`.
 
 ## Scope
 
@@ -18,6 +18,6 @@ Portside runs the commands in your config as your user, so a program that alread
 - reaching a shared daemon through Tailscale without a paired device's key, or a paired connection being impersonated or replayed;
 - the `*.localhost` proxy, project icons or log replies leading to script running on the dashboard's origin;
 - config, state or log files readable by other accounts;
-- the release artifacts, the Homebrew cask and the macOS app's update and install paths.
+- the release artifacts, the Homebrew cask and formula, the macOS app's install path and its in-place daemon upgrade.
 
 [docs/security.md](docs/security.md) describes the protections in detail.

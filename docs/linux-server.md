@@ -13,9 +13,9 @@ portside service install            # start the daemon now and at every boot
 portside doctor                     # check the setup
 ```
 
-Portside needs `ps`, `tail` and either `lsof` or `ss` (iproute2, installed on most distributions). Desktop notifications need `notify-send` and a desktop session; without one, use `on_crash` instead (below). Docker or Podman is optional too; for rootless Docker, set a Docker context or `DOCKER_HOST` in your login shell ([Containers](containers.md)). How the service runs without a login session is in [How it works](how-it-works.md#login-service).
+Portside needs `ps` and either `lsof` or `ss` (iproute2, installed on most distributions); `portside daemon logs` uses `tail` or, under systemd, `journalctl`. Desktop notifications need `notify-send` and a desktop session; without one, use `on_crash` instead (below). Docker or Podman is optional too; for rootless Docker, set a Docker context or `DOCKER_HOST` in your login shell ([Containers](containers.md)). How the service runs without a login session is in [How it works](how-it-works.md#on-linux).
 
-After an update, run `portside daemon restart` with the new binary: servers keep running through it.
+After an update, run `portside daemon restart` with the new binary: it upgrades the daemon in place and servers keep running ([Upgrades in place](how-it-works.md#upgrades-in-place)).
 
 ## Servers that stay up
 
@@ -49,8 +49,13 @@ A crash of the daemon itself is systemd's to report: `systemctl --user status po
 
 ## Reading state from scripts
 
-- `portside check` tells monitors and timers whether everything that should run is running, without the token, and never starts a daemon. It exits 0 when every such server is `running` and still answers on its port and `health`, 1 when one is not (printing each with its status and reason) and 2 when it cannot tell: no daemon runs, what answers cannot prove it is yours, or the config does not load. A server should run when it crashed, when `restart = "always"` gave up, and while it is started and not stopped by you; name servers or groups (`portside check api worker`) to require exactly those, also after a stop. `--json` prints `ok`, the daemon's `version` and `pid`, and per server `name`, `status`, `expected`, `ready` and `reason` (`ok: false` with `error` for exit 2). In a crontab: `*/5 * * * * portside check api worker >/dev/null || mail -s "dev servers" you@example.com`.
-- `portside status --json`: every server with `status` (`starting`, `running`, `stopping`, `stopped`, `crashed`, `exited`, or `blocked` when another process holds its port), `note`, `exitCode`, `restarts`, `restartPending`, `pid`, `port`, `url` and the last lines in `tail`. Fields without a value, such as `exitCode` of a running server, are left out.
+- `portside check` tells monitors and timers whether everything that should run is running, and never starts a daemon. It exits:
+  - 0 when every such server is `running` and still answers on its port and `health`;
+  - 1 when one is not, printing each with its status and reason;
+  - 2 when it cannot tell: no daemon runs, what answers cannot prove it is yours, the config does not load, or a named server or group does not exist.
+
+  A server should run when it crashed, when `restart = "always"` gave up, and while it is started and not stopped by you; name servers or groups (`portside check api worker`) to require exactly those, also after a stop. `--json` prints `ok`, the daemon's `version` and `pid`, and per server `name`, `status`, `expected`, `ready` and `reason` (`ok: false` with `error` for exit 2). In a crontab: `*/5 * * * * portside check api worker >/dev/null || mail -s "dev servers" you@example.com`.
+- `portside status --json`: every server with `status` (`starting`, `running`, `stopping`, `stopped`, `crashed`, `exited`, or `blocked` when another process holds its port), `unready` for a running server that stopped answering, `note`, `exitCode`, `restarts`, `restartPending`, `pid`, `port`, `url` and the last lines in `tail`. Fields without a value, such as `exitCode` of a running server, are left out.
 - `portside logs <name> -n 200` prints a server's output (`--grep`, `--since 10m`, `-t` for times) and `portside daemon logs -n 100` the daemon's; `-f` follows either.
 - `portside ensure <name> --json` starts a server if needed and waits until it is ready.
 - The HTTP API on `127.0.0.1` accepts `Authorization: Bearer $(cat ~/.local/state/portside/auth-token)`, for example `curl -H "Authorization: Bearer $(cat ~/.local/state/portside/auth-token)" http://127.0.0.1:7878/api/state`. The token controls every server, so keep it on the machine; give other systems only what you read from it.

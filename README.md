@@ -22,7 +22,7 @@
 - **Know right away when something breaks.** A crash sends a notification with the exit code and the last lines of the log, and so does a container that turns unhealthy.
 - **Your coding agents use the same servers.** Claude Code and Codex reuse the server that already runs instead of starting another copy on a random port, and read its logs when something fails.
 - **Reach the servers on your other Mac.** Pair your laptop with the desktop that runs your projects and manage its servers, logs and containers from anywhere on your tailnet; its sites open on your laptop as if they ran there.
-- **Free, open source and local.** No account and no telemetry; nothing leaves your machine unless you pair another computer.
+- **Free, open source and local.** No account and no telemetry; nothing leaves your machine unless you pair another computer or use a remote Docker engine.
 
 <p align="center"><img src="design/screenshots/detail.png" width="900" alt="A server's live terminal with every server one click away in the side rail"></p>
 
@@ -42,20 +42,20 @@ Requires macOS 26 (Tahoe) or later on Apple Silicon. With Homebrew, this install
 brew install --cask padmk/tap/portside
 ```
 
-The app is not notarized by Apple yet, and the cask removes the quarantine flag so that macOS lets it start. You rely on the public source and on release files built by GitHub Actions instead, each with a verifiable attestation from 0.3.0; [Trust](docs/security.md#trust) says what that covers and how to check a download. If you would rather not run a prebuilt app, `brew install --formula padmk/tap/portside` (from 0.3.0) builds the command-line tool and dashboard from source on your Mac, without the menu bar app (**Build with Homebrew** below).
+The app is not notarized by Apple yet, so the cask removes the quarantine flag to let macOS start it. You rely instead on the public source and on release files built by GitHub Actions with a verifiable attestation; [Trust](docs/security.md#trust) says what that covers and how to check a download. To avoid the prebuilt app, build from source with Homebrew (**Build with Homebrew** below).
 
 On a Linux server without a desktop (a preview), the daemon runs as a systemd user service and you work through the CLI, MCP and an SSH tunnel: see [Linux server](docs/linux-server.md).
 
 <details>
 <summary>Other ways to install, update and uninstall</summary>
 
-**Download.** Get `Portside-<version>.zip` from the [releases](https://github.com/padmk/portside/releases), move `Portside.app` to Applications, and choose **Settings > Install Command Line Tool** in its menu. The app is signed ad hoc and not notarized, so macOS blocks the first launch of a downloaded copy: open it once, then choose **Open Anyway** in **System Settings > Privacy & Security** and confirm ([Apple's instructions](https://support.apple.com/en-us/102445)). The Homebrew cask clears the quarantine flag itself.
+**Download.** Get `Portside-<version>.zip` from the [releases](https://github.com/padmk/portside/releases), move `Portside.app` to Applications, and choose **Settings > Install Command Line Tool** in its menu. The app is signed ad hoc and not notarized, so macOS blocks the first launch of a downloaded copy: open it once, then choose **Open Anyway** in **System Settings > Privacy & Security** and confirm ([Apple's instructions](https://support.apple.com/en-us/102445)).
 
-**Build with Homebrew.** `brew install --formula padmk/tap/portside` downloads the release's tagged source and builds the `portside` command with its embedded dashboard, on macOS or Linux (with Homebrew's Go, Node and pnpm, needed only for the build). There is no menu bar app: open the dashboard in your browser with `portside open`. Update with `brew upgrade portside`, then `portside daemon restart`. The formula and the cask both install `portside`, so install only one of them.
+**Build with Homebrew.** `brew install --formula padmk/tap/portside` builds the `portside` command with its embedded dashboard from the release's tagged source, on macOS or Linux. Homebrew's Go, Node and pnpm are needed only for the build. There is no menu bar app: open the dashboard in your browser with `portside open`. The formula and the cask both install `portside`, so install only one of them.
 
 **Linux (preview).** The CLI, daemon and dashboard run on x86-64 and arm64; CI builds and tests them, but macOS gets more use. Download `portside_<version>_linux_<arch>.tar.gz` from the releases and put `portside` on your `PATH`, or build it with Homebrew (above); then `portside service install` starts the daemon at login ([Linux server](docs/linux-server.md) for a machine without a desktop).
 
-**From source** (Go 1.26+, Node 24 and pnpm 12):
+**From source** (Go 1.26 or later, Node 24 and pnpm 12):
 
 ```sh
 git clone https://github.com/padmk/portside
@@ -66,9 +66,12 @@ make app-install        # macOS: builds Portside.app and installs it in /Applica
 
 **Browser.** The dashboard is served at its own `*.localhost` host, so it needs a browser that resolves `*.localhost`: Chrome, Firefox, or Safari on macOS 26 and later (the app's dashboard window uses the same WebKit).
 
-**Updating.** With the app, `brew upgrade --cask portside` is all it takes: Homebrew quits the app, installs the new one and reopens it, and the app upgrades the older running daemon in place. `make app-install` does the same for a build from source. After an update without the app (the formula, a release download, `make install`), run `portside daemon restart` with the new binary; `portside status` and `portside doctor` mention a daemon older than the command. Servers keep running through the update. When the app cannot upgrade the daemon in place (one too old for that, or a refused upgrade), its **Restart** banner, shown whenever the daemon's version differs from the app's, restarts it.
+**Updating.** Servers keep running through an update.
 
-**Uninstalling.** First stop the daemon and its servers with `portside daemon stop` (or `portside service uninstall` if you installed the login service, which also stops it). `brew uninstall` and `brew upgrade` leave them running; `brew uninstall --zap --cask portside` stops them and trashes the config and state.
+- With the app: `brew upgrade --cask portside`. Homebrew quits the app, installs the new one and reopens it (Homebrew 5.1.12 or later), and the app upgrades the running daemon in place. `make app-install` does the same for a build from source. When the app cannot upgrade the daemon in place, its **Restart** banner restarts it ([Upgrades in place](docs/how-it-works.md#upgrades-in-place)).
+- Without the app (`brew upgrade portside` for the formula, a release download, `make install`): run `portside daemon restart` with the new binary. `portside status` and `portside doctor` say when the daemon is older than the command.
+
+**Uninstalling.** `brew uninstall` leaves the daemon and its servers running, so stop them first with `portside daemon stop`, or `portside service uninstall` if you installed the login service (it stops the daemon too). `brew uninstall --zap --cask portside` stops them itself and trashes the config and state.
 
 </details>
 
@@ -100,10 +103,10 @@ group = "shop"
 One static binary runs a daemon on `127.0.0.1`; the menu bar app, the dashboard, the CLI (with `--json` for scripts) and the MCP server all talk to it.
 
 - **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop`) and dependencies (`api` waits for `db`). `portside scan` finds Node, Deno, Python, Ruby, PHP, Elixir, Java, .NET, Go, Rust and Compose projects and proposes the commands.
-- **Stable ports and clean URLs.** Each server keeps its port and is also reachable at `http://<name>.localhost:7878`, WebSockets and hot reload included.
-- **Real terminals, honest status.** Servers run in a PTY with live output, search and `portside attach`. `starting` lasts until the port answers, crashes show the exit code, and foreign processes holding a port are named.
+- **Stable ports and clean URLs.** Each server keeps its port and is also reachable at `http://<name>.localhost:7878` (the daemon's port), WebSockets and hot reload included.
+- **Real terminals and accurate status.** Servers run in a PTY with live output, search and `portside attach`. `starting` lasts until the port answers, a server that stops answering is marked, crashes show the exit code, and foreign processes holding a port are named.
 - **Survives crashes, restarts and updates.** `restart = "on-failure"` starts a crashed server again with backoff; once it gives up, a notification or your own `on_crash` command reports it. Servers keep running through a daemon upgrade and come back after a reboot.
-- **Containers.** Compose containers appear next to their server with state, health, logs, a shell and recreate, for Docker Desktop, OrbStack, Colima, Podman and remote engines.
+- **Containers.** Compose containers appear next to their server with state, health, logs, a shell and recreate, on Docker Desktop, OrbStack, Colima, Podman and remote engines.
 - **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure_server` starts a server if needed and returns its URL, agents read logs instead of guessing, and `--read-only` limits them to looking.
 - **Other computers.** Pair your computers over Tailscale with a one-time code; every request is signed with the paired device's key. While connected, the dashboard, the CLI (`--on <computer>`) and agents (`computer`) act on the other machine, and its servers' ports are forwarded here ([Other computers](docs/other-computers.md)).
 
