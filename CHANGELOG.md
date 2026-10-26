@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2
 
 - **May be reachable from the network:** the mark (and `portside status`, `doctor`, the menu bar panel) says a listener may be reachable, since its addresses do not show what the firewall lets in. The fix fits the tool the command runs, following package scripts (Uvicorn, FastAPI, Flask, Django, Gunicorn, Hypercorn, `http.server`, Astro, Nuxt, Remix, React Router, Rails and Phoenix included), and a Compose fix keeps the container's own port.
 - Only this machine's own Tailscale addresses count as `tailnet`; other addresses in `100.64.0.0/10` (also carrier-grade NAT space) count as `network`. `portside doctor` lists published container ports whose exposure it could not check.
