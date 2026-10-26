@@ -11,6 +11,7 @@
 - **CLI:** `portside daemon restart` from an older release than the running daemon refuses instead of replacing it, and the daemon refuses such a binary too; `--allow-downgrade` replaces it anyway, and the command and the daemon log then say `downgraded` instead of `upgraded`. Development builds are not compared.
 - **CLI:** the `portside computers` hint lists every command `--on` runs (also `attach` and `containers`), worded as in the help and the usage error.
 - **Other computers:** `portside forward off <port>` for a port the connected computer does not forward fails and lists the forwarded ports instead of storing the setting; a forwarded port that is busy here can still be turned off.
+- **Other computers:** replies relayed from the connected computer carry `X-Content-Type-Options` once instead of twice.
 
 ## 0.4.3
 

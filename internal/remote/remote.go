@@ -635,6 +635,9 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 				return errUnverified
 			}
 			sanitizeRelayed(res.Header)
+			// The proxy adds the reply's headers to those set here, so
+			// this daemon's copy of a header the reply has goes.
+			w.Header().Del("X-Content-Type-Options")
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {

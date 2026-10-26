@@ -1,11 +1,15 @@
 package remote
 
 import (
+	"context"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/padmk/portside/internal/csp"
 	"github.com/padmk/portside/internal/share"
+	"github.com/padmk/portside/internal/signing"
 )
 
 // A reply from another computer is served on the dashboard's origin, so it
@@ -35,5 +39,37 @@ func TestSanitizeRelayed(t *testing.T) {
 	}
 	if h.Get("Content-Type") != "text/html" {
 		t.Error("Content-Type was changed")
+	}
+}
+
+// A relayed reply carries X-Content-Type-Options once, although both the
+// daemon's handler and the relay set it.
+func TestRelayedReplyHasOneNosniff(t *testing.T) {
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		signing.Prove(w.Header(), r.Header, testCred().Key, signing.NewEpoch())
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer peer.Close()
+	m, _ := connected(t)
+	// The peer is reached over HTTPS; this one answers plain HTTP.
+	tr := &http.Transport{DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", peer.Listener.Addr().String())
+	}}
+	c := newConn(m, devbox, 7878, testCred(), tr)
+	m.mu.Lock()
+	m.c = c
+	m.mu.Unlock()
+
+	w := httptest.NewRecorder()
+	w.Header().Set("X-Content-Type-Options", "nosniff") // as the daemon's handler does
+	m.ServeAPI(w, httptest.NewRequest(http.MethodGet, PathPrefix+"/devbox.t.ts.net/state", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if got := w.Header().Values("X-Content-Type-Options"); len(got) != 1 || got[0] != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff once", got)
 	}
 }
