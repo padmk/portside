@@ -109,8 +109,14 @@ on_crash = ""                       # except this one
 
 ```sh
 #!/bin/sh
-# ~/bin/report-crash: post the crash to a chat webhook
-curl -fsS --data-urlencode "text=$PORTSIDE_SERVER on $(hostname): $PORTSIDE_NOTE" https://hooks.example.com/alert
+# ~/bin/report-crash: post the crash to a Slack or Mattermost webhook ({"text": ...};
+# Discord takes {"content": ...}). jq builds the JSON, so quotes in the note are safe;
+# --retry rides out a short outage of the webhook. The URL holds a secret, so it
+# stays in a curl config file only you can read (chmod 600) with one line,
+# url = "https://hooks.example.com/...", out of the config and of the process list.
+jq -n --arg text "$PORTSIDE_SERVER on $(hostname): $PORTSIDE_NOTE" '{text: $text}' |
+  curl -fsS --retry 3 --retry-all-errors -H 'Content-Type: application/json' --data-binary @- \
+    -K ~/.config/report-crash/curlrc
 ```
 
 The command runs with `sh -c` in your home directory. Its environment is what servers get from your login shell, `path` and the top-level `env` (without the server's own `env`), plus these variables; the crash details are never put in its command line:
