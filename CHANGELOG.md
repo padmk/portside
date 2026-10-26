@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **CLI:** a command the running daemon does not know yet, after an update that has not restarted it, says so and suggests `portside daemon restart` instead of `no such endpoint`.
 - **Releases:** a release is published only for a commit of `main` whose CI passed, after the built binary and the app's command have been run; published releases are immutable. CI also audits the dashboard's production dependencies.
 
 ## 0.4.2

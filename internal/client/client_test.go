@@ -32,12 +32,17 @@ type fakeDaemon struct {
 	// refusal, when set, is the body of a 401 without a proof for every
 	// request other than the handshake.
 	refusal string
+	// version is the daemon version the handshake reports ("test" if empty).
+	version string
 }
 
 func (f *fakeDaemon) handler(token string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
-		key, epoch, tamper, refusal := f.key, f.epoch, f.tamper, f.refusal
+		key, epoch, tamper, refusal, version := f.key, f.epoch, f.tamper, f.refusal, f.version
+		if version == "" {
+			version = "test"
+		}
 		if signing.Signed(r.Header) {
 			f.signed = append(f.signed, r.RequestURI)
 		}
@@ -50,8 +55,8 @@ func (f *fakeDaemon) handler(token string) http.Handler {
 			_, _ = w.Write(body)
 		}
 		if r.URL.Path == "/api/health" {
-			body, _ := json.Marshal(Health{App: app.ID, Version: "test", PID: 1})
-			altered, _ := json.Marshal(Health{App: app.ID, Version: "test", PID: 2})
+			body, _ := json.Marshal(Health{App: app.ID, Version: version, PID: 1})
+			altered, _ := json.Marshal(Health{App: app.ID, Version: version, PID: 2})
 			reply(body, altered)
 			return
 		}
@@ -63,6 +68,14 @@ func (f *fakeDaemon) handler(token string) http.Handler {
 		var v signing.Verifier
 		if v.Verify(r, token, r.RequestURI, nil) != nil || signing.CheckEpoch(r.Header, epoch) != nil {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/api/unknown" {
+			// What a daemon answers for a route it does not have.
+			body := []byte(`{"error":"no such endpoint"}`)
+			signing.ProveReply(w.Header(), r.Header, key, epoch, http.StatusNotFound, body)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write(body)
 			return
 		}
 		reply([]byte(`{}`), []byte(`{"ok":false}`))
@@ -185,5 +198,28 @@ func TestClientHidesUnprovenRefusal(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "evil") || len(apiErr.Body) != 0 {
 		t.Errorf("the unproven refusal is shown: %q, body %q", err, apiErr.Body)
+	}
+}
+
+// A route the running daemon does not know, after an update that has not
+// restarted it, is explained with the versions and the fix; a daemon of this
+// version keeps its own message.
+func TestClientExplainsOlderDaemon(t *testing.T) {
+	for _, tt := range []struct {
+		version string
+		want    string
+	}{
+		{"0.0.1", "the running daemon is version 0.0.1 and does not know this command (" + app.Version + "); run `" + app.ID + " daemon restart` to update it"},
+		{app.Version, "no such endpoint"},
+	} {
+		t.Run(tt.version, func(t *testing.T) {
+			f := &fakeDaemon{epoch: signing.NewEpoch(), version: tt.version}
+			c, token := testClient(t, f)
+			f.key = token
+			err := c.Do(context.Background(), http.MethodGet, "/api/unknown", nil, nil)
+			if err == nil || err.Error() != tt.want {
+				t.Errorf("error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }

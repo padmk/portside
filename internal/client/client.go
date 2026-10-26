@@ -354,8 +354,28 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 			c.setEpoch("")
 			return c.Unverified()
 		}
-		return decodeReply(resp, data, method, path, out)
+		err = decodeReply(resp, data, method, path, out)
+		if c.peer == "" {
+			err = c.explainMissingRoute(ctx, err)
+		}
+		return err
 	}
+}
+
+// explainMissingRoute turns the daemon's answer for a route it does not
+// know into a hint when the daemon is another version than this command,
+// as after an update that has not restarted it yet.
+func (c *Client) explainMissingRoute(ctx context.Context, err error) error {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound || apiErr.Msg != "no such endpoint" {
+		return err
+	}
+	h, herr := c.hello(ctx)
+	if herr != nil || h.Version == "" || h.Version == app.Version {
+		return err
+	}
+	apiErr.Msg = fmt.Sprintf("the running daemon is version %s and does not know this command (%s); run `%s daemon restart` to update it", h.Version, app.Version, app.ID)
+	return apiErr
 }
 
 func decodeReply(resp *http.Response, data []byte, method, path string, out any) error {
