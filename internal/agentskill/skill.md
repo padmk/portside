@@ -17,7 +17,7 @@ Never run a second copy of a managed server in your own shell, not even on anoth
 
 ## Another computer
 
-The user may run projects on another computer and connect this one to it (`{{.ID}} computers` shows the connection). Its servers' ports are then forwarded here, so `127.0.0.1:<port>` can reach a server on that computer; a stopped local server noted as forwarded from a computer has its port taken by that forward, and starting it takes the port back. To act on the connected computer, pass `--on <computer>` to `status`, `ensure`, `logs`, `up`, `down`, `restart` or `containers`, or `computer` to the server and container tools. Do not connect, disconnect or pair computers unless the user asks.
+The user may run projects on another computer and connect this one to it (`{{.ID}} computers` shows the connection). Its servers' ports are then forwarded here, so `127.0.0.1:<port>` can reach a server on that computer; a stopped local server noted as forwarded from a computer has its port taken by that forward, and starting it takes the port back. To act on the connected computer, pass `--on <computer>` to `status`, `ensure`, `logs`, `up`, `down`, `restart` or `containers`, or `computer` to the server and container tools. Do not connect, disconnect or pair computers, or turn forwarding of their ports on or off (`{{.ID}} forward`), unless the user asks.
 
 ## Diagnose
 

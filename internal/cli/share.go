@@ -76,12 +76,23 @@ func printCode(e *env, c *client.Client) error {
 	return nil
 }
 
-func printDevices(e *env, devs []share.Device) {
+func printDevices(e *env, devs []share.DeviceStatus) {
 	if len(devs) == 0 {
 		fmt.Fprintln(e.out, "No paired devices.")
 		return
 	}
 	for _, d := range devs {
-		fmt.Fprintf(e.out, "  %s  %s  %s  paired %s\n", e.paint(dim, d.ID), d.Name, d.DNSName, d.PairedAt.Local().Format("2006-01-02"))
+		seen := ""
+		switch {
+		case d.Connected:
+			seen = e.paint(green, "connected now")
+		case !d.LastSeen.IsZero():
+			seen = "last connected " + d.LastSeen.Local().Format("2006-01-02 15:04")
+		}
+		line := fmt.Sprintf("  %s  %s  %s  paired %s", e.paint(dim, d.ID), d.Name, d.DNSName, d.PairedAt.Local().Format("2006-01-02"))
+		if seen != "" {
+			line += "  " + seen
+		}
+		fmt.Fprintln(e.out, line)
 	}
 }

@@ -172,6 +172,7 @@ func Run(cfgPath string) error {
 	sup.SetForwarded(rem.Forwarded)
 	rem.SetLocalWant(sup.WantsPort)
 	sh := share.New(cfg.Port, stateDir, ts)
+	sh.SetNotifier(sup.NotifyUser)
 
 	upgrades := make(chan upgradeRequest)
 	// upgrade checks the new binary, then has the main loop exec it. It

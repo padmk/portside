@@ -92,6 +92,8 @@ export interface State {
   docker: DockerState
   /** Set while this computer shows another computer's dashboard. */
   remote?: RemoteConnection | null
+  /** Devices paired with this computer; absent when there are none and for those devices themselves. */
+  paired?: PairedDevice[]
 }
 
 export type ContainerState = 'created' | 'running' | 'paused' | 'restarting' | 'removing' | 'exited' | 'dead'
@@ -315,6 +317,10 @@ export interface PairedDevice {
   dnsName: string
   os?: string
   pairedAt: string
+  /** When it last connected or disconnected; absent in records from before it was kept. */
+  lastSeen?: string
+  /** It has a connection open now. */
+  connected?: boolean
 }
 
 /** A one-time code another device enters to pair with this computer. */
@@ -330,7 +336,8 @@ export interface Mirror {
   local?: number
   server?: string
   container?: string
-  state: 'mirrored' | 'busy'
+  /** `off` when the user turned its forwarding off; it is then neither bound here nor proxied. */
+  state: 'mirrored' | 'busy' | 'off'
 }
 
 export interface RemoteConnection {

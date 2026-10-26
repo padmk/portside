@@ -107,13 +107,28 @@ function Connected({ remote }: { remote: RemoteConnection }) {
 /** A suggestion for a busy port's local stand-in: the same digits, 10000 higher. */
 const suggestPort = (port: number) => (port + 10000 <= 65535 ? String(port + 10000) : '')
 
-/** Forwarded ports; a busy one can be forwarded to another local port instead. */
+const MIRROR_STATE = { mirrored: 'remote.mirrored', busy: 'remote.busy', off: 'remote.off' } as const
+
+/** Forwarded ports, each with a switch; a busy one can be forwarded to another local port instead. */
 function Mirrors({ mirrors }: { mirrors: Mirror[] }) {
   const t = useT()
   const [editing, setEditing] = useState<number | null>(null)
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [switching, setSwitching] = useState<number | null>(null)
+
+  const setForwarding = async (port: number, on: boolean) => {
+    setSwitching(port)
+    try {
+      await api.setForwarding(port, on)
+      if (!on && editing === port) setEditing(null)
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setSwitching(null)
+    }
+  }
 
   const forward = async (port: number, local: number) => {
     setSaving(true)
@@ -137,10 +152,22 @@ function Mirrors({ mirrors }: { mirrors: Mirror[] }) {
       <ul>
         {mirrors.map((m) => {
           const address = `127.0.0.1:${m.local ?? m.port}`
+          const on = m.state !== 'off'
           return (
             <li key={m.port} className={`mirror mirror--${m.state}`} title={m.server ?? m.container}>
+              <button
+                type="button"
+                role="switch"
+                className="mirror-switch"
+                aria-checked={on}
+                aria-label={t('remote.forwardPort', { port: m.port })}
+                disabled={switching === m.port}
+                onClick={() => void setForwarding(m.port, !on)}
+              >
+                <span className="track" aria-hidden="true" />
+              </button>
               <span className="mono num">{m.local ? `${m.port} → ${m.local}` : m.port}</span>
-              {t(m.state === 'mirrored' ? 'remote.mirrored' : 'remote.busy')}
+              {t(MIRROR_STATE[m.state])}
               {m.local && m.state === 'mirrored' && (
                 <CopyButton text={address} label={t('common.copyUrl', { url: address })} className="icon-btn mirror-btn" size={13} />
               )}
@@ -157,7 +184,7 @@ function Mirrors({ mirrors }: { mirrors: Mirror[] }) {
                   {t('remote.usePort')}
                 </button>
               )}
-              {m.local && (
+              {m.local && on && (
                 <button type="button" className="icon-btn mirror-btn" disabled={saving} aria-label={t('remote.samePort', { port: m.port })} title={t('remote.samePort', { port: m.port })} onClick={() => void forward(m.port, 0)}>
                   <X size={13} aria-hidden="true" />
                 </button>
@@ -403,6 +430,9 @@ const countdown = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** How often the share section refreshes the paired devices' connection state. */
+const SHARE_POLL_MS = 10_000
+
 function ShareSection() {
   const t = useT()
   const [share, setShare] = useState<RemoteShare | null>(null)
@@ -411,11 +441,16 @@ function ShareSection() {
   const [issuing, setIssuing] = useState(false)
   const [codeError, setCodeError] = useState('')
 
+  // Polled, so whether each paired device is connected stays current while the window is open.
   useEffect(() => {
     let live = true
     api.remote().then((r) => live && setShare(r.share), toastError)
+    const id = window.setInterval(() => {
+      api.remote().then((r) => live && setShare(r.share), () => {})
+    }, SHARE_POLL_MS)
     return () => {
       live = false
+      window.clearInterval(id)
     }
   }, [])
 
@@ -550,7 +585,16 @@ function CodeCard({ code, known, issuing, onNew, onPaired }: CodeCardProps) {
   )
 }
 
-/** Devices paired with this computer, each with a way to revoke it. */
+/** When a device was last seen: the time today, else the date and time. */
+function lastSeenText(at?: string): string {
+  const d = at ? new Date(at) : null
+  if (!d || Number.isNaN(d.getTime())) return ''
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (d.toDateString() === new Date().toDateString()) return time
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${time}`
+}
+
+/** Devices paired with this computer, each with whether it is connected and a way to revoke it. */
 function Devices({ devices, onChange }: { devices: PairedDevice[]; onChange: (share: RemoteShare) => void }) {
   const t = useT()
   const [confirm, setConfirm] = useState<string | null>(null)
@@ -575,6 +619,7 @@ function Devices({ devices, onChange }: { devices: PairedDevice[]; onChange: (sh
         {devices.map((d) => {
           const paired = new Date(d.pairedAt)
           const date = Number.isNaN(paired.getTime()) ? '' : paired.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+          const seen = lastSeenText(d.lastSeen)
           return (
             <li key={d.id} className="device">
               <span className="device-icon"><OsIcon os={d.os} size={16} /></span>
@@ -583,6 +628,11 @@ function Devices({ devices, onChange }: { devices: PairedDevice[]; onChange: (sh
                 <span className="device-meta">
                   {d.os && <span>{d.os}</span>}
                   {date && <span>{t('remote.pairedOn', { date })}</span>}
+                  {d.connected ? (
+                    <span className="device-live">{t('remote.connectedNow')}</span>
+                  ) : (
+                    seen && <span>{t('remote.lastConnected', { time: seen })}</span>
+                  )}
                 </span>
               </span>
               {confirm === d.id ? (

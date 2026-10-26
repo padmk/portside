@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,10 @@ type Device struct {
 	DNSName  string    `json:"dnsName"`
 	OS       string    `json:"os,omitempty"`
 	PairedAt time.Time `json:"pairedAt"`
+	// LastSeen is when the device last connected or disconnected (see
+	// presence.go), at pairing the pairing time; zero in records from
+	// before it was kept.
+	LastSeen time.Time `json:"lastSeen,omitzero"`
 	// Instance tells apart daemons on the same device (accounts, a
 	// development daemon); each pairs on its own.
 	Instance string `json:"instance,omitempty"`
@@ -149,6 +154,7 @@ func (d *devices) Pair(code string, node Device) (id, key string, err error) {
 	node.ID = hex.EncodeToString(ib)
 	node.Key = hex.EncodeToString(kb)
 	node.PairedAt = time.Now().UTC()
+	node.LastSeen = node.PairedAt
 	// One pairing per daemon instance: pairing again replaces its old key.
 	next := []Device{}
 	for _, dev := range d.list {
@@ -210,4 +216,19 @@ func (d *devices) Lookup(id string) (Device, bool) {
 		}
 	}
 	return Device{}, false
+}
+
+// touch records when device id was last seen. A device revoked meanwhile
+// is left out.
+func (d *devices) touch(id string, at time.Time) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	next := slices.Clone(d.list)
+	for i := range next {
+		if next[i].ID == id {
+			next[i].LastSeen = at.UTC()
+			return d.saveLocked(next)
+		}
+	}
+	return nil
 }

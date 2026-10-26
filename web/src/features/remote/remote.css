@@ -177,6 +177,52 @@
 .mirror--busy .num {
   color: inherit;
 }
+/* Forwarding on or off: a compact switch inside the pill. */
+.mirror-switch {
+  display: grid;
+  margin-left: -5px;
+  padding: 2px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  cursor: pointer;
+}
+.mirror-switch .track {
+  position: relative;
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--border-strong);
+  transition: background 140ms var(--ease);
+}
+.mirror-switch .track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--card);
+  transition: transform 140ms var(--ease);
+}
+.mirror-switch[aria-checked='true'] .track {
+  background: var(--primary);
+}
+.mirror-switch[aria-checked='true'] .track::after {
+  transform: translateX(10px);
+  background: var(--primary-fg);
+}
+.mirror-switch:disabled {
+  opacity: 0.55;
+}
+.mirror--off {
+  border-style: dashed;
+}
+.mirror--off .num {
+  color: var(--text-2);
+  font-weight: 500;
+}
 .mirror-btn {
   width: 20px;
   height: 20px;
@@ -416,6 +462,10 @@
   gap: 0 10px;
   color: var(--text-2);
   font-size: var(--fs-sm);
+}
+.device-live {
+  color: var(--running-text);
+  font-weight: 550;
 }
 .device-confirm {
   display: inline-flex;

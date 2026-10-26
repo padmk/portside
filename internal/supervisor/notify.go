@@ -24,8 +24,11 @@ func Notify(title, msg string) {
 	}
 }
 
-// NotifyProblem uses the same notification setting and desktop-client guard as crashes.
-func (s *Supervisor) NotifyProblem(title, message string) {
+// NotifyUser shows a desktop notification other than a crash (a container
+// problem, a device pairing or connecting) under the same notify setting and
+// desktop-client guard as crashes: while the app is connected it notifies
+// from the state itself.
+func (s *Supervisor) NotifyUser(title, message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {

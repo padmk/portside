@@ -190,6 +190,7 @@ export const api = {
   disconnect: () => request<{ ok: boolean }>('POST', `${LOCAL}/remote/disconnect`, {}),
   /** Forwards the connected computer's port to another local port; 0 forwards it to the same number again. */
   forwardPort: (port: number, local: number) => request<RemoteConnection>('PUT', `${LOCAL}/remote/ports`, { port, local }),
+  setForwarding: (port: number, on: boolean) => request<RemoteConnection>('PUT', `${LOCAL}/remote/forwarding`, { port, on }),
   share: (enabled: boolean) => request<RemoteOverview>('PUT', `${LOCAL}/remote/share`, { enabled }).then(overview),
   pairingCode: () => request<PairingCode>('POST', `${LOCAL}/remote/share/code`, {}),
   revokeDevice: (id: string) => request<RemoteOverview>('DELETE', `${LOCAL}/remote/share/devices/${enc(id)}`).then(overview),

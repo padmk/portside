@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +15,8 @@ import (
 
 // store keeps what outlives a daemon run in the state directory: the
 // computer this one is connected to, so the connection resumes after a
-// restart, and the local ports chosen for remote ports, per computer.
+// restart, and per computer the local ports chosen for remote ports and the
+// remote ports not forwarded at all.
 type store struct {
 	path string
 	mu   sync.Mutex
@@ -44,6 +46,9 @@ type storeData struct {
 	// Ports maps a computer's DNS name to its remote ports and the local
 	// port each is forwarded to instead of the same number.
 	Ports map[string]map[string]int `json:"ports,omitempty"`
+	// Off maps a computer's DNS name to the remote ports whose forwarding
+	// the user turned off.
+	Off map[string][]int `json:"off,omitempty"`
 }
 
 func newStore(stateDir string) *store {
@@ -142,6 +147,44 @@ func (s *store) setLocal(dnsName string, port, local int) error {
 			delete(d.Ports, key)
 		} else {
 			d.Ports[key] = m
+		}
+	})
+}
+
+// off returns the remote ports of a computer whose forwarding is off.
+func (s *store) off(dnsName string) map[int]bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[int]bool{}
+	for _, p := range s.load().Off[strings.ToLower(dnsName)] {
+		if p > 0 {
+			out[p] = true
+		}
+	}
+	return out
+}
+
+// setOff turns forwarding of a computer's remote port off, or on again.
+func (s *store) setOff(dnsName string, port int, off bool) error {
+	return s.edit(func(d *storeData) {
+		key := strings.ToLower(dnsName)
+		next := []int{}
+		for _, p := range d.Off[key] {
+			if p != port {
+				next = append(next, p)
+			}
+		}
+		if off {
+			next = append(next, port)
+			slices.Sort(next)
+		}
+		if d.Off == nil {
+			d.Off = map[string][]int{}
+		}
+		if len(next) == 0 {
+			delete(d.Off, key)
+		} else {
+			d.Off[key] = next
 		}
 	})
 }

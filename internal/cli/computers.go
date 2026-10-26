@@ -114,7 +114,10 @@ func printConnection(e *env, cn *remote.Info) {
 		if m.Local != 0 {
 			p += "->" + strconv.Itoa(m.Local)
 		}
-		if m.State != "mirrored" {
+		switch m.State {
+		case "off":
+			p += " (off)"
+		case "busy":
 			p += " (busy here)"
 		}
 		ports = append(ports, p)
@@ -123,6 +126,27 @@ func printConnection(e *env, cn *remote.Info) {
 		fmt.Fprintf(e.out, "  %s %s\n", e.paint(dim, "forwarded ports"), strings.Join(ports, ", "))
 	}
 	fmt.Fprintf(e.out, "  %s\n", e.paint(dim, fmt.Sprintf("--on %s runs status, logs, ensure, up, down and restart there", cn.Peer.Label)))
+}
+
+// cmdForward turns forwarding of a port of the connected computer on or off.
+func cmdForward(e *env, args []string) error {
+	if len(args) != 2 || (args[0] != "on" && args[0] != "off") {
+		return usageError{}
+	}
+	port, err := strconv.Atoi(args[1])
+	if err != nil || port <= 0 || port > 65535 {
+		return usageError{"the port is a number from 1 to 65535"}
+	}
+	c, err := e.client()
+	if err != nil {
+		return err
+	}
+	var info remote.Info
+	if err := c.Do(e.ctx, http.MethodPut, "/api/remote/forwarding", map[string]any{"port": port, "on": args[0] == "on"}, &info); err != nil {
+		return err
+	}
+	printConnection(e, &info)
+	return nil
 }
 
 // cmdPair redeems a pairing code shown on another computer and connects.

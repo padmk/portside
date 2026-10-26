@@ -34,6 +34,7 @@ func (s *Server) remoteRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/remote/disconnect", s.remoteDisconnect)
 	m.HandleFunc("POST /api/remote/pair", s.remotePair)
 	m.HandleFunc("PUT /api/remote/ports", s.remotePort)
+	m.HandleFunc("PUT /api/remote/forwarding", s.remoteForwarding)
 	m.HandleFunc("PUT /api/remote/share", s.setShare)
 	m.HandleFunc("POST /api/remote/share/code", s.shareCode)
 	m.HandleFunc("DELETE /api/remote/share/devices/{id}", s.revokeDevice)
@@ -131,6 +132,29 @@ func (s *Server) remotePort(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := s.opt.Remote.SetLocalPort(body.Port, body.Local)
+	if err != nil {
+		failRemote(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// remoteForwarding turns forwarding of a port of the connected computer
+// on or off.
+func (s *Server) remoteForwarding(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Port int   `json:"port"`
+		On   *bool `json:"on"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if body.On == nil {
+		fail(w, http.StatusBadRequest, errors.New("on is required"))
+		return
+	}
+	info, err := s.opt.Remote.SetForwarding(body.Port, *body.On)
 	if err != nil {
 		failRemote(w, err)
 		return
@@ -355,9 +379,16 @@ func (s *Server) tunnel(w http.ResponseWriter, r *http.Request) {
 
 // proxyRemote serves a remote server at <name>.<label>.localhost, or at
 // <name>.localhost when label is empty. It reports false when there is no
-// such remote server, so the caller can answer.
+// such remote server, so the caller can answer. A server whose port the
+// user turned off gets a page saying so: it exists, and the page tells how
+// to reach it again, where "no such server" would send the user looking
+// for a problem on the other computer.
 func (s *Server) proxyRemote(w http.ResponseWriter, r *http.Request, name, label string) bool {
 	rt, err := s.opt.Remote.Route(name, label)
+	if errors.Is(err, remote.ErrForwardingOff) {
+		s.proxyError(w, name, http.StatusForbidden, "Forwarding of port "+strconv.Itoa(rt.Port)+" from "+rt.Peer+" is turned off. Turn it on under Computers in the dashboard.")
+		return true
+	}
 	if err != nil {
 		return false
 	}

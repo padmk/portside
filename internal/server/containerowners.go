@@ -187,7 +187,7 @@ func (s *Server) WatchContainerIssues(ctx context.Context) {
 			if c.ExitCode != nil {
 				message += fmt.Sprintf(" (exit code %d)", *c.ExitCode)
 			}
-			s.sup.NotifyProblem(c.Name+" "+reason, message)
+			s.sup.NotifyUser(c.Name+" "+reason, message)
 		}
 		previous = next
 	}

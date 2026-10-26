@@ -74,6 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         store.onCrash = { [weak self] v in self?.notifier.crashed(v) }
         store.onContainerIssue = { [weak self] server, containers in self?.notifier.containerIssue(server, containers) }
+        store.onDevicePaired = { [weak self] d in self?.notifier.devicePaired(d) }
+        store.onDeviceConnected = { [weak self] d in self?.notifier.deviceConnected(d) }
         store.onStatusChange = { [weak self] _ in self?.refreshDashboard() }
         store.onDaemonRestart = { [weak self] in
             guard let self, let api = self.store.api else { return }

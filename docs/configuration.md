@@ -22,7 +22,8 @@ root = "~/dev"                      # base for relative dirs
 # path = ["/opt/homebrew/opt/node@24/bin"]   # prepended to PATH for every server (Homebrew;
 #                                   # with nvm: "~/.nvm/versions/node/v24.11.0/bin")
 # restore = true                    # bring back running servers after a restart
-# notify = true                     # desktop notification on crash
+# notify = true                     # desktop notifications: crashes, container problems,
+#                                   # devices pairing or connecting (sharing)
 # stop_timeout = "10s"              # grace period after Ctrl-C
 # shell = "bash"                    # runs each cmd as <shell> -c <cmd>
 # editor = "Zed"                    # app (macOS) or command for "Open in editor"

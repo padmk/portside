@@ -23,6 +23,7 @@ import (
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
 	"github.com/padmk/portside/internal/remote"
+	"github.com/padmk/portside/internal/share"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
@@ -113,6 +114,9 @@ type State struct {
 	Docker   docker.State      `json:"docker"`
 	// Remote is the connection to another device, null when there is none.
 	Remote *remote.Info `json:"remote"`
+	// Paired lists the devices paired with this computer and whether each is
+	// connected; never sent to those devices.
+	Paired []share.DeviceStatus `json:"paired,omitempty"`
 }
 
 // ConfigInfo describes the loaded configuration file.
@@ -129,9 +133,14 @@ type ConfigInfo struct {
 	Notify bool `json:"notify"`
 }
 
-func (s *Server) snapshot() State {
+// snapshot is the state as r's client may see it.
+func (s *Server) snapshot(r *http.Request) State {
 	cfg := s.sup.Config()
 	views := s.sup.Snapshot(s.opt.Port)
+	var paired []share.DeviceStatus
+	if !fromPeer(r) {
+		paired = s.opt.Share.Status().Devices
+	}
 	return State{
 		Daemon: s.healthInfo(),
 		Config: ConfigInfo{
@@ -148,11 +157,12 @@ func (s *Server) snapshot() State {
 		Groups:  cfg.Groups(),
 		Docker:  s.dockerState(views),
 		Remote:  s.opt.Remote.Info(),
+		Paired:  paired,
 	}
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.snapshot())
+	writeJSON(w, http.StatusOK, s.snapshot(r))
 }
 
 // events streams the full state as JSON text messages whenever it changes,
@@ -194,8 +204,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	defer s.opt.Docker.Unsubscribe(dch)
 	rch := s.opt.Remote.SubscribeInfo()
 	defer s.opt.Remote.Unsubscribe(rch)
+	pch := s.opt.Share.Subscribe()
+	defer s.opt.Share.Unsubscribe(pch)
 	send := func() error {
-		data, err := json.Marshal(s.snapshot())
+		data, err := json.Marshal(s.snapshot(r))
 		if err != nil {
 			return err
 		}
@@ -213,6 +225,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-ch:
 		case <-dch:
 		case <-rch:
+		case <-pch:
 		}
 		select {
 		case <-ctx.Done():

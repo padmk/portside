@@ -6,6 +6,8 @@
 - **Security:** replies relayed from a connected computer are served with a sandboxing Content-Security-Policy and without cookies, site data or redirect headers, so a taken-over computer you connect to cannot run script on this dashboard's origin (for example through a server icon opened in a new tab).
 - **macOS app:** links from the dashboard open in the browser only when they are http or https.
 - **CLI:** `portside scan --add` asks before adding when run on a terminal (`--yes` skips the question); scripts and agents are unaffected.
+- **Other computers:** a switch next to each forwarded port in the **Computers** window, or `portside forward off|on <port>`, turns its forwarding off and on, remembered per computer. A port turned off stops listening, its open connections end, and `<name>.<computer>.localhost` for its server says forwarding is off. Every port is still forwarded by default.
+- **Sharing:** the shared computer notifies you when a device pairs and when a paired device connects after being away, and its **Computers** window and `portside share devices` show whether each paired device is connected now or when it last connected.
 - **Agents:** with `portside mcp --dir`, `ensure_server` reuses a server that already runs even when a dependency outside the scope is stopped, since nothing would be started; `restart_server` still refuses then.
 
 ## 0.3.1

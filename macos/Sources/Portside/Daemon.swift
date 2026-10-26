@@ -11,6 +11,16 @@ struct DaemonState: Decodable {
     let docker: DockerState?
     /// The daemon-wide connection to another computer, which the dashboard shows instead of this one.
     let remote: RemoteInfo?
+    /// Devices paired with this computer (see internal/share/presence.go).
+    let paired: [PairedDevice]?
+}
+
+struct PairedDevice: Decodable {
+    let id: String
+    let name: String
+    /// When the daemon announced the device's current connection; each new
+    /// value is one notification.
+    let since: String?
 }
 
 struct RemoteInfo: Decodable, Equatable {

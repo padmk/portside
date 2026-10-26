@@ -41,6 +41,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/hostport"
+	"github.com/padmk/portside/internal/notify"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/signing"
 	"github.com/padmk/portside/internal/tailnet"
@@ -54,12 +55,12 @@ const (
 
 // Status describes sharing for the dashboard.
 type Status struct {
-	Enabled bool     `json:"enabled"`
-	Active  bool     `json:"active"`
-	URL     string   `json:"url,omitempty"`
-	Error   string   `json:"error,omitempty"`
-	Problem string   `json:"problem,omitempty"` // tailnet.Problem of Error
-	Devices []Device `json:"devices"`
+	Enabled bool           `json:"enabled"`
+	Active  bool           `json:"active"`
+	URL     string         `json:"url,omitempty"`
+	Error   string         `json:"error,omitempty"`
+	Problem string         `json:"problem,omitempty"` // tailnet.Problem of Error
+	Devices []DeviceStatus `json:"devices"`
 }
 
 // Manager owns the listener, this daemon's Tailscale Serve entry and the
@@ -84,6 +85,9 @@ type Manager struct {
 	epoch   string // random per listener; see HeaderEpoch
 	live    map[string]*liveDevice
 	st      Status
+
+	notifier func(title, msg string) // desktop notifications, if set
+	changes  notify.Signals          // pairings and device connections
 }
 
 // New creates a manager for a daemon on port that keeps its files in stateDir.
@@ -117,7 +121,7 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	st := m.st
 	m.mu.Unlock()
-	st.Devices = m.devs.List()
+	st.Devices = m.deviceStatus()
 	return st
 }
 
@@ -151,46 +155,6 @@ func (m *Manager) Revoke(ref string) (bool, error) {
 		m.endRevoked()
 	}
 	return ok, err
-}
-
-// deviceCtx returns a context that ends when device id is revoked; every
-// request of that device runs under it.
-func (m *Manager) deviceCtx(id string) context.Context {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.live == nil {
-		m.live = map[string]*liveDevice{}
-	}
-	d := m.live[id]
-	if d == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		d = &liveDevice{ctx: ctx, cancel: cancel}
-		m.live[id] = d
-	}
-	return d.ctx
-}
-
-// endRevoked ends the requests in flight, WebSockets included, of devices
-// that are no longer paired. The listener stays: moving to a new one would
-// leave Tailscale Serve pointing at a freed port for a moment.
-func (m *Manager) endRevoked() {
-	paired := map[string]bool{}
-	for _, d := range m.devs.List() {
-		paired[d.ID] = true
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, d := range m.live {
-		if !paired[id] {
-			d.cancel()
-			delete(m.live, id)
-		}
-	}
-}
-
-type liveDevice struct {
-	ctx    context.Context
-	cancel context.CancelFunc
 }
 
 // lockApply serialises Apply, Close and Revoke, giving up when ctx ends.
@@ -478,6 +442,10 @@ func PeerFrom(ctx context.Context) (Peer, bool) {
 // and returns the credential it signs with from now on.
 func (m *Manager) Pair(p Peer, code, instance string) (Credential, error) {
 	id, key, err := m.devs.Pair(code, Device{Name: p.Node.Name, DNSName: p.Node.DNSName, OS: p.Node.OS, Instance: instance})
+	if err == nil {
+		m.announce(p.Node.Name+" paired", "It can now connect to this computer and control its servers.")
+		m.changes.Notify()
+	}
 	return Credential{ID: id, Key: key}, err
 }
 
@@ -587,7 +555,9 @@ func (m *Manager) guard() http.Handler {
 				signing.Prove(w.Header(), r.Header, dev.Key, epoch)
 				ctx, cancel := context.WithCancel(r.Context())
 				defer cancel()
-				defer context.AfterFunc(m.deviceCtx(dev.ID), cancel)()
+				life, end := m.attach(dev, !open)
+				defer end()
+				defer context.AfterFunc(life, cancel)()
 				r = r.WithContext(ctx)
 			}
 		}

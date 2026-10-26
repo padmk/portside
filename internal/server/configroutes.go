@@ -25,7 +25,7 @@ func (s *Server) getSpec(w http.ResponseWriter, r *http.Request) {
 
 // edit applies fn to the config file and reloads it. warnings go back with the
 // new state; rename (old, new) carries a running server over to its new name.
-func (s *Server) edit(w http.ResponseWriter, fn func() error, warnings []string, rename ...string) {
+func (s *Server) edit(w http.ResponseWriter, r *http.Request, fn func() error, warnings []string, rename ...string) {
 	s.editMu.Lock()
 	err := fn()
 	if err == nil {
@@ -40,7 +40,7 @@ func (s *Server) edit(w http.ResponseWriter, fn func() error, warnings []string,
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	state := s.snapshot()
+	state := s.snapshot(r)
 	state.Warnings = warnings
 	writeJSON(w, http.StatusOK, state)
 }
@@ -52,7 +52,7 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.normalizeSpec(&spec)
-	s.edit(w, func() error { return config.AddServer(s.opt.ConfigPath, spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir))
+	s.edit(w, r, func() error { return config.AddServer(s.opt.ConfigPath, spec) }, directoryWarnings(s.sup.Config().Root, spec.Dir))
 }
 
 // updateServer replaces a server's table. A body that names the config
@@ -69,7 +69,7 @@ func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	spec := body.Spec
 	s.normalizeSpec(&spec)
-	s.edit(w, func() error {
+	s.edit(w, r, func() error {
 		if body.Revision != "" {
 			if err := config.CheckRevision(s.opt.ConfigPath, body.Revision); err != nil {
 				return err
@@ -109,7 +109,7 @@ func (s *Server) normalizeSpec(sp *config.Spec) {
 
 func (s *Server) deleteServer(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	s.edit(w, func() error { return config.RemoveServer(s.opt.ConfigPath, name) }, nil)
+	s.edit(w, r, func() error { return config.RemoveServer(s.opt.ConfigPath, name) }, nil)
 }
 
 func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +120,7 @@ func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	s.edit(w, func() error { return config.SetEnabled(s.opt.ConfigPath, r.PathValue("name"), body.Enabled) }, nil)
+	s.edit(w, r, func() error { return config.SetEnabled(s.opt.ConfigPath, r.PathValue("name"), body.Enabled) }, nil)
 }
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +166,7 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.snapshot())
+	writeJSON(w, http.StatusOK, s.snapshot(r))
 }
 
 // changesShare reports whether text sets share differently from the file on

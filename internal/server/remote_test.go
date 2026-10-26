@@ -15,6 +15,7 @@ func TestPeerDenied(t *testing.T) {
 		"/api/remote":                true, // sharing and onward connections
 		"/api/remote/share":          true,
 		"/api/remote/connect":        true,
+		"/api/remote/forwarding":     true, // what this computer forwards
 		"/api/peer/x.t.ts.net/state": true,
 	}
 	for path, want := range cases {

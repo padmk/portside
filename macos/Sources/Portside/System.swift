@@ -120,9 +120,9 @@ enum CommandLineTool {
     }
 }
 
-/// Native notifications: crashes (Restart, Show Logs) and containers that
-/// need attention (Show Logs). While the app is connected the daemon leaves
-/// these to it.
+/// Native notifications: crashes (Restart, Show Logs), containers that
+/// need attention (Show Logs), and devices that pair or connect. While the
+/// app is connected the daemon leaves these to it.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
@@ -159,6 +159,26 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         content.categoryIdentifier = "container"
         content.userInfo = ["server": server, "terminal": false]
         center.add(UNNotificationRequest(identifier: "container-\(server)", content: content, trigger: nil))
+    }
+
+    func devicePaired(_ d: PairedDevice) {
+        device(d, id: "paired",
+               title: L.t("\(d.name) paired", "Sparowano urządzenie \(d.name)"),
+               body: L.t("It can now connect to this computer and control its servers.", "Może teraz łączyć się z tym komputerem i sterować jego serwerami."))
+    }
+
+    func deviceConnected(_ d: PairedDevice) {
+        device(d, id: "connected",
+               title: L.t("\(d.name) connected", "Urządzenie \(d.name) połączyło się"),
+               body: L.t("It is using this computer's servers.", "Korzysta z serwerów tego komputera."))
+    }
+
+    private func device(_ d: PairedDevice, id: String, title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        center.add(UNNotificationRequest(identifier: "device-\(id)-\(d.id)", content: content, trigger: nil))
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler done: @escaping () -> Void) {

@@ -156,6 +156,7 @@ func init() {
 		{names: []string{"computers"}, section: "Other computers", usage: "computers [--json] | --print-prompt", summary: "List your other computers that share their servers, and the connection; --print-prompt prints a setup request for a coding agent", run: cmdComputers},
 		{names: []string{"pair"}, section: "Other computers", usage: "pair <computer> <code>", summary: "Pair with a computer using the code it shows, then connect", run: cmdPair},
 		{names: []string{"connect"}, section: "Other computers", usage: "connect <computer>", summary: "Connect to a paired computer; --on <computer> then acts on it", run: cmdConnect},
+		{names: []string{"forward"}, section: "Other computers", usage: "forward on|off <port>", summary: "Turn forwarding of a port of the connected computer on or off, kept for that computer", run: cmdForward},
 		{names: []string{"disconnect"}, section: "Other computers", usage: "disconnect", summary: "End the connection to another computer", run: cmdDisconnect},
 
 		{names: []string{"add"}, section: "Configuration", usage: "add <name> --cmd <command> [--dir <dir>] [--port N] [--group G]", summary: "Add a server to the config", run: cmdAdd},

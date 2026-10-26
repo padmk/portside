@@ -60,6 +60,10 @@ final class Store {
     var onCrash: ((Server) -> Void)?
     /// Called when containers of a server start needing attention.
     var onContainerIssue: ((String, [Container]) -> Void)?
+    /// Called when a device pairs with this computer.
+    var onDevicePaired: ((PairedDevice) -> Void)?
+    /// Called when a paired device connects after being away (the daemon decides).
+    var onDeviceConnected: ((PairedDevice) -> Void)?
     /// Called whenever the summary used by the status item changes.
     var onSummaryChange: ((Summary) -> Void)?
     /// Called whenever `daemonStatus` changes.
@@ -85,6 +89,9 @@ final class Store {
     private var notifiedCrash: [String: String] = [:]
     /// Containers with an issue per server, as last seen.
     private var knownIssues: [String: Set<String>] = [:]
+    /// The announced connection start of each paired device, as last seen
+    /// ("" before its first); a device missing here is new.
+    private var knownDevices: [String: String] = [:]
     /// False until the first state arrives; problems that already exist then are not announced.
     private var seeded = false
     /// Set by Start: the next check starts a daemon even after a deliberate stop.
@@ -325,14 +332,15 @@ final class Store {
             for name in c.issueFor ?? [] { issues[name, default: []].append(c) }
         }
         containerIssues = issues
-        announce(state.servers, issues)
+        announce(state.servers, issues, state.paired ?? [])
         notifyChange()
     }
 
     /// Notifies once per crash the daemon gave up on (not while it restarts
-    /// the server on its own) and when containers start needing attention.
-    /// Exit time and note identify a crash, so batched updates miss none.
-    private func announce(_ list: [Server], _ issues: [String: [Container]]) {
+    /// the server on its own), when containers start needing attention, and
+    /// when a device pairs or connects. Exit time and note identify a crash,
+    /// so batched updates miss none.
+    private func announce(_ list: [Server], _ issues: [String: [Container]], _ devices: [PairedDevice]) {
         let notify = seeded && notifyOnCrash
         for v in list where v.status == "crashed" && !v.waitsForRestart {
             let key = (v.exitedAt ?? "") + "|" + (v.note ?? "")
@@ -346,6 +354,18 @@ final class Store {
             if notify, !fresh.isEmpty { onContainerIssue?(name, fresh) }
         }
         knownIssues = issues.mapValues { Set($0.map(\.name)) }
+        var devicesNow: [String: String] = [:]
+        for d in devices {
+            let since = d.since ?? ""
+            devicesNow[d.id] = since
+            guard notify else { continue }
+            if let before = knownDevices[d.id] {
+                if !since.isEmpty, since != before { onDeviceConnected?(d) }
+            } else {
+                onDevicePaired?(d)
+            }
+        }
+        knownDevices = devicesNow
         seeded = true
     }
 
