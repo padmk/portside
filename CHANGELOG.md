@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Releases:** a release is published only for a commit of `main` whose CI passed, after the built binary and the app's command have been run; published releases are immutable. CI also audits the dashboard's production dependencies.
+
 ## 0.4.2
 
 - **May be reachable from the network:** the mark (and `portside status`, `doctor`, the menu bar panel) says a listener may be reachable, since its addresses do not show what the firewall lets in. The fix fits the tool the command runs, following package scripts (Uvicorn, FastAPI, Flask, Django, Gunicorn, Hypercorn, `http.server`, Astro, Nuxt, Remix, React Router, Rails and Phoenix included), and a Compose fix keeps the container's own port.

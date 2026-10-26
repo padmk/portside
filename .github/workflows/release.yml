@@ -57,6 +57,19 @@ jobs:
         env:
           # Read-only here (the job's permissions); GoReleaser reads repository metadata with it.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Smoke-test the macOS archive
+        # The binary as users get it: it reports its version and runs a daemon.
+        run: |
+          t="$RUNNER_TEMP/smoke"; mkdir -p "$t"
+          tar -xzf dist/portside_*_darwin_arm64.tar.gz -C "$t" portside
+          "$t/portside" version
+          if [ "$PUBLISH" = true ]; then "$t/portside" version | grep -q " ${GITHUB_REF_NAME#v} "; fi
+          printf 'port = 7911\nroot = "%s"\n' "$t" > "$t/portside.toml"
+          export PORTSIDE_CONFIG="$t/portside.toml" PORTSIDE_STATE_DIR="$t/state"
+          "$t/portside" daemon start
+          "$t/portside" status
+          "$t/portside" doctor || true
+          "$t/portside" daemon stop
       - name: Collect the release files
         run: |
           mkdir out
@@ -107,6 +120,8 @@ jobs:
           cp "dist/macos/Portside-$version.zip" out/
           # The tap job renders the cask from it, on a runner without PlistBuddy.
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' dist/macos/Portside.app/Contents/Info.plist > out/bundle-id
+          # The app's own copy of the command runs and reports this version.
+          dist/macos/Portside.app/Contents/Helpers/portside version | grep -q " $version "
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: env.PUBLISH == 'true'
         with:
@@ -124,7 +139,26 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
+      - name: Require a tested commit on main
+        # The tag must point at a commit of main whose `ci` run passed; a run
+        # still in progress is waited for.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_SHA" --jq .status)
+          case "$status" in identical|behind) ;; *) echo "$GITHUB_REF_NAME ($GITHUB_SHA) is not on main ($status)" >&2; exit 1;; esac
+          for _ in $(seq 60); do
+            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push" --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"')
+            case "$run" in
+              "completed success") echo "ci passed for $GITHUB_SHA"; exit 0;;
+              completed*) echo "ci did not pass for $GITHUB_SHA: $run" >&2; exit 1;;
+              ""|"null null") echo "no ci run for $GITHUB_SHA" >&2; exit 1;;
+            esac
+            sleep 30
+          done
+          echo "ci for $GITHUB_SHA did not finish in 30 minutes" >&2; exit 1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: release
