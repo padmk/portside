@@ -65,7 +65,10 @@ func cmdStatus(e *env, args []string) error {
 		return nil
 	}
 	if len(st.Servers) == 0 {
-		fmt.Fprintf(e.out, "No servers yet. Add one with `portside add`, find some with `portside scan`,\nor open the dashboard with `portside open`.\n")
+		fmt.Fprintf(e.out, "No servers yet. Add one with `%s add`, find some with `%s scan`,\nor open the dashboard with `%s open`.\n", app.ID, app.ID, app.ID)
+		if st.Remote != nil {
+			fmt.Fprintf(e.out, "Connected to %s: `%s --on %s status` lists its servers.\n", st.Remote.Peer.Name, app.ID, st.Remote.Peer.Label)
+		}
 		return nil
 	}
 	nameW := 4

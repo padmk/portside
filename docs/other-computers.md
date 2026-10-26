@@ -21,7 +21,7 @@ The window changes color and shows the other computer's name in the top bar. Eve
 
 The connection belongs to the daemon, so every dashboard window follows it. It outlasts a daemon restart: the daemon reconnects to the same computer in the background when it starts (saved in `remote.json` in the state directory), until you disconnect or the other computer removes the pairing. When the other computer's daemon comes back on another automatic port, the connection follows it there.
 
-From the terminal, `portside computers` lists your computers that share their servers, `portside pair <computer> <code>` pairs and connects, `portside connect <computer>` connects to a paired one and `portside disconnect` ends the connection. While connected, `--on <computer>` runs `status`, `up`, `down`, `restart`, `ensure`, `logs`, `attach` and `containers` there, for example `portside logs api --on devbox --grep error`; it fails when this computer is connected to another one or to none.
+From the terminal, `portside computers` lists your computers that share their servers, `portside pair <computer> <code>` pairs and connects, `portside connect <computer>` connects to a paired one and `portside disconnect` ends the connection. While connected, `--on <computer>` runs `status`, `up`, `down`, `restart`, `ensure`, `logs`, `attach` and `containers` there, for example `portside logs api --on devbox --grep error`; it fails when this computer is connected to another one or to none. Local `portside status` with no servers here points to `--on`, and `portside doctor` reports sharing and the connection in one line each while they are in use.
 
 ## Sites
 

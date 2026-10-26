@@ -12,6 +12,7 @@
 - **CLI:** the `portside computers` hint lists every command `--on` runs (also `attach` and `containers`), worded as in the help and the usage error.
 - **Other computers:** `portside forward off <port>` for a port the connected computer does not forward fails and lists the forwarded ports instead of storing the setting; a forwarded port that is busy here can still be turned off.
 - **Other computers:** replies relayed from the connected computer carry `X-Content-Type-Options` once instead of twice.
+- **CLI:** on a computer connected to another one, `portside status` with no local servers points to `portside --on <computer> status`, and `portside doctor` reports sharing and the connection in one line each while they are in use.
 
 ## 0.4.3
 
