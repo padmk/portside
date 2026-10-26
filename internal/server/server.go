@@ -151,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 				fail(w, http.StatusUnauthorized, err)
 				return
 			}
+			s.reloadIfChanged()
 		} else if r.URL.Path != "/api/health" {
 			s.mux.ServeHTTP(w, r)
 			return
@@ -310,20 +311,34 @@ func (s *Server) WatchConfig(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		st, err := os.Stat(s.opt.ConfigPath)
-		if err != nil {
-			continue
-		}
-		s.cfgMu.Lock()
-		changed := !st.ModTime().Equal(s.cfgMod)
-		s.cfgMu.Unlock()
-		if changed {
-			// Serialised with edits, so a reload never applies a file
-			// older than one an edit has already applied.
-			s.editMu.Lock()
-			s.reload()
-			s.editMu.Unlock()
-		}
+		s.reloadIfChanged()
+	}
+}
+
+// reloadIfChanged reloads the configuration when the file's modification
+// time differs from the one last loaded. Besides the periodic check it runs
+// before every authenticated request, so a command right after an edit made
+// outside the daemon (`add`, `rm`, an editor) sees the new file.
+func (s *Server) reloadIfChanged() {
+	st, err := os.Stat(s.opt.ConfigPath)
+	if err != nil {
+		return
+	}
+	s.cfgMu.Lock()
+	changed := !st.ModTime().Equal(s.cfgMod)
+	s.cfgMu.Unlock()
+	if !changed {
+		return
+	}
+	// Serialised with edits, so a reload never applies a file older than
+	// one an edit has already applied.
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
+	s.cfgMu.Lock()
+	changed = !st.ModTime().Equal(s.cfgMod)
+	s.cfgMu.Unlock()
+	if changed {
+		s.reload()
 	}
 }
 
