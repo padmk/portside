@@ -44,6 +44,8 @@ brew install --cask padmk/tap/portside
 
 The app is not notarized by Apple yet, and the cask removes the quarantine flag so that macOS lets it start. You rely on the public source and on release files built by GitHub Actions instead, each with a verifiable attestation from 0.3.0; [Trust](docs/security.md#trust) says what that covers and how to check a download. If you would rather not run a prebuilt app, `brew install --formula padmk/tap/portside` (from 0.3.0) builds the command-line tool and dashboard from source on your Mac, without the menu bar app (**Build with Homebrew** below).
 
+On a Linux server without a desktop (a preview), the daemon runs as a systemd user service and you work through the CLI, MCP and an SSH tunnel: see [Linux server](docs/linux-server.md).
+
 <details>
 <summary>Other ways to install, update and uninstall</summary>
 
@@ -51,7 +53,7 @@ The app is not notarized by Apple yet, and the cask removes the quarantine flag 
 
 **Build with Homebrew.** `brew install --formula padmk/tap/portside` downloads the release's tagged source and builds the `portside` command with its embedded dashboard (with Homebrew's Go, Node and pnpm, needed only for the build). There is no menu bar app: open the dashboard in your browser with `portside open`. Update with `brew upgrade portside`, then `portside daemon restart`. The formula and the cask both install `portside`, so install only one of them.
 
-**Linux (preview).** The CLI, daemon and dashboard run on x86-64 and arm64, but macOS is the platform Portside is built and tested for. Download `portside_<version>_linux_<arch>.tar.gz` from the releases, put `portside` on your `PATH`, and run `portside service install` to start the daemon at login.
+**Linux (preview).** The CLI, daemon and dashboard run on x86-64 and arm64; CI builds and tests them, but macOS gets more use. Download `portside_<version>_linux_<arch>.tar.gz` from the releases, put `portside` on your `PATH`, and run `portside service install` to start the daemon at login ([Linux server](docs/linux-server.md) for a machine without a desktop).
 
 **From source** (Go 1.26+, Node 24 and pnpm 12):
 
@@ -95,12 +97,12 @@ group = "shop"
 
 ## Features
 
-One static binary with no runtime dependencies runs a daemon on `127.0.0.1`; the menu bar app, the dashboard, the CLI and the MCP server all talk to it.
+One static binary runs a daemon on `127.0.0.1`; the menu bar app, the dashboard, the CLI (with `--json` for scripts) and the MCP server all talk to it.
 
 - **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop`) and dependencies (`api` waits for `db`). `portside scan` finds Node, Deno, Python, Ruby, PHP, Elixir, Java, .NET, Go, Rust and Compose projects and proposes the commands.
 - **Stable ports and clean URLs.** Each server keeps its port and is also reachable at `http://<name>.localhost:7878`, WebSockets and hot reload included.
 - **Real terminals, honest status.** Servers run in a PTY with live output, search and `portside attach`. `starting` lasts until the port answers, crashes show the exit code, and foreign processes holding a port are named.
-- **Survives restarts and updates.** Restart policies with backoff, crash notifications, and servers that keep running through a daemon upgrade or come back after a reboot.
+- **Survives crashes, restarts and updates.** `restart = "on-failure"` starts a crashed server again with backoff; once it gives up, a notification or your own `on_crash` command reports it. Servers keep running through a daemon upgrade and come back after a reboot.
 - **Containers.** Compose containers appear next to their server with state, health, logs, a shell and recreate, for Docker Desktop, OrbStack, Colima, Podman and remote engines.
 - **Coding agents.** An MCP server and a skill for Claude Code, Codex and other MCP clients: `ensure_server` starts a server if needed and returns its URL, agents read logs instead of guessing, and `--read-only` limits them to looking.
 - **Other computers.** Pair your computers over Tailscale with a one-time code; every request is signed with the paired device's key. While connected, the dashboard, the CLI (`--on <computer>`) and agents (`computer`) act on the other machine, and its servers' ports are forwarded here ([Other computers](docs/other-computers.md)).
@@ -114,6 +116,7 @@ One static binary with no runtime dependencies runs a daemon on `127.0.0.1`; the
 - [Containers](docs/containers.md): engines, ownership, actions
 - [Other computers](docs/other-computers.md): pairing and sharing over Tailscale, or with your coding agent's help
 - [How it works](docs/how-it-works.md): processes, state, upgrades in place, the login service
+- [Linux server](docs/linux-server.md): a machine without a desktop, crash reports, scripts
 - [Security model](docs/security.md): what Portside can do as you, what agents can do, how to verify a release
 - [Compared with other tools](docs/comparison.md): process-compose, pitchfork, Portless, WhatThePort, Overmind
 - [Development](docs/development.md) and the [changelog](CHANGELOG.md)
