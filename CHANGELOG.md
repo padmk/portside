@@ -2,9 +2,10 @@
 
 ## 0.6.0
 
-- **Crash command:** `on_crash` (top level, or per server to override it; `""` turns it off for one) runs a command once a server has crashed for good: at once with `restart = "no"`, after the last automatic restart otherwise, and when a server cannot start. The server, exit code, uptime, restarts, note, log file and last 20 log lines come in `PORTSIDE_*` environment variables, never in the command line. It runs whatever the `notify` setting and connected apps, so a server without a desktop can report crashes ([Crash command](docs/configuration.md#crash-command)).
+- **Crash command:** `on_crash` (top level, or per server to override it; `""` turns it off for one) runs a command once a server has crashed for good: at once with `restart = "no"`, after the last automatic restart otherwise (with `always` also for a server that keeps exiting with code 0), and when a server cannot start. The server, exit code, uptime, restarts, note, log file and last 20 log lines come in `PORTSIDE_*` environment variables, never in the command line. It runs whatever the `notify` setting and connected apps, so a server without a desktop can report crashes ([Crash command](docs/configuration.md#crash-command)).
 - **Linux server:** a guide for a machine without a desktop: the systemd user service, restart policies, crash reports, reading state from scripts, coding agents and the dashboard over an SSH tunnel ([Linux server](docs/linux-server.md)).
-- **CLI:** `portside daemon logs` prints the last 100 lines and exits, as `portside logs` does; `-n` sets the count and `-f` follows the log, which it used to do always.
+- **CLI:** `portside daemon logs` prints the last 100 lines and exits, as `portside logs` does; `-n` sets the count and `-f` follows the log, which it used to do always. While systemd runs the daemon, it reads the user journal, where its output goes, and errors that point to the daemon's log name `portside daemon logs` instead of the file.
+- **Dashboard over SSH:** through a tunnel to another local port (`ssh -L 17878:127.0.0.1:7878`), the dashboard's changes and live updates work too; requests from the page's own origin are accepted whatever port it is on.
 - **Releases:** a release also waits for the commit's CodeQL scan to pass, and the app is checked as users get it: the zip unpacked, its signature verified and its command run.
 - **CLI:** `portside doctor` says how many servers have an `on_crash` command, and on Linux warns when `notify` is on but `notify-send` is missing, since a crash would then notify no one.
 

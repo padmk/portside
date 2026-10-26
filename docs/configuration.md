@@ -91,7 +91,7 @@ Server names are lowercase letters, digits and dashes, because they double as `<
 `on_crash` runs a command when a server has crashed and will not be restarted automatically:
 
 - with `restart = "no"`, at the first crash;
-- with `on-failure` or `always`, after the last automatic restart;
+- with `on-failure` or `always`, after the last automatic restart, and with `always` also for a server that keeps exiting with code 0;
 - when the server cannot start, for example because its directory is missing or a dependency failed.
 
 It runs once per crash, also when desktop notifications are off or the app is open, so a server without a desktop can report crashes to your monitoring. A server's own `on_crash` replaces the top-level one:
@@ -124,7 +124,7 @@ The command runs with `sh -c` in your home directory. Its environment is what se
 | `PORTSIDE_LOG_TAIL` | The last 20 lines of output (at most 8 KiB, without colors). Output can hold secrets, so treat it as you treat the logs. |
 | `PORTSIDE_LOG_FILE` | The server's full log file. |
 
-The daemon does not wait for the command. One still running after 30 seconds is stopped, a failed one is not retried, and either result is in the daemon log (`portside daemon logs`). `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but `notify-send` is missing, because a crash would then notify no one.
+The daemon does not wait for the command, and runs at most four at once. One still running after 30 seconds is stopped, and either result is in the daemon log (`portside daemon logs`). Delivery is best effort: a failed command is not retried, and a report is lost when the daemon stops while it runs, so let your monitoring also check the daemon itself. `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but `notify-send` is missing, because a crash would then notify no one.
 
 ## Editor, terminal, shell and Docker
 

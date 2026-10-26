@@ -44,7 +44,7 @@ A crashed server is started again with backoff until it has failed 5 times in a 
 
 Desktop notifications need a desktop. On a server, set `on_crash`: it runs your command once a server has crashed for good, with the server, exit code, note and last log lines in `PORTSIDE_*` variables ([Crash command](configuration.md#crash-command)). When the command itself fails, `portside daemon logs` says so.
 
-A crash of the daemon itself is systemd's to report: `systemctl --user status portside` and `journalctl --user -u portside`.
+A crash of the daemon itself is systemd's to report: `systemctl --user status portside`. While systemd runs the daemon, its output is in the user journal, which `portside daemon logs` reads then.
 
 ## Reading state from scripts
 

@@ -27,7 +27,8 @@ portside daemon [start|stop|restart|status|logs]
                                          restart --in-place: only an in-place upgrade,
                                          failing instead of restarting the servers;
                                          --allow-downgrade replaces a newer daemon;
-                                         logs [-n 100] [-f] prints or follows its log
+                                         logs [-n 100] [-f] prints or follows its log,
+                                         from the user journal when systemd runs it
 portside service install|uninstall|status
 portside share [on|off]                  let your paired devices on Tailscale connect;
                                          on prints a pairing code
