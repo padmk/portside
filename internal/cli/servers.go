@@ -119,13 +119,13 @@ func cmdStatus(e *env, args []string) error {
 		note = e.paint(dim, note)
 		if s.NetworkWarning {
 			exposed++
-			note = strings.TrimSpace(e.paint(yellow, "reachable from the network") + " " + note)
+			note = strings.TrimSpace(e.paint(yellow, "may be reachable from the network") + " " + note)
 		}
 		fmt.Fprintf(e.out, "  %s %-*s  %-9s %s  %-16s %s\n",
 			e.statusDot(s), nameW, s.Name, e.statusWord(s), port, usage, note)
 	}
 	if exposed > 0 {
-		fmt.Fprintf(e.out, "\n%s\n", e.paint(dim, "Reachable from the network: other devices on it can connect. Bind the server to 127.0.0.1,\nor set lan = true in its config if that is intended."))
+		fmt.Fprintf(e.out, "\n%s\n", e.paint(dim, "May be reachable from the network: unless a firewall blocks it, other devices on the network\ncan connect. Bind the server to 127.0.0.1, or set lan = true in its config if that is intended."))
 	}
 	if e.conn == nil {
 		fmt.Fprintf(e.out, "\n%s %s\n", e.paint(dim, "dashboard"), client.DashboardURL(st.Daemon.Port))

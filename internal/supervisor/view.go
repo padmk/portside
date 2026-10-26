@@ -64,10 +64,13 @@ type View struct {
 	// Exposure is where the running server's listeners can be reached from
 	// (loopback, tailnet or network); absent until read. NetworkWarning
 	// marks one reachable from the network whose config does not set
-	// `lan = true`, which LAN reports.
+	// `lan = true`, which LAN reports. Kind names the tool the command
+	// starts (see discover.CommandKind) while NetworkWarning is set, for the
+	// dashboard's fix.
 	Exposure       ports.Exposure `json:"exposure,omitempty"`
 	NetworkWarning bool           `json:"networkWarning,omitempty"`
 	LAN            bool           `json:"lan,omitempty"`
+	Kind           string         `json:"kind,omitempty"`
 }
 
 // Snapshot returns all servers in configuration order. daemonPort is used to
@@ -125,6 +128,9 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 		if p.pid != 0 {
 			v.Exposure = p.exposure
 			v.NetworkWarning = NetworkWarning(p.exposure, c.LAN)
+			if v.NetworkWarning {
+				v.Kind = p.kind
+			}
 			v.CPUHistory = append([]float64(nil), p.hist.cpu...)
 			v.MemHistory = append([]int64(nil), p.hist.mem...)
 		}

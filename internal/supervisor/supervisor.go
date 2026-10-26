@@ -86,6 +86,7 @@ type proc struct {
 	mem            int64
 	listening      bool
 	exposure       ports.Exposure // where the live listeners can be reached from; "" until read
+	kind           string         // the tool the live command starts, read with a network exposure (discover.CommandKind)
 	external       *ports.Listener
 	cols           uint16
 	rows           uint16
@@ -129,6 +130,8 @@ type Supervisor struct {
 	// exposureAt is when it last did (see checkExposure).
 	exposureWanted bool
 	exposureAt     time.Time
+	// tailnet gives this machine's Tailscale addresses (see SetTailnet).
+	tailnet ports.TailnetAddrs
 	// activePorts holds the ports of servers that are starting or running,
 	// updated on every change, for readers that must not take mu.
 	activePorts atomic.Pointer[map[int]bool]
@@ -613,7 +616,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.listenPorts = nil
 	p.listenHost = ""
 	p.missingSince = time.Time{}
-	p.exposure = ""
+	p.exposure, p.kind = "", ""
 	p.status = Starting
 	p.note = ""
 	p.startedAt = time.Now()

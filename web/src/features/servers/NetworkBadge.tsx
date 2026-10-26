@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { Wifi } from 'lucide-react'
 import { useT } from '../../i18n'
 import { openDialog } from '../../state/ui'
+import { useLive } from '../../state/live'
+import { containersOf } from '../containers/status'
 import type { ServerView } from '../../api/types'
 import { serverFix, type FixHint } from './exposure'
 import './network.css'
@@ -15,7 +17,7 @@ interface Props {
   server?: string
 }
 
-/** Marks a listener reachable from the network, with how to keep it on this computer. */
+/** Marks a listener that may be reachable from the network, with how to keep it on this computer. */
 export function NetworkBadge({ port, fix, server }: Props) {
   const t = useT()
   const id = `net-${useId().replace(/[^a-zA-Z0-9]/g, '')}`
@@ -51,8 +53,10 @@ export function NetworkBadge({ port, fix, server }: Props) {
   )
 }
 
-/** The badge for a running server reachable from the network that does not set `lan = true`. */
+/** The badge for a running server that may be reachable from the network and does not set `lan = true`. */
 export function ServerNetworkBadge({ server: v }: { server: ServerView }) {
+  const docker = useLive().state?.docker
   if (!v.networkWarning) return null
-  return <NetworkBadge port={0} fix={serverFix(v.cmd, v.port)} server={v.temporary ? v.origin : v.name} />
+  const fix = serverFix(v.kind, v.port, v.kind === 'compose' ? containersOf(docker, v.name) : [])
+  return <NetworkBadge port={0} fix={fix} server={v.temporary ? v.origin : v.name} />
 }

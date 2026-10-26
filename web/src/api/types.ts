@@ -62,10 +62,12 @@ export interface ServerView {
   worktree?: string
   /** Where the running server's listeners can be reached from; absent until read. */
   exposure?: Exposure
-  /** Reachable from the network although the config does not set `lan = true`. */
+  /** May be reachable from the network (it listens on more than loopback and Tailscale) although the config does not set `lan = true`. */
   networkWarning?: boolean
   /** The server's `lan` setting: meant to be reachable from other devices. */
   lan?: boolean
+  /** The tool its command starts, such as vite or django, while networkWarning is set; picks the fix. */
+  kind?: string
 }
 
 export interface Health {
@@ -115,7 +117,7 @@ export interface ContainerPort {
   ip?: string
   /** Where the host-side listener can be reached from, for a local engine. */
   exposure?: Exposure
-  /** Reachable from the network although the owning server does not set `lan = true`. */
+  /** May be reachable from the network although the owning server does not set `lan = true`. */
   networkWarning?: boolean
 }
 

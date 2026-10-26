@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"net"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -54,16 +55,20 @@ func TestServerExposureCountsAllListeners(t *testing.T) {
 		{Port: 3000, PID: 98, Addresses: []string{"100.64.1.2"}}, // on the server's port
 	}
 	own := func(pid int) bool { return pid == 10 || pid == 11 }
-	if got := serverExposure(socks, 3000, own); got != ports.Network {
+	tailscale := func() []netip.Addr { return []netip.Addr{netip.MustParseAddr("100.64.1.2")} }
+	if got := serverExposure(socks, 3000, own, tailscale); got != ports.Network {
 		t.Errorf("with a wildcard child listener: %q, want network", got)
 	}
-	if got := serverExposure(socks[:1], 3000, own); got != ports.Loopback {
+	if got := serverExposure(socks[:1], 3000, own, tailscale); got != ports.Loopback {
 		t.Errorf("loopback only: %q", got)
 	}
-	if got := serverExposure([]ports.Listener{socks[0], socks[3]}, 3000, own); got != ports.Tailnet {
-		t.Errorf("loopback and tailnet: %q", got)
+	if got := serverExposure([]ports.Listener{socks[0], socks[3]}, 3000, own, tailscale); got != ports.Tailnet {
+		t.Errorf("loopback and this machine's Tailscale address: %q", got)
 	}
-	if got := serverExposure(socks[2:3], 3000, own); got != "" {
+	if got := serverExposure([]ports.Listener{socks[0], socks[3]}, 3000, own, nil); got != ports.Network {
+		t.Errorf("loopback and 100.64.1.2 without Tailscale: %q, want network", got)
+	}
+	if got := serverExposure(socks[2:3], 3000, own, tailscale); got != "" {
 		t.Errorf("someone else's listener: %q, want none", got)
 	}
 }

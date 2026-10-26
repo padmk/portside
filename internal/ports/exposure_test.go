@@ -1,9 +1,15 @@
 package ports
 
 import (
+	"net/netip"
 	"slices"
 	"testing"
 )
+
+// thisMachine stands for this machine's Tailscale addresses.
+func thisMachine() []netip.Addr {
+	return []netip.Addr{netip.MustParseAddr("100.101.102.103"), netip.MustParseAddr("fd7a:115c:a1e0::1234")}
+}
 
 func TestClassify(t *testing.T) {
 	cases := []struct {
@@ -18,9 +24,16 @@ func TestClassify(t *testing.T) {
 		{[]string{"127.0.0.1", "[::1]"}, Loopback},
 		{[]string{"[::ffff:127.0.0.1]"}, Loopback},
 		{[]string{"[fe80::1%lo0]"}, Loopback},
+		// This machine's Tailscale addresses, v4 and v6.
 		{[]string{"100.101.102.103"}, Tailnet},
 		{[]string{"[fd7a:115c:a1e0::1234]"}, Tailnet},
-		{[]string{"127.0.0.1", "100.64.0.1"}, Tailnet},
+		{[]string{"[::ffff:100.101.102.103]"}, Tailnet},
+		{[]string{"127.0.0.1", "100.101.102.103"}, Tailnet},
+		// Other addresses in Tailscale's ranges: carrier-grade NAT, or
+		// another device's Tailscale address.
+		{[]string{"100.64.0.1"}, Network},
+		{[]string{"127.0.0.1", "100.64.0.1"}, Network},
+		{[]string{"[fd7a:115c:a1e0::99]"}, Network},
 		{[]string{"*"}, Network},
 		{[]string{"0.0.0.0"}, Network},
 		{[]string{"[::]"}, Network},
@@ -31,13 +44,34 @@ func TestClassify(t *testing.T) {
 		{[]string{"100.128.0.1"}, Network}, // just outside 100.64.0.0/10
 		{[]string{"[fd7a:115c:a1e1::1]"}, Network},
 		{[]string{"127.0.0.1", "*"}, Network},
-		{[]string{"[::1]", "100.64.0.1", "10.0.0.2"}, Network},
+		{[]string{"[::1]", "100.101.102.103", "10.0.0.2"}, Network},
 		{[]string{"not-an-address"}, Network},
 	}
 	for _, c := range cases {
-		if got := Classify(c.addrs); got != c.want {
+		if got := Classify(c.addrs, thisMachine); got != c.want {
 			t.Errorf("Classify(%q) = %q, want %q", c.addrs, got, c.want)
 		}
+	}
+}
+
+// Without Tailscale (no addresses of its own) every address in its ranges is
+// reachable from the network, and its addresses are not looked up for others.
+func TestClassifyWithoutTailscale(t *testing.T) {
+	for _, own := range []TailnetAddrs{nil, func() []netip.Addr { return nil }} {
+		for _, a := range []string{"100.101.102.103", "[fd7a:115c:a1e0::1234]"} {
+			if got := Classify([]string{a}, own); got != Network {
+				t.Errorf("Classify(%q) without Tailscale = %q, want network", a, got)
+			}
+		}
+	}
+	asked := 0
+	count := func() []netip.Addr { asked++; return thisMachine() }
+	Classify([]string{"127.0.0.1", "*", "192.168.1.20"}, count)
+	if asked != 0 {
+		t.Errorf("looked up Tailscale addresses %d times for addresses outside its ranges", asked)
+	}
+	if got := Classify([]string{"100.101.102.103"}, TailnetAddrs(count).Resolved([]string{"*"}, []string{"100.101.102.103"})); got != Tailnet || asked != 1 {
+		t.Errorf("resolved: %q after %d lookups, want tailnet after 1", got, asked)
 	}
 }
 
@@ -52,8 +86,8 @@ func TestParseLsofMergesAddresses(t *testing.T) {
 	if got[0].Port != 3000 || got[0].PID != 100 || !slices.Equal(got[0].Addresses, []string{"127.0.0.1", "*", "[::1]"}) {
 		t.Errorf("first listener = %+v", got[0])
 	}
-	if Classify(got[0].Addresses) != Network || Classify(got[1].Addresses) != Loopback {
-		t.Errorf("exposures = %q, %q", Classify(got[0].Addresses), Classify(got[1].Addresses))
+	if Classify(got[0].Addresses, nil) != Network || Classify(got[1].Addresses, nil) != Loopback {
+		t.Errorf("exposures = %q, %q", Classify(got[0].Addresses, nil), Classify(got[1].Addresses, nil))
 	}
 }
 
@@ -66,10 +100,10 @@ LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:* users:(("resolved",pid=7,fd=14))
 	if len(got) != 2 {
 		t.Fatalf("got %d listeners, want 2: %+v", len(got), got)
 	}
-	if got[0].Port != 53 || Classify(got[0].Addresses) != Loopback {
+	if got[0].Port != 53 || Classify(got[0].Addresses, nil) != Loopback {
 		t.Errorf("port 53 = %+v", got[0])
 	}
-	if got[1].Port != 5173 || !slices.Equal(got[1].Addresses, []string{"127.0.0.1", "[::]"}) || Classify(got[1].Addresses) != Network {
+	if got[1].Port != 5173 || !slices.Equal(got[1].Addresses, []string{"127.0.0.1", "[::]"}) || Classify(got[1].Addresses, nil) != Network {
 		t.Errorf("port 5173 = %+v", got[1])
 	}
 }

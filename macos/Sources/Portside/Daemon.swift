@@ -101,7 +101,7 @@ struct Server: Decodable, Identifiable, Hashable {
     let forwardedFrom: String?
     /// Whether the project has an icon the daemon serves at /api/servers/<name>/icon.
     let hasIcon: Bool?
-    /// Reachable from the network although the config does not set `lan = true`.
+    /// May be reachable from the network although the config does not set `lan = true`.
     let networkWarning: Bool?
 
     var id: String { name }

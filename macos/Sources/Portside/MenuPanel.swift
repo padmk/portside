@@ -430,7 +430,7 @@ struct MenuPanel: View {
             var parts = [L.status("running")]
             if v.mem > 0 { parts.append(String(format: "%.0f MB", Double(v.mem) / 1_048_576)) }
             if v.stale == true { parts.append(L.t("restart to apply config", "zmieniona konfiguracja")) }
-            if v.networkWarning == true { parts.append(L.t("reachable from network", "dostępny z sieci")) }
+            if v.networkWarning == true { parts.append(L.t("may be reachable from the network", "może być dostępny z sieci")) }
             return parts.joined(separator: " · ")
         default:
             return L.status(v.displayStatus)

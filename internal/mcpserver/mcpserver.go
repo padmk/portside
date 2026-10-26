@@ -181,8 +181,8 @@ type Server struct {
 	External       string  `json:"external,omitempty" jsonschema:"set when another process holds the port"`
 	CPU            float64 `json:"cpuPercent,omitempty"`
 	MemMB          int64   `json:"memMB,omitempty"`
-	Exposure       string  `json:"exposure,omitempty" jsonschema:"where its listeners can be reached from: loopback (this computer only), tailnet (Tailscale addresses only) or network (other devices on the network)"`
-	NetworkWarning bool    `json:"networkWarning,omitempty" jsonschema:"reachable from the network although its config does not set lan = true; binding it to 127.0.0.1 fixes that"`
+	Exposure       string  `json:"exposure,omitempty" jsonschema:"where its listeners can be reached from, by the addresses they listen on: loopback (this computer only), tailnet (this machine's Tailscale addresses only) or network (all interfaces or another address: other devices on the network may connect unless a firewall blocks them)"`
+	NetworkWarning bool    `json:"networkWarning,omitempty" jsonschema:"may be reachable from the network (exposure network) although its config does not set lan = true; binding it to 127.0.0.1 fixes that"`
 
 	Containers []Container `json:"containers,omitempty" jsonschema:"containers attached by project mapping, directory or local project ID"`
 	Outcome    string      `json:"outcome,omitempty" jsonschema:"what ensure_server did: reused (already running) or started"`
@@ -209,7 +209,7 @@ type Container struct {
 	ExitCode     *int     `json:"exitCode,omitempty"`
 	Restarts     int      `json:"restarts,omitempty"`
 	Ports        []string `json:"ports,omitempty" jsonschema:"published ports as host:container/protocol"`
-	NetworkPorts []int    `json:"networkPorts,omitempty" jsonschema:"published host ports reachable from the network although the owning server does not set lan = true"`
+	NetworkPorts []int    `json:"networkPorts,omitempty" jsonschema:"published host ports that may be reachable from the network although the owning server does not set lan = true"`
 	Dir          string   `json:"projectDir,omitempty" jsonschema:"compose project directory, where docker compose commands for it run"`
 }
 

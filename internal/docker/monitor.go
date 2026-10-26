@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
 	"os"
 	"slices"
@@ -158,9 +159,10 @@ type Monitor struct {
 	sampled   bool // usage samples arrived since the last change
 	statePath string
 	killedAt  map[string]time.Time
-	killed    map[string]bool // containers signalled to stop since they last started
-	jobs      map[string]*Job // by container name
-	composeOK map[string]bool // CLIs whose compose subcommand works
+	killed    map[string]bool    // containers signalled to stop since they last started
+	jobs      map[string]*Job    // by container name
+	composeOK map[string]bool    // CLIs whose compose subcommand works
+	tailnet   ports.TailnetAddrs // this machine's Tailscale addresses (SetTailnet)
 	changes   notify.Signals
 	kick      chan struct{}
 }
@@ -179,6 +181,14 @@ func NewMonitor(host Host, interval time.Duration, custom func() string) *Monito
 		killedAt: map[string]time.Time{},
 		kick:     make(chan struct{}, 1),
 	}
+}
+
+// SetTailnet sets how published ports learn this machine's Tailscale
+// addresses, so one listening only on them counts as tailnet.
+func (m *Monitor) SetTailnet(own ports.TailnetAddrs) {
+	m.mu.Lock()
+	m.tailnet = own
+	m.mu.Unlock()
 }
 
 // Subscribe returns a channel signalled on every change.
@@ -539,6 +549,11 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 	}
 	wg.Wait()
 	hostAddrs := hostAddresses(lctx, c.ep, infos)
+	m.mu.Lock()
+	own := m.tailnet
+	m.mu.Unlock()
+	// Looked up before taking the lock, and only when an address needs it.
+	own = own.Resolved(slices.Collect(maps.Values(hostAddrs))...)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -564,7 +579,7 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 		if hostAddrs != nil && infos[i].State.Running {
 			for j, p := range next.Ports {
 				if p.Proto == "tcp" {
-					next.Ports[j].Exposure = ports.Classify(hostAddrs[p.Public])
+					next.Ports[j].Exposure = ports.Classify(hostAddrs[p.Public], own)
 				}
 			}
 		}
@@ -893,9 +908,10 @@ func build(it apiContainer, in *Inspect) Container {
 	return c
 }
 
-// bindExposure classifies an engine's host binding; "" binds all addresses.
+// bindExposure classifies an engine's host binding to keep the widest;
+// "" binds all addresses.
 func bindExposure(hostIP string) ports.Exposure {
-	return ports.Classify([]string{hostIP})
+	return ports.Classify([]string{hostIP}, nil)
 }
 
 func splitList(s string) []string {

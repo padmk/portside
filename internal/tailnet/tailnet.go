@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -262,6 +263,25 @@ func (c *Cache) get(ctx context.Context, maxAge time.Duration) (*Status, error) 
 			return nil, ctx.Err()
 		}
 	}
+}
+
+// SelfAddrs returns this machine's Tailscale addresses from the cached
+// status (read again at most once per ttl), or none when Tailscale is
+// unavailable or does not answer within a few seconds.
+func (c *Cache) SelfAddrs() []netip.Addr {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	st, err := c.Get(ctx)
+	if err != nil || st == nil {
+		return nil
+	}
+	var out []netip.Addr
+	for _, s := range st.Self.IPs {
+		if ip, err := netip.ParseAddr(s); err == nil {
+			out = append(out, ip.Unmap())
+		}
+	}
+	return out
 }
 
 // ServeEntry is how Tailscale Serve uses one port of this machine.

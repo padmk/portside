@@ -518,7 +518,9 @@ func cmdDoctor(e *env, args []string) error {
 			case d.Error != "":
 				fmt.Fprintf(e.out, "%s container engine unavailable: %s\n", e.paint(dim, "•"), d.Error)
 			}
-			doctorExposure(st, warn)
+			doctorExposure(st, warn, func(msg string, a ...any) {
+				fmt.Fprintf(e.out, "%s %s\n", e.paint(dim, "•"), fmt.Sprintf(msg, a...))
+			})
 		}
 	} else if ports.Listening(e.port()) {
 		bad("port %d is taken by another program; change `port` in the config", e.port())

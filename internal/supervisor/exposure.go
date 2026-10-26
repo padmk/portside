@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/padmk/portside/internal/discover"
 	"github.com/padmk/portside/internal/ports"
 )
 
@@ -16,6 +17,15 @@ const ExposureInterval = IdleSampleInterval
 // `lan = true`. Tailnet-only and loopback listeners are not.
 func NetworkWarning(e ports.Exposure, lan bool) bool {
 	return e == ports.Network && !lan
+}
+
+// SetTailnet sets how checkExposure learns this machine's Tailscale
+// addresses, so a listener on one of them counts as tailnet; without it
+// such listeners count as reachable from the network.
+func (s *Supervisor) SetTailnet(own ports.TailnetAddrs) {
+	s.mu.Lock()
+	s.tailnet = own
+	s.mu.Unlock()
 }
 
 // requestExposureLocked asks Run to read listening addresses at its next
@@ -46,13 +56,15 @@ func (s *Supervisor) checkExposure(ctx context.Context, table map[int]procSample
 		name     string
 		pid, gen int
 		port     int
+		dir, cmd string
 	}
 	var targets []target
 	s.mu.Lock()
 	s.exposureWanted, s.exposureAt = false, now
+	own := s.tailnet
 	for name, p := range s.procs {
 		if p.pid != 0 && p.status == Running {
-			targets = append(targets, target{name, p.pid, p.gen, p.running.Port})
+			targets = append(targets, target{name, p.pid, p.gen, p.running.Port, p.running.Dir, p.running.Cmd})
 		}
 	}
 	s.mu.Unlock()
@@ -64,15 +76,20 @@ func (s *Supervisor) checkExposure(ctx context.Context, table map[int]procSample
 		table = sampleProcesses(ctx)
 	}
 	found := make([]ports.Exposure, len(targets))
+	kinds := make([]string, len(targets))
 	for i, t := range targets {
-		found[i] = serverExposure(socks, t.port, func(pid int) bool { return inProcessTree(table, pid, t.pid) })
+		found[i] = serverExposure(socks, t.port, func(pid int) bool { return inProcessTree(table, pid, t.pid) }, own)
+		if found[i] == ports.Network {
+			// The dashboard's fix hint depends on the tool.
+			kinds[i] = discover.CommandKind(t.dir, t.cmd)
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
 	for i, t := range targets {
-		if p := s.procs[t.name]; p != nil && p.gen == t.gen && p.pid == t.pid && p.exposure != found[i] {
-			p.exposure = found[i]
+		if p := s.procs[t.name]; p != nil && p.gen == t.gen && p.pid == t.pid && (p.exposure != found[i] || p.kind != kinds[i]) {
+			p.exposure, p.kind = found[i], kinds[i]
 			changed = true
 		}
 	}
@@ -82,13 +99,14 @@ func (s *Supervisor) checkExposure(ctx context.Context, table map[int]procSample
 }
 
 // serverExposure classifies the addresses of the listeners on port and of
-// those owned by the server's processes (owns) on any port.
-func serverExposure(socks []ports.Listener, port int, owns func(pid int) bool) ports.Exposure {
+// those owned by the server's processes (owns) on any port; own gives this
+// machine's Tailscale addresses.
+func serverExposure(socks []ports.Listener, port int, owns func(pid int) bool, own ports.TailnetAddrs) ports.Exposure {
 	var addrs []string
 	for _, l := range socks {
 		if (port > 0 && l.Port == port) || owns(l.PID) {
 			addrs = append(addrs, l.Addresses...)
 		}
 	}
-	return ports.Classify(addrs)
+	return ports.Classify(addrs, own)
 }

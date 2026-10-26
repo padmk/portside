@@ -1,4 +1,4 @@
-/* The "reachable from the network" badge and its popover. */
+/* The "may be reachable from the network" badge and its popover. */
 .net-badge {
   border: 0;
   cursor: pointer;

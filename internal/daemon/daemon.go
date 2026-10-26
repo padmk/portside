@@ -167,6 +167,8 @@ func Run(cfgPath string) error {
 	}
 
 	ts := tailnet.NewCache(time.Minute)
+	sup.SetTailnet(ts.SelfAddrs)
+	dock.SetTailnet(ts.SelfAddrs)
 	rem := remote.New(cfg.Port, stateDir, ts)
 	sup.SetPortRelease(rem.Release)
 	sup.SetForwarded(rem.Forwarded)
