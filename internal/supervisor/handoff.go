@@ -166,6 +166,9 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		}
 		p.gen++
 		gen := p.gen
+		// Its output before the handoff is not read again, so ready_log
+		// cannot hold back a server that was starting.
+		p.logReady = true
 		p.process = process
 		p.pty = f
 		p.pid = h.PID

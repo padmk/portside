@@ -48,7 +48,7 @@ func probeReady(port int, health string) (host, reason string) {
 			continue
 		}
 		resp.Body.Close()
-		if resp.StatusCode < 500 {
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 			return candidate, ""
 		}
 		reason = fmt.Sprintf("health %s answers %d", path, resp.StatusCode)
@@ -77,6 +77,14 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 			return
 		}
 		port, health, started, pid := p.running.Port, p.running.Health, p.startedAt, p.pid
+		readyLog := ""
+		if p.status == Starting && !p.logReady {
+			readyLog = p.running.ReadyLog
+		}
+		after := p.running.ReadyAfter
+		if port == 0 && after == 0 {
+			after = 1500 * time.Millisecond
+		}
 		next := startingProbe
 		if p.status == Running {
 			next = runningProbe
@@ -88,10 +96,19 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 		}
 
 		host, reason := "", ""
-		ready := time.Since(started) > 1500*time.Millisecond
+		ready := true
 		if port > 0 {
 			host, reason = probeReady(port, health)
 			ready = host != "" && reason == ""
+		}
+		if readyLog != "" {
+			ready = false
+			if reason == "" {
+				reason = "waiting for a line matching " + readyLog
+			}
+		}
+		if time.Since(started) < after {
+			ready = false
 		}
 		var listenPorts []int
 		inspect := !ready && time.Since(started) >= readinessNoteDelay && time.Since(lastPorts) >= 5*time.Second

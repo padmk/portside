@@ -69,12 +69,14 @@ stop_timeout = "30s"
 | --- | --- |
 | `dir` | Working directory, relative to `root` or absolute. |
 | `cmd` | Shell command, run with `bash -c`. `{PORT}` is replaced; `$PORT` is set too. |
-| `port` | Port the server listens on. Omit it to assign a free port from 3001 (skipping ports of temporary servers), saved to the file on daemon load; `0` for none. |
+| `port` | Port the server listens on. Omit it to assign a free port from 3001 (skipping ports of temporary servers), saved to the file on daemon load; `0` for none, and such a server counts as running 1.5 s after it starts (see `ready_log` and `ready_after`). |
 | `group` | Name for starting and stopping related servers together. |
 | `projects` | Explicit Compose project names attached to this server, overriding directory matching for those projects. Names must be unique within the list, start with a lowercase letter or digit, and contain only lowercase letters, digits, dashes or underscores. |
 | `depends_on` | Servers that must be running (and ready) before this one starts. |
 | `restart` | `no` (default), `on-failure` (after a non-zero exit) or `always` (after any exit). Restarts wait 1 s, then 2, 4, 8 and 16 s; after 5 restarts in a row the server stays `crashed`. A run longer than a minute starts the count again. |
-| `health` | HTTP path that must answer (status < 500) before the server counts as running. A running server that stops answering gets a note in its status; it is not restarted. |
+| `health` | HTTP path that must answer with a success or a redirect (status 200 to 399) before the server counts as running. A running server that stops answering gets a note in its status; it is not restarted. |
+| `ready_log` | Regular expression that a line of the server's output must match before it counts as running, in addition to its port and `health`; for example `ready_log = "Worker ready"` for a worker without a port. Until then it stays `starting`, and so do servers that `depends_on` it. |
+| `ready_after` | How long the process must run before it counts as running, such as `"10s"`; without it a server with a port counts as soon as the port answers, and one without a port after 1.5 s. |
 | `on_crash` | Command run when this server crashes for good, instead of the top-level `on_crash`; `""` runs none for it ([Crash command](#crash-command)). |
 | `env` | Extra environment variables. `{PORT}` works in values. The dashboard hides secret-looking values until revealed. |
 | `stop_timeout` | How long to wait after `Ctrl-C` before `SIGTERM`. |

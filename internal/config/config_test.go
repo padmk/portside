@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/padmk/portside/internal/app"
 )
@@ -189,6 +190,19 @@ on_crash = ""
 		if s, _ := cfg.Server(name); s.OnCrash != want {
 			t.Errorf("%s: OnCrash = %q, want %q", name, s.OnCrash, want)
 		}
+	}
+}
+
+func TestParseReadiness(t *testing.T) {
+	cfg, err := Parse("/tmp/portside.toml", []byte("[servers.worker]\ncmd = \"x\"\nport = 0\nready_log = \"Worker ready\"\nready_after = \"10s\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := cfg.Server("worker"); s.ReadyLog != "Worker ready" || s.ReadyAfter != 10*time.Second {
+		t.Fatalf("server = %+v", s)
+	}
+	if _, err := Parse("/tmp/portside.toml", []byte("[servers.worker]\ncmd = \"x\"\nready_log = \"(unclosed\"\n")); err == nil {
+		t.Fatal("an invalid ready_log was accepted")
 	}
 }
 

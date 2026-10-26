@@ -110,6 +110,12 @@ type Server struct {
 	// OnCrash is the shell command run once the server has crashed for good:
 	// the server's own on_crash, else the top-level one; "" runs nothing.
 	OnCrash string
+	// ReadyLog, when set, is a regular expression a line of the server's
+	// output must match before it counts as running (checked at load).
+	ReadyLog string
+	// ReadyAfter is how long the process must have run before it counts as
+	// running; 0 means the default (immediately with a port, 1.5 s without).
+	ReadyAfter time.Duration
 }
 
 // IsComposeCommand reports whether a server's command runs a compose stack.
@@ -218,6 +224,8 @@ type rawServer struct {
 	Enabled     *bool             `toml:"enabled"`
 	LAN         bool              `toml:"lan"`
 	OnCrash     *string           `toml:"on_crash"`
+	ReadyLog    string            `toml:"ready_log"`
+	ReadyAfter  *Duration         `toml:"ready_after"`
 }
 
 type rawConfig struct {
@@ -360,6 +368,18 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		}
 		if r.OnCrash != nil {
 			s.OnCrash = strings.TrimSpace(*r.OnCrash)
+		}
+		if r.ReadyLog != "" {
+			if _, err := regexp.Compile(r.ReadyLog); err != nil {
+				return nil, fmt.Errorf("%s: [servers.%s]: ready_log: %w", path, name, err)
+			}
+			s.ReadyLog = r.ReadyLog
+		}
+		if r.ReadyAfter != nil {
+			if r.ReadyAfter.Duration < 0 {
+				return nil, fmt.Errorf("%s: [servers.%s]: ready_after must not be negative", path, name)
+			}
+			s.ReadyAfter = r.ReadyAfter.Duration
 		}
 		projects := map[string]bool{}
 		for _, project := range s.Projects {

@@ -19,7 +19,7 @@ After an update, run `portside daemon restart` with the new binary: servers keep
 
 ## Servers that stay up
 
-Give each server a restart policy, and `health` when it serves HTTP:
+Give each server a restart policy, `health` when it serves HTTP, and `ready_log` when it only becomes ready after it prints something:
 
 ```toml
 on_crash = "~/bin/report-crash"     # see below
@@ -34,7 +34,8 @@ restart = "on-failure"
 [servers.worker]
 dir = "apps/worker"
 cmd = "uv run python -m worker"
-port = 0                            # no port: running 1.5 s after it starts
+port = 0                            # no port
+ready_log = "Worker ready"          # running once it prints this line
 restart = "always"
 ```
 
