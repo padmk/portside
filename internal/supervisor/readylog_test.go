@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -71,7 +72,7 @@ func TestReadyAfterDelaysRunning(t *testing.T) {
 
 func TestReadyLogSeesALineInAFlood(t *testing.T) {
 	p := &proc{logs: NewMemoryLog()}
-	p.logs.WatchLines(newReadyMatcher(p, regexp.MustCompile(`^Worker ready$`), "").watch)
+	p.logs.WatchLines(newReadyMatcher(p, regexp.MustCompile(`^Worker ready$`), nil).watch)
 	for i := 0; i < 20000; i++ {
 		fmt.Fprintf(p.logs, "\x1b[2mline %d\x1b[0m\r\n", i)
 		if i == 12345 {
@@ -118,12 +119,19 @@ func TestAdoptedServerKeepsWaitingForItsReadyLine(t *testing.T) {
 		{"line still to come", "", "sleep 1; echo 'Worker ready'; sleep 60", true},
 		{"line split by the upgrade", "Worker re", "sleep 1; echo 'ady'; sleep 60", true},
 		{"pattern after other text", "Not ", "sleep 1; echo 'Worker ready'; sleep 60", false},
+		{"a character split by the upgrade", "Za\xc5", `sleep 1; printf '\274\303\263\305\202\304\207\n'; sleep 60`, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := lifecycleSupervisor(t, "unused", config.RestartNo)
 			cfg := s.procs["web"].cfg
-			cfg.ReadyLog = `^Worker ready$`
-			adopt(t, s, c.script, Handoff{Config: cfg, Status: Starting, LogReady: &waiting, LogLine: c.pending})
+			cfg.ReadyLog = `^(Worker ready|Zażółć)$`
+			// Through JSON, as the handoff file carries it.
+			var h Handoff
+			data, _ := json.Marshal(Handoff{Config: cfg, Status: Starting, LogReady: &waiting, LogLine: []byte(c.pending)})
+			if err := json.Unmarshal(data, &h); err != nil {
+				t.Fatal(err)
+			}
+			adopt(t, s, c.script, h)
 			if st := s.Snapshot(19000)[0].Status; st != Starting {
 				t.Fatalf("adopted server before its ready line: %s", st)
 			}
@@ -147,7 +155,7 @@ func TestAdoptedServerKeepsItsLostReadiness(t *testing.T) {
 
 func TestReadyLogWaitsForTheWholeLine(t *testing.T) {
 	p := &proc{logs: NewMemoryLog()}
-	p.logs.WatchLines(newReadyMatcher(p, regexp.MustCompile(`^Worker ready$`), "").watch)
+	p.logs.WatchLines(newReadyMatcher(p, regexp.MustCompile(`^Worker ready$`), nil).watch)
 	fmt.Fprint(p.logs, "Worker ready")
 	fmt.Fprint(p.logs, " not yet\r\n")
 	if p.logReady.Load() {

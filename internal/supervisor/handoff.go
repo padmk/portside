@@ -42,7 +42,7 @@ type Handoff struct {
 	// (nil from a daemon before it), and LogLine is the unfinished line the
 	// match continues with.
 	LogReady *bool  `json:"logReady,omitempty"`
-	LogLine  string `json:"logLine,omitempty"`
+	LogLine  []byte `json:"logLine,omitempty"`
 	// MissingSince is when a running server stopped answering, so its lost
 	// readiness stays reported.
 	MissingSince time.Time `json:"missingSince,omitzero"`
@@ -65,6 +65,15 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 			return nil, fmt.Errorf("%s is stopping; try again once it has stopped", name)
 		}
 	}
+	// Readers stop between reads, so what the processes write from now on
+	// stays in their terminals for the new daemon, and the state below
+	// (ready_log matches) covers everything read so far. A terminal that
+	// cannot be interrupted leaves a short window.
+	for _, name := range s.order {
+		if p := s.procs[name]; p != nil && p.pid != 0 && p.reader != nil {
+			p.reader.Pause(2 * time.Second)
+		}
+	}
 	// The state file keeps the process groups for orphan recovery, in case
 	// the new binary does not take them over.
 	s.saveLocked()
@@ -75,11 +84,15 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 		if p == nil || p.pid == 0 || p.pty == nil {
 			continue
 		}
-		logReady := p.logReady.Load()
-		var logLine string
-		if m := p.readyMatch; m != nil && !logReady {
-			p.logs.Locked(func() { logLine = string(m.line) })
-		}
+		// Read together, under the lock the matcher runs under.
+		var logReady bool
+		var logLine []byte
+		p.logs.Locked(func() {
+			logReady = p.logReady.Load()
+			if m := p.readyMatch; m != nil && !logReady {
+				logLine = slices.Clone(m.line)
+			}
+		})
 		out = append(out, Handoff{
 			Name: name, PID: p.pid, PIDStart: p.pidStart, pty: p.pty,
 			Config: p.running, Env: slices.Clone(p.runningEnv), Shell: p.runningShell, Tool: p.runningTool, Launch: p.launch,
@@ -95,6 +108,11 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 // CancelHandoff resumes normal operation after a failed exec.
 func (s *Supervisor) CancelHandoff() {
 	s.mu.Lock()
+	for _, p := range s.procs {
+		if p.reader != nil {
+			p.reader.Resume()
+		}
+	}
 	s.closing = false
 	s.changedLocked()
 	s.mu.Unlock()
@@ -185,7 +203,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		logReady := h.LogReady == nil || *h.LogReady
 		p.logReady.Store(logReady)
 		if logReady {
-			installReadyLog(p, "", "")
+			installReadyLog(p, "", nil)
 		} else {
 			installReadyLog(p, h.Config.ReadyLog, h.LogLine)
 		}
@@ -225,12 +243,14 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		p.done = make(chan struct{})
 		p.copied = make(chan struct{})
 		copied := p.copied
+		p.reader = newOutputReader(f, p.logs)
+		reader := p.reader
 		s.changedLocked()
 		s.mu.Unlock()
 
 		go func() {
 			defer close(copied)
-			_, _ = copyTo(p.logs, f)
+			reader.run()
 		}()
 		go s.wait(h.Name, p, gen)
 		go s.watchReady(h.Name, p, gen)
@@ -254,6 +274,9 @@ func inheritTerminal(h Handoff) (*os.File, error) {
 		return nil, fmt.Errorf("descriptor %d is not a terminal", h.PTY)
 	}
 	syscall.CloseOnExec(h.PTY)
+	// Non-blocking, so Go's poller serves it and a later upgrade can pause
+	// its reader (a daemon before that left it blocking).
+	_ = syscall.SetNonblock(h.PTY, true)
 	f := os.NewFile(uintptr(h.PTY), "pty-"+h.Name)
 	if !sameStart(h.PID, h.PIDStart) {
 		f.Close()

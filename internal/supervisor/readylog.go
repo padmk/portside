@@ -3,6 +3,7 @@ package supervisor
 import (
 	"bytes"
 	"regexp"
+	"slices"
 )
 
 // readyLogLine bounds the unfinished line kept while waiting for a newline.
@@ -20,8 +21,8 @@ type readyMatcher struct {
 
 // newReadyMatcher starts matching with pending, an unfinished line carried
 // over from the daemon before an upgrade.
-func newReadyMatcher(p *proc, re *regexp.Regexp, pending string) *readyMatcher {
-	return &readyMatcher{p: p, re: re, line: []byte(pending)}
+func newReadyMatcher(p *proc, re *regexp.Regexp, pending []byte) *readyMatcher {
+	return &readyMatcher{p: p, re: re, line: slices.Clone(pending)}
 }
 
 func (m *readyMatcher) watch(chunk []byte) bool {
@@ -45,7 +46,7 @@ func (m *readyMatcher) watch(chunk []byte) bool {
 
 // installReadyLog makes p wait for a line matching pattern (checked when the
 // config loaded), continuing the unfinished line pending; "" stops waiting.
-func installReadyLog(p *proc, pattern, pending string) {
+func installReadyLog(p *proc, pattern string, pending []byte) {
 	p.readyMatch = nil
 	if pattern != "" {
 		if re, err := regexp.Compile(pattern); err == nil {

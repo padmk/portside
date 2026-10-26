@@ -85,6 +85,7 @@ type proc struct {
 	gen            int // increments on every start; stale goroutines compare it
 	done           chan struct{}
 	copied         chan struct{} // closed when all PTY output has been read
+	reader         *outputReader // copies the terminal into logs
 	logs           *LogBuffer
 	hist           history
 	cpu            float64
@@ -605,10 +606,10 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	// Watched before the process starts, so its first lines are seen;
 	// ready_log was checked when the config loaded.
 	p.logReady.Store(false)
-	installReadyLog(p, sv.ReadyLog, "")
+	installReadyLog(p, sv.ReadyLog, nil)
 	f, err := pty.StartWithSize(cmd, size)
 	if err != nil {
-		installReadyLog(p, "", "")
+		installReadyLog(p, "", nil)
 		p.status = Crashed
 		p.note = "failed to start: " + err.Error()
 		s.reportCrashLocked(p, nil, 0)
@@ -617,6 +618,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		s.mu.Unlock()
 		return err
 	}
+	f = pollableTerminal(f)
 	p.gen++
 	gen := p.gen
 	p.process = cmd.Process
@@ -647,32 +649,19 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.done = make(chan struct{})
 	p.copied = make(chan struct{})
 	copied := p.copied
+	p.reader = newOutputReader(f, p.logs)
+	reader := p.reader
 	s.changedLocked()
 	s.saveLocked()
 	s.mu.Unlock()
 
 	go func() {
 		defer close(copied)
-		_, _ = copyTo(p.logs, f)
+		reader.run()
 	}()
 	go s.wait(name, p, gen)
 	go s.watchReady(name, p, gen)
 	return nil
-}
-
-func copyTo(dst *LogBuffer, src *os.File) (int64, error) {
-	buf := make([]byte, 32*1024)
-	var n int64
-	for {
-		k, err := src.Read(buf)
-		if k > 0 {
-			_, _ = dst.Write(buf[:k])
-			n += int64(k)
-		}
-		if err != nil {
-			return n, err
-		}
-	}
 }
 
 // exitCode is a shell-style exit code: 128 plus the signal for a process
@@ -901,7 +890,7 @@ func (s *Supervisor) Resize(name string, cols, rows uint16) {
 	}
 	p.cols, p.rows = cols, rows
 	if p.pid != 0 && p.pty != nil {
-		_ = pty.Setsize(p.pty, &pty.Winsize{Cols: cols, Rows: rows})
+		_ = setTerminalSize(p.pty, cols, rows)
 	}
 }
 
