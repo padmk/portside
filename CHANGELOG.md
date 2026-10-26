@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- **Homebrew on Linux:** `brew install --formula padmk/tap/portside` builds the command-line tool and dashboard on Linux too, and its notes mention `portside service install`.
+- **CLI:** `portside doctor` on Linux also warns when `notify-send` is installed but the daemon runs without a display, as on a server, since a crash of a server without `on_crash` would then notify no one.
+
 ## 0.6.0
 
 - **Crash command:** `on_crash` (top level, or per server to override it; `""` turns it off for one) runs a command once a server has crashed for good: at once with `restart = "no"`, after the last automatic restart otherwise (with `always` also for a server that keeps exiting with code 0), and when a server cannot start. The server, exit code, uptime, restarts, note, log file and last 20 log lines come in `PORTSIDE_*` environment variables, never in the command line. It runs whatever the `notify` setting and connected apps, so a server without a desktop can report crashes ([Crash command](docs/configuration.md#crash-command)).
