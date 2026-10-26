@@ -728,7 +728,7 @@ func (m *Manager) wrapped(c *conn) []byte {
 // links to) is sandboxed, cannot set cookies or site data, and cannot
 // redirect or preload. The proof headers stay between the two daemons.
 func sanitizeRelayed(h http.Header) {
-	for _, k := range []string{share.HeaderProof, share.HeaderEpoch, "Set-Cookie", "Clear-Site-Data", "Refresh", "Link", "Content-Security-Policy-Report-Only"} {
+	for _, k := range []string{share.HeaderProof, share.HeaderEpoch, "Set-Cookie", "Clear-Site-Data", "Refresh", "Location", "Link", "Content-Security-Policy-Report-Only"} {
 		h.Del(k)
 	}
 	h.Set("Content-Security-Policy", csp.Untrusted)

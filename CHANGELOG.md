@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- **Security:** replies relayed from a connected computer also lose their `Location` header, so none of them can redirect the dashboard, as the security docs state.
+
 ## 0.4.0
 
 - **Releases:** the files are built in jobs that cannot publish; a separate job creates the release, and the Homebrew tap token is only available to release tags in a protected environment.

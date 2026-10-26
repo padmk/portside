@@ -15,7 +15,7 @@ func TestSanitizeRelayed(t *testing.T) {
 	h := http.Header{}
 	h.Set("Content-Type", "text/html")
 	h.Set("Content-Security-Policy", "script-src *")
-	for _, k := range []string{share.HeaderProof, share.HeaderEpoch, "Set-Cookie", "Clear-Site-Data", "Refresh", "Link", "Content-Security-Policy-Report-Only"} {
+	for _, k := range []string{share.HeaderProof, share.HeaderEpoch, "Set-Cookie", "Clear-Site-Data", "Refresh", "Location", "Link", "Content-Security-Policy-Report-Only"} {
 		h.Set(k, "x")
 	}
 	sanitizeRelayed(h)
@@ -28,7 +28,7 @@ func TestSanitizeRelayed(t *testing.T) {
 	if h.Get("X-Content-Type-Options") != "nosniff" {
 		t.Error("X-Content-Type-Options is not nosniff")
 	}
-	for _, k := range []string{share.HeaderProof, share.HeaderEpoch, "Set-Cookie", "Clear-Site-Data", "Refresh", "Link", "Content-Security-Policy-Report-Only"} {
+	for _, k := range []string{share.HeaderProof, share.HeaderEpoch, "Set-Cookie", "Clear-Site-Data", "Refresh", "Location", "Link", "Content-Security-Policy-Report-Only"} {
 		if v := h.Get(k); v != "" {
 			t.Errorf("%s passed through: %q", k, v)
 		}
