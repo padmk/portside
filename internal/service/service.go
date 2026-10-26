@@ -359,16 +359,24 @@ func MissingDisplay() bool {
 	if err != nil || pid <= 0 {
 		return false
 	}
+	has, known := HasDisplay(pid)
+	return known && !has
+}
+
+// HasDisplay reports whether process pid runs with a DISPLAY or
+// WAYLAND_DISPLAY (Linux), which desktop notifications need; known is false
+// when its environment cannot be read.
+func HasDisplay(pid int) (has, known bool) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
 	if err != nil {
-		return false
+		return false, false
 	}
 	for _, kv := range strings.Split(string(data), "\x00") {
 		if strings.HasPrefix(kv, "DISPLAY=") || strings.HasPrefix(kv, "WAYLAND_DISPLAY=") {
-			return false
+			return true, true
 		}
 	}
-	return true
+	return false, true
 }
 
 // Start starts the installed service's daemon if it is not running.

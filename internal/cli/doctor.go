@@ -147,7 +147,11 @@ func cmdDoctor(e *env, args []string) error {
 		warn("neither lsof nor ss found; owners of busy ports cannot be shown")
 	}
 	if cfg != nil {
-		doctorCrashReports(cfg, ok, warn)
+		pid := 0
+		if h, err := c.Ping(e.ctx); err == nil && h.Verified {
+			pid = h.PID
+		}
+		doctorCrashReports(cfg, pid, ok, warn)
 	}
 	doctorShell(e, ok, warn)
 	doctorAgents(e, *fix, ok, warn, bad)
@@ -159,8 +163,9 @@ func cmdDoctor(e *env, args []string) error {
 }
 
 // doctorCrashReports says where crashes are reported: by on_crash, and on
-// Linux whether desktop notifications can be shown at all.
-func doctorCrashReports(cfg *config.Config, ok, warn func(string, ...any)) {
+// Linux whether desktop notifications can be shown at all, by the daemon
+// with pid when it runs.
+func doctorCrashReports(cfg *config.Config, pid int, ok, warn func(string, ...any)) {
 	hooked := 0
 	for _, s := range cfg.Servers {
 		if s.OnCrash != "" {
@@ -173,8 +178,14 @@ func doctorCrashReports(cfg *config.Config, ok, warn func(string, ...any)) {
 	if runtime.GOOS != "linux" || !cfg.Notify || hooked == len(cfg.Servers) {
 		return
 	}
+	reason := ""
 	if _, err := exec.LookPath("notify-send"); err != nil {
-		warn("notify-send is not installed, so a crash of a server without on_crash notifies no one; set on_crash to run a command for it (docs/configuration.md), or notify = false")
+		reason = "notify-send is not installed"
+	} else if has, known := service.HasDisplay(pid); pid > 0 && known && !has {
+		reason = "the daemon runs without a display"
+	}
+	if reason != "" {
+		warn("desktop notifications cannot be shown (%s), so a crash of a server without on_crash notifies no one; set on_crash to run a command for it (docs/configuration.md), or notify = false", reason)
 	}
 }
 

@@ -124,7 +124,7 @@ The command runs with `sh -c` in your home directory. Its environment is what se
 | `PORTSIDE_LOG_TAIL` | The last 20 lines of the log (at most 8 KiB, without colors), with the start and exit lines Portside writes there. Output can hold secrets, so treat it as you treat the logs. |
 | `PORTSIDE_LOG_FILE` | The server's full log file. |
 
-The daemon does not wait for the command, and runs at most four at once. One still running after 30 seconds is stopped, and either result is in the daemon log (`portside daemon logs`). Delivery is best effort: a failed command is not retried, and a report is lost when the daemon stops while it runs, so let your monitoring also check the daemon itself. `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but `notify-send` is missing, because a crash would then notify no one.
+The daemon does not wait for the command, and runs at most four at once. One still running after 30 seconds is stopped, and either result is in the daemon log (`portside daemon logs`). Delivery is best effort: a failed command is not retried, and a report is lost when the daemon stops while it runs, so let your monitoring also check the daemon itself. `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but no notification can be shown (no `notify-send`, or a daemon without a display), because a crash would then notify no one.
 
 ## Editor, terminal, shell and Docker
 
