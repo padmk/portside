@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check of the Linux login service on a machine with systemd and
-# no desktop: install, restarts and crash commands, the journal, an in-place
-# upgrade, restore after a service restart, a start that fails, and an
-# isolated instance next to the service. It uses the default config and state
+# no desktop: install, readiness by a log line, restarts and crash commands,
+# `check`, the journal, an in-place upgrade, restore after a service
+# restart, a start that fails, and an isolated instance next to the service. It uses the default config and state
 # locations, so run it as a normal user with sudo (for lingering) on a
 # disposable machine, such as a CI runner.
 #
@@ -55,8 +55,9 @@ health = "/"
 restart = "on-failure"
 
 [servers.worker]
-cmd = "while true; do sleep 1; done"
+cmd = "sleep 2; echo Worker ready; while true; do sleep 1; done"
 port = 0
+ready_log = "Worker ready"
 restart = "on-failure"
 
 [servers.failing]
@@ -74,13 +75,21 @@ grep -q "on_crash reports crashes of 3 of 3 servers" "$work/doctor" || { cat "$w
 
 step "servers, restarts and on_crash"
 portside up web worker failing > /dev/null
-wait_for 5 is worker running || fail "worker with port = 0 not running: $(field worker status)"
+sleep 1
+is worker starting || fail "worker running before its ready_log line: $(field worker status)"
+wait_for 10 is worker running || fail "worker not running after its ready_log line: $(field worker status)"
 wait_for 15 is web running || fail "web not running: $(field web note)"
 wait_for 50 grep -q "^failing 2 5$" "$work/calls" || fail "on_crash for failing: $(cat "$work/calls" 2>/dev/null)"
 [ "$(field failing restarts)" = 5 ] || fail "failing restarts: $(field failing restarts)"
-portside down web > /dev/null
+set +e
+portside check > "$work/check"
+code=$?
+set -e
+[ "$code" = 1 ] && grep -q failing "$work/check" || { cat "$work/check"; fail "check exited $code instead of 1 for a crashed server"; }
+portside down web failing > /dev/null
 sleep 1
 [ "$(wc -l < "$work/calls")" = 1 ] || fail "on_crash ran more than once or for a stop: $(cat "$work/calls")"
+portside check > /dev/null || fail "check failed with every server that should run ready"
 
 step "daemon logs from the journal"
 portside daemon logs -n 50 > "$work/logs"
