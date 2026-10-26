@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -51,6 +52,9 @@ type Handoff struct {
 	Rows         uint16    `json:"rows"`
 }
 
+// pauseTimeout bounds how long PrepareHandoff waits for a terminal's reader.
+var pauseTimeout = 2 * time.Second
+
 // PrepareHandoff refuses new launches and returns every live server. A
 // server that is being stopped blocks the handoff, since its stop must
 // finish in one place. KeepTerminalsOnExec then keeps the terminals open
@@ -69,20 +73,39 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	// Readers stop between reads, so what the processes write from now on
 	// stays in their terminals for the new daemon, and the state below
 	// (ready_log matches) covers everything read so far. A reader that does
-	// not stop leaves a window in which a ready_log line can be missed (its
-	// output still reaches the log file), which is logged rather than worth
-	// refusing the upgrade for.
+	// not stop could let a ready_log line slip between the two daemons (its
+	// output still reaches the log file), so the upgrade is refused for a
+	// server still waiting for that line, and only logged for the others.
 	var paused sync.WaitGroup
+	var mu sync.Mutex
+	var waiting []string
 	for _, name := range s.order {
 		if p := s.procs[name]; p != nil && p.pid != 0 && p.reader != nil {
+			awaits := p.status == Starting && p.running.ReadyLog != "" && !p.logReady.Load()
 			paused.Go(func() {
-				if !p.reader.Pause(2 * time.Second) {
-					log.Printf("handoff: %s: its terminal could not be paused; a ready_log line it prints during the upgrade may be missed", name)
+				if p.reader.Pause(pauseTimeout) {
+					return
 				}
+				if awaits {
+					mu.Lock()
+					waiting = append(waiting, name)
+					mu.Unlock()
+					return
+				}
+				log.Printf("handoff: %s: its terminal could not be paused; output it writes during the upgrade is read by this daemon", name)
 			})
 		}
 	}
 	paused.Wait()
+	if len(waiting) > 0 {
+		for _, p := range s.procs {
+			if p.reader != nil {
+				p.reader.Resume()
+			}
+		}
+		slices.Sort(waiting)
+		return nil, fmt.Errorf("the terminal of %s could not be paused while it waits for its ready_log line; try again", strings.Join(waiting, ", "))
+	}
 	// The state file keeps the process groups for orphan recovery, in case
 	// the new binary does not take them over.
 	s.saveLocked()

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/padmk/portside/internal/config"
 )
 
 // TestPauseKeepsOutputInTheTerminal checks that a paused reader leaves what
@@ -86,4 +88,40 @@ func TestPauseReturnsAtOnceForAnEndedReader(t *testing.T) {
 	if d := time.Since(start); d > 200*time.Millisecond {
 		t.Fatalf("Pause waited %v for an ended reader", d)
 	}
+}
+
+func TestHandoffRefusedWhenAWaitingTerminalCannotPause(t *testing.T) {
+	old := pauseTimeout
+	pauseTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { pauseTimeout = old })
+	s := lifecycleSupervisor(t, "while true; do echo tick; sleep 0.01; done", config.RestartNo)
+	s.procs["web"].cfg.ReadyLog = "^never$"
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	p := s.procs["web"]
+	// Hold the log while the reader is writing to it, so it cannot reach
+	// its next read and stop.
+	held, release := make(chan struct{}), make(chan struct{})
+	time.Sleep(200 * time.Millisecond)
+	go p.logs.Locked(func() { close(held); <-release })
+	<-held
+	time.Sleep(50 * time.Millisecond)
+	hs, err := s.PrepareHandoff()
+	close(release)
+	if err == nil || !strings.Contains(err.Error(), "web") {
+		t.Fatalf("handoff = %v, %v; want it refused naming web", hs, err)
+	}
+	before := len(p.logs.Raw())
+	deadline := time.Now().Add(3 * time.Second)
+	for len(p.logs.Raw()) == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the reader did not resume after the refused handoff")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, err := s.PrepareHandoff(); err != nil {
+		t.Fatalf("a later handoff with the reader free: %v", err)
+	}
+	s.CancelHandoff()
 }
