@@ -64,7 +64,7 @@ make app-install        # macOS: builds Portside.app and installs it in /Applica
 
 **Browser.** The dashboard is served at its own `*.localhost` host, so it needs a browser that resolves `*.localhost`: Chrome, Firefox, or Safari on macOS 26 and later (the app's dashboard window uses the same WebKit).
 
-**Updating.** `make app-install` quits a running copy, installs the new one, upgrades a running daemon to the new binary in place and reopens the app. After any other update (Homebrew, a release download, `make install`), run `portside daemon restart` with the new binary; the app's **Restart** banner, shown when the daemon's version differs from the app's, does the same. Servers keep running through the update.
+**Updating.** With the app, `brew upgrade --cask portside` is all it takes: Homebrew quits the app, installs the new one and reopens it, and the app upgrades the older running daemon in place. `make app-install` does the same for a build from source. After an update without the app (the formula, a release download, `make install`), run `portside daemon restart` with the new binary; `portside status` and `portside doctor` mention a daemon older than the command. Servers keep running through the update. When the app cannot upgrade the daemon in place (one too old for that, or a refused upgrade), its **Restart** banner, shown whenever the daemon's version differs from the app's, restarts it.
 
 **Uninstalling.** First stop the daemon and its servers with `portside daemon stop` (or `portside service uninstall` if you installed the login service, which also stops it). `brew uninstall` and `brew upgrade` leave them running; `brew uninstall --zap --cask portside` stops them and trashes the config and state.
 

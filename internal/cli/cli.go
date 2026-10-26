@@ -167,7 +167,7 @@ func init() {
 		{names: []string{"init"}, section: "Configuration", usage: "init", summary: "Create the config file", run: cmdInit},
 		{names: []string{"config"}, section: "Configuration", usage: "config [path|edit|check]", summary: "Show, edit or validate the config", run: cmdConfig},
 
-		{names: []string{"daemon"}, section: "Daemon", usage: "daemon [start|stop|restart|status|info [--no-start]|logs]", summary: "Run the daemon in the foreground, or control it", run: cmdDaemon},
+		{names: []string{"daemon"}, section: "Daemon", usage: "daemon [start|stop|restart [--in-place]|status|info [--no-start]|logs]", summary: "Run the daemon in the foreground, or control it", run: cmdDaemon},
 		{names: []string{"service"}, section: "Daemon", usage: "service install|uninstall|status", summary: "Start the daemon at login (launchd / systemd)", run: cmdService},
 		{names: []string{"share"}, section: "Daemon", usage: "share [on|off|code|devices|revoke <device>]", summary: "Let your paired devices on Tailscale connect to this computer", run: cmdShare},
 		{names: []string{"mcp"}, section: "Daemon", usage: "mcp [--mode read-only|start|full] [--dir <path>]...", summary: "MCP server on stdio for coding agents; --mode limits what the tools change (--read-only for read-only), --dir the projects they see", run: cmdMCP},

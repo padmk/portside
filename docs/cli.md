@@ -24,6 +24,8 @@ portside init                            write the starter config file
 portside config [path|edit|check]
 
 portside daemon [start|stop|restart|status|logs]
+                                         restart --in-place: only an in-place upgrade,
+                                         failing instead of restarting the servers
 portside service install|uninstall|status
 portside share [on|off]                  let your paired devices on Tailscale connect;
                                          on prints a pairing code

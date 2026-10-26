@@ -54,6 +54,9 @@ func cmdStatus(e *env, args []string) error {
 	if e.conn != nil {
 		fmt.Fprintf(e.out, "%s\n", e.paint(dim, "on "+e.conn.Peer.Name))
 	}
+	if e.conn == nil && app.Older(st.Daemon.Version) {
+		fmt.Fprintf(e.errOut, "note: the daemon runs %s, older than this command (%s); `%s daemon restart` updates it\n\n", st.Daemon.Version, app.Version, app.ID)
+	}
 	if st.Config.Error != "" {
 		fmt.Fprintf(e.errOut, "%s %s\n\n", e.paint(red, "config error:"), st.Config.Error)
 	}

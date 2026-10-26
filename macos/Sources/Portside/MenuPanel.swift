@@ -296,7 +296,8 @@ struct MenuPanel: View {
         }
         if store.connection == .connected, store.versionDiffers, let running = store.daemonVersion {
             banner(icon: "arrow.triangle.2.circlepath",
-                   text: L.t("The daemon runs version \(running), which differs from this app.", "Demon działa w wersji \(running), innej niż ta aplikacja."), tint: .blue,
+                   text: L.t("The daemon runs version \(running), which differs from this app.", "Demon działa w wersji \(running), innej niż ta aplikacja.")
+                       + (store.upgradeError.map { L.t(" Updating it failed: ", " Nie udało się go zaktualizować: ") + $0 } ?? ""), tint: .blue,
                    button: (L.t("Restart", "Uruchom ponownie"), { store.restartDaemon() }))
         }
         if let err = store.lastError {

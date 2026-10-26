@@ -20,6 +20,9 @@ cask "portside" do
   end
 
   # Upgrades run this too, so it leaves the daemon and its servers running.
+  # `brew upgrade` reopens an app it quit (Homebrew 5.1.12 or later), and the
+  # app then upgrades the older daemon in place. The cask opens nothing
+  # itself: an `open` here would make that reopen show the dashboard window.
   uninstall quit: "__BUNDLE_ID__"
 
   # The bundled binary is already removed when this runs, so the login
@@ -53,6 +56,7 @@ cask "portside" do
       portside setup
 
     Uninstalling or upgrading leaves the daemon and its dev servers running.
+    After an upgrade the app, once it runs again, updates the daemon in place.
     Before `brew uninstall --cask portside`, stop them with:
       portside daemon stop
     and, if you installed the login service:

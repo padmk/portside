@@ -60,8 +60,16 @@ func cmdDaemon(e *env, args []string) error {
 			fmt.Fprintf(e.errOut, "note: the login service starts it at your next login; `%s service uninstall` turns that off\n", app.ID)
 		}
 	case "restart":
+		fs := flag.NewFlagSet("daemon restart", flag.ContinueOnError)
+		inPlace := fs.Bool("in-place", false, "only upgrade a running daemon in place")
+		if _, err := parse(fs, args[1:]); err != nil {
+			return err
+		}
 		if _, err := config.Load(e.cfgPath); err != nil {
 			return fmt.Errorf("refusing to restart daemon: %w", err)
+		}
+		if *inPlace {
+			return daemonUpgrade(e, c)
 		}
 		return daemonRestart(e, c)
 	case "info":
@@ -292,6 +300,27 @@ func daemonRestart(e *env, c *client.Client) error {
 	return nil
 }
 
+// daemonUpgrade replaces a running daemon with this binary in place and
+// fails instead of stopping it when that is not possible, so its servers
+// never restart. The menu bar app runs it for a daemon older than itself.
+func daemonUpgrade(e *env, c *client.Client) error {
+	old, err := c.Ping(e.ctx)
+	if err != nil {
+		return fmt.Errorf("no daemon is running: %w", err)
+	}
+	if !old.Verified {
+		return c.Unverified()
+	}
+	done, err := upgradeInPlace(e, c, old)
+	if err != nil {
+		return err
+	}
+	if !done {
+		return fmt.Errorf("the daemon (version %s) cannot be upgraded in place; `%s daemon restart` replaces it and restarts its servers", old.Version, app.ID)
+	}
+	return nil
+}
+
 // nextClient is a client for the daemon that comes up next: at the port it
 // records in daemon.port once it listens (it may have chosen another port
 // than the config names), else where the config says.
@@ -409,6 +438,9 @@ func daemonInfo(e *env, c *client.Client, args []string) error {
 			"config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "tokenFile": filepath.Join(paths.StateDir(), paths.TokenName)}
 		if !h.Verified {
 			out["error"] = c.Unverified().Error()
+		} else if app.Older(h.Version) {
+			// The app upgrades such a daemon in place on its own.
+			out["outdated"] = true
 		}
 		return printJSON(e, out)
 	}
@@ -499,6 +531,9 @@ func cmdDoctor(e *env, args []string) error {
 		bad("port %d answers as %s %s (pid %d) but cannot prove it is this account's daemon; `%s daemon restart` replaces a daemon from before verified requests", e.port(), app.Name, h.Version, h.PID, app.ID)
 	} else if err == nil {
 		ok("daemon running (pid %d, %s) at %s", h.PID, h.Version, c.Base)
+		if app.Older(h.Version) {
+			warn("the daemon runs %s, older than this command (%s); `%s daemon restart` updates it", h.Version, app.Version, app.ID)
+		}
 		// Browsers try ::1 first for *.localhost, so the daemon must hold it.
 		if ports.IPv6Loopback() {
 			v6 := client.NewAt("::1", e.port())

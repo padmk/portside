@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Updating is `brew upgrade`:** the menu bar app upgrades a running daemon older than itself in place when it starts or reconnects (Homebrew reopens the app it quit for the upgrade), so servers keep running and no `portside daemon restart` is needed. It tries once per daemon version; a daemon it cannot upgrade in place keeps the **Restart** banner, now with the reason.
+- **CLI:** `portside daemon restart --in-place` only upgrades in place and fails instead of restarting the servers. `portside status` and `portside doctor` say when the daemon is older than the command; `daemon info` reports it as `outdated`.
+
 ## 0.4.3
 
 - **CLI:** a command the running daemon does not know yet, after an update that has not restarted it, says so and suggests `portside daemon restart` instead of `no such endpoint`.

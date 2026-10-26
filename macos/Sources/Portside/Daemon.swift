@@ -133,6 +133,9 @@ struct DaemonInfo: Decodable {
     let stopped: Bool?
     /// The config file does not load, so no daemon can start.
     let configError: String?
+    /// The verified daemon runs a release older than the bundled helper
+    /// (the helper compares; development builds never count).
+    let outdated: Bool?
 
     /// The API token, read from its private file (never passed through argv or logs).
     var token: String? {

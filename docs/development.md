@@ -23,7 +23,7 @@ On a Mac that runs Portside from Homebrew, keep that install for daily work and 
 - `make app` builds `dist/macos/Portside.app`; `scripts/onboarding-preview.sh` runs it as a second instance with its own config, state, daemon and temporary home.
 - Anything else runs isolated with `PORTSIDE_CONFIG` and `PORTSIDE_STATE_DIR` in a temporary directory and a free `port`.
 
-Do not run `make app-install` or `make install` there: they replace the app in `/Applications` and the `portside` command that Homebrew installed. Update the installed copy with `brew upgrade --cask portside`, then `portside daemon restart`.
+Do not run `make app-install` or `make install` there: they replace the app in `/Applications` and the `portside` command that Homebrew installed. Update the installed copy with `brew upgrade --cask portside`; the reopened app upgrades the daemon in place.
 
 ## Idle benchmark
 

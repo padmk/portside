@@ -45,6 +45,10 @@ final class Store {
     private(set) var notifyOnCrash = true
     private(set) var daemonVersion: String?
     private(set) var bundledVersion: String?
+    /// Why the automatic upgrade of an older daemon failed; the version banner shows it.
+    private(set) var upgradeError: String?
+    /// Daemon versions this launch already tried to upgrade, so a refused upgrade is not repeated.
+    @ObservationIgnored private var upgradeTried: Set<String> = []
     /// The other computer the dashboard shows, if any.
     private(set) var remote: RemoteInfo?
     private var baseURL: URL?
@@ -185,6 +189,10 @@ final class Store {
                     // Known even when the events connection is refused, so the restart banner can show it.
                     if let v = info.version { daemonVersion = v }
                     if info.verified == false { throw DaemonError.unverified }
+                    if info.outdated == true, let v = info.version, upgradeTried.insert(v).inserted {
+                        await upgradeOutdated()
+                        continue
+                    }
                     do {
                         try await listen(url)
                     } catch {
@@ -204,6 +212,24 @@ final class Store {
                 delay = min(delay * 2, 8_000_000_000)
             }
             try? await Task.sleep(nanoseconds: wait)
+        }
+    }
+
+    /// Replaces a daemon older than the bundled helper with it in place, as
+    /// after `brew upgrade`; its servers keep running. The helper refuses
+    /// rather than restarting the servers when that is not possible, and the
+    /// version banner then offers a restart with the reason.
+    private func upgradeOutdated() async {
+        upgradeError = nil
+        if connection != .connected { connection = .connecting }
+        notifyChange()
+        do {
+            _ = try await DaemonCLI.run(["daemon", "restart", "--in-place"])
+        } catch {
+            if !Task.isCancelled {
+                let msg = error.localizedDescription
+                upgradeError = msg.hasPrefix("error: ") ? String(msg.dropFirst("error: ".count)) : msg
+            }
         }
     }
 
@@ -320,6 +346,7 @@ final class Store {
         daemonStopped = false
         daemonRefused = false
         daemonVersion = state.daemon.version
+        if !versionDiffers { upgradeError = nil }
         configError = state.config.error
         configPath = state.config.path
         notifyOnCrash = state.config.notify ?? true
@@ -529,6 +556,7 @@ final class Store {
 
     func restartDaemon() {
         pauseLoop(while: ["daemon", "restart"]) {
+            upgradeError = nil
             connection = .connecting
             baseURL = nil
             notifyChange()
