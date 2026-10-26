@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- **`portside check`** for monitoring: exit 0 when every server that should run is ready, 1 when one is not (crashed, given up, starting or restarting), 2 when the daemon is not running or cannot tell; `--json` gives each server and the reason. It never starts a daemon, so a systemd timer or cron job can run it without the API token ([Linux server](docs/linux-server.md#reading-state-from-scripts)).
+- **Readiness:** `ready_log` keeps a server `starting` until a line of its output matches the expression, and `ready_after` until it has run that long; servers that `depends_on` it wait as well. A worker without a port can now say when it is ready.
+- **Changed:** `health` needs a success or a redirect (status 200 to 399) for a server to count as running; other answers below 500, such as 404 or 401, no longer do. Point `health` at a path that answers 200 if a server now stays `starting`.
+
 ## 0.6.3
 
 - **CLI:** `portside daemon logs` reads the user journal also when the systemd service failed to start, which is when its reason is needed, and reads the log file for a daemon of another state directory than the service's. Stopping such a daemon no longer says the login service starts it at login.
