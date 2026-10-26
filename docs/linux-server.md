@@ -1,6 +1,6 @@
 # Linux server without a desktop
 
-Portside runs on a Linux machine you reach over SSH, such as a development or staging server: the daemon as a systemd user service, the CLI and coding agents through MCP, the dashboard through an SSH tunnel. Linux is a preview: CI builds and tests it, but macOS gets more use. Portside is a tool for development servers, not a production supervisor.
+Portside runs on a Linux machine you reach over SSH, such as a development or staging server: the daemon as a systemd user service, the CLI and coding agents through MCP, the dashboard through an SSH tunnel. CI runs this setup, a systemd user service on Ubuntu, for every change to `main`. Portside is a tool for development servers, not a production supervisor.
 
 ## Install and start at boot
 

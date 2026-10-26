@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Linux is a first-class platform** (x86-64, arm64), next to macOS: CI runs the systemd user service end to end and an upgrade from the latest release on every change, and the README installs it with the same Homebrew tap (`brew install --formula padmk/tap/portside`) or from the release archives.
+
 ## 0.7.2
 
 - **Dashboard, menu bar and CLI:** a running server that stopped answering on its port or `health` path shows as **not responding** (an amber diamond in the dashboard, an orange light in the menu bar, a yellow dot in `portside status`) and is counted apart from the running ones, as `portside check` already reported it.

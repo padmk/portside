@@ -4,7 +4,7 @@ Several tools cover part of what Portside does, and for some setups one of them 
 
 | | Supervises servers (restart policies, readiness) | GUI | MCP for coding agents | Docker containers | Git worktrees | Platforms |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Portside** | Yes, in terminals (PTYs) | macOS menu bar app, web dashboard | Yes: start or reuse, restart, stop, logs, containers | Compose containers shown with their server: logs, shell, recreate | Temporary copy of a server per worktree, own port | macOS 26+ on Apple Silicon; Linux preview |
+| **Portside** | Yes, in terminals (PTYs) | macOS menu bar app, web dashboard | Yes: start or reuse, restart, stop, logs, containers | Compose containers shown with their server: logs, shell, recreate | Temporary copy of a server per worktree, own port | macOS 26+ on Apple Silicon; Linux (x86-64, arm64) |
 | [process-compose](https://github.com/F1bonacc1/process-compose) | Yes: dependencies, health checks, replicas, schedules | TUI, REST API | Yes | No | No | macOS, Linux, Windows |
 | [pitchfork](https://github.com/jdx/pitchfork) | Yes: ready checks, retries, file watching, shell hooks | TUI, web UI | Yes | Not checked | Per-worktree `.localhost` names | macOS, Linux, Windows |
 | [Portless](https://github.com/vercel-labs/portless) | No (wraps a command you run) | No | Lists routes and manages aliases; does not start servers | Port aliases only | Per-worktree `.localhost` names | macOS, Linux, Windows |
@@ -29,6 +29,6 @@ Several tools cover part of what Portside does, and for some setups one of them 
 ## Where it is weaker
 
 - It is new: the first public release was in October 2026, and it has few users so far.
-- The macOS app needs macOS 26 on Apple Silicon. Linux is a preview, and there is no Windows version.
+- The menu bar app needs macOS 26 on Apple Silicon. On Linux there are the CLI, the dashboard and the MCP server without it, and there is no Windows version.
 - The app is not notarized by Apple (see [Security](security.md#trust)).
 - `*.localhost` addresses are plain HTTP.

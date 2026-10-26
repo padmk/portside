@@ -1,6 +1,6 @@
 # Portside
 
-Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded React dashboard (`web/`). Built for macOS 26 or later; Linux is a preview that should keep working (keep code portable and Linux paths compiling and vetted) but is not a focus; Unix-only (process groups, PTYs).
+Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded React dashboard (`web/`). Built for macOS 26 or later and Linux (x86-64, arm64), both first-class; the menu bar app is macOS-only, and on Linux the dashboard runs in a browser. Keep both platforms working: Linux paths compile and are vetted, and CI runs the systemd user service end to end (`scripts/linux-service-e2e.sh`). Unix-only (process groups, PTYs).
 
 ## Commands
 

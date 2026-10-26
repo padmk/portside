@@ -48,7 +48,7 @@ jobs:
         run: |
           awk -v h="## ${GITHUB_REF_NAME#v}" '$0 == h {on = 1; next} on && /^## / {exit} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no section for ${GITHUB_REF_NAME#v}" >&2; exit 1; }
-          printf '\n## Install\n\nmacOS 26 or later on Apple Silicon:\n\n```sh\nbrew install --cask %s/tap/portside\n```\n\n`Portside-%s.zip` below is the same app. The `portside_*.tar.gz` archives hold the command-line binary alone (Linux is a preview). See the README for details.\n' "$GITHUB_REPOSITORY_OWNER" "${GITHUB_REF_NAME#v}" >> "$RUNNER_TEMP/notes.md"
+          printf '\n## Install\n\nWith Homebrew on macOS 26 or later (Apple Silicon), the app and the command:\n\n```sh\nbrew install --cask %s/tap/portside\n```\n\nOn macOS or Linux (x86-64, arm64), the command and dashboard, built from source:\n\n```sh\nbrew install --formula %s/tap/portside\n```\n\n`Portside-%s.zip` below is the same app, and the `portside_*.tar.gz` archives hold the command alone. See the README for details.\n' "$GITHUB_REPOSITORY_OWNER" "$GITHUB_REPOSITORY_OWNER" "${GITHUB_REF_NAME#v}" >> "$RUNNER_TEMP/notes.md"
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: v2.18.3

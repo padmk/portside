@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/padmk/portside/releases/latest"><img src="https://img.shields.io/github/v/release/padmk/portside" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black" alt="macOS 26 or later on Apple Silicon">
-  <a href="docs/linux-server.md"><img src="https://img.shields.io/badge/Linux-preview-lightgrey" alt="Linux preview"></a>
+  <a href="docs/linux-server.md"><img src="https://img.shields.io/badge/Linux-x86--64%20%C2%B7%20arm64-black" alt="Linux on x86-64 and arm64"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/padmk/portside" alt="MIT license"></a>
   <a href="https://foreverbeta.app/portside/"><img src="https://img.shields.io/badge/website-foreverbeta.app-0a7ea4" alt="Website"></a>
 </p>
@@ -46,24 +46,28 @@
 
 ## Install
 
-Requires macOS 26 (Tahoe) or later on Apple Silicon. With Homebrew, this installs `Portside.app` and the `portside` command:
+With [Homebrew](https://brew.sh). On **macOS** 26 or later (Apple Silicon), the menu bar app and the `portside` command:
 
 ```sh
 brew install --cask padmk/tap/portside
 ```
 
-The app is not notarized by Apple yet, so the cask removes the quarantine flag to let macOS start it. You rely instead on the public source and on release files built by GitHub Actions with a verifiable attestation; [Trust](docs/security.md#trust) says what that covers and how to check a download. To avoid the prebuilt app, build from source with Homebrew (**Build with Homebrew** below).
+On **macOS or Linux** (x86-64, arm64), the command and dashboard, built from source:
 
-On a Linux server without a desktop (a preview), the daemon runs as a systemd user service and you work through the CLI, MCP and an SSH tunnel: see [Linux server](docs/linux-server.md).
+```sh
+brew install --formula padmk/tap/portside
+```
+
+On Linux, `portside service install` then starts the daemon at login, or at boot with lingering; [Linux server](docs/linux-server.md) is the guide for a machine without a desktop. Without the menu bar app, the dashboard opens in your browser (`portside open`). The cask and the formula both install `portside`, so install only one of them.
+
+The app is not notarized by Apple yet, so the cask removes the quarantine flag to let macOS start it. You rely instead on the public source and on release files built by GitHub Actions with a verifiable attestation; [Trust](docs/security.md#trust) says what that covers and how to check a download. The formula avoids the prebuilt app.
 
 <details>
 <summary>Other ways to install, update and uninstall</summary>
 
 **Download.** Get `Portside-<version>.zip` from the [releases](https://github.com/padmk/portside/releases), move `Portside.app` to Applications, and choose **Settings > Install Command Line Tool** in its menu. The app is signed ad hoc and not notarized, so macOS blocks the first launch of a downloaded copy: open it once, then choose **Open Anyway** in **System Settings > Privacy & Security** and confirm ([Apple's instructions](https://support.apple.com/en-us/102445)).
 
-**Build with Homebrew.** `brew install --formula padmk/tap/portside` builds the `portside` command with its embedded dashboard from the release's tagged source, on macOS or Linux. Homebrew's Go, Node and pnpm are needed only for the build. There is no menu bar app: open the dashboard in your browser with `portside open`. The formula and the cask both install `portside`, so install only one of them.
-
-**Linux (preview).** The CLI, daemon and dashboard run on x86-64 and arm64; CI builds and tests them, but macOS gets more use. Download `portside_<version>_linux_<arch>.tar.gz` from the releases and put `portside` on your `PATH`, or build it with Homebrew (above); then `portside service install` starts the daemon at login ([Linux server](docs/linux-server.md) for a machine without a desktop).
+**Release archives.** `portside_<version>_<os>_<arch>.tar.gz` from the [releases](https://github.com/padmk/portside/releases) holds the `portside` command for Linux (x86-64, arm64) or macOS; put it on your `PATH`. The formula builds the same command from the release's tagged source with Homebrew's Go, Node and pnpm, which it needs only for the build.
 
 **From source** (Go 1.26 or later, Node 24 and pnpm 12):
 
