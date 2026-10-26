@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -176,5 +177,38 @@ func TestBindAfterClosedConnections(t *testing.T) {
 			t.Errorf("bound port %d while another process listens on %s", p, local.Addr())
 		}
 		local.Close()
+	}
+}
+
+func TestForwardingOffOnlyForForwardedPorts(t *testing.T) {
+	m, c := connected(t)
+	p, busy, other := freePort(t), freePort(t), freePort(t)
+	local, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(busy))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	data, _ := json.Marshal(map[string]any{"servers": []map[string]any{
+		{"name": "web", "port": p, "pid": 42}, {"name": "api", "port": busy, "pid": 43}}})
+	var rs remoteState
+	if err := json.Unmarshal(data, &rs); err != nil {
+		t.Fatal(err)
+	}
+	c.apply(data, &rs)
+	if mr := mirrorOf(t, m, busy); mr.State != "busy" {
+		t.Fatalf("mirror of a port in use here = %+v", mr)
+	}
+
+	_, err = m.SetForwarding(other, false)
+	var rerr *Error
+	if !errors.As(err, &rerr) || rerr.Status != http.StatusNotFound ||
+		!strings.Contains(rerr.Msg, strconv.Itoa(p)) || !strings.Contains(rerr.Msg, strconv.Itoa(busy)) {
+		t.Fatalf("turning off a port not forwarded: %v, want 404 listing the forwarded ports", err)
+	}
+	if off := m.store.off(devbox.DNSName); off[other] {
+		t.Error("the refused setting was stored")
+	}
+	if _, err := m.SetForwarding(busy, false); err != nil {
+		t.Errorf("turning off a forwarded port busy here: %v", err)
 	}
 }

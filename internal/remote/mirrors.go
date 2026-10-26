@@ -8,7 +8,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -331,7 +333,7 @@ func (m *Manager) SetLocalPort(port, local int) (Info, error) {
 // off. Off closes the port's listeners here and its open connections, and
 // <name>.<computer>.localhost no longer reaches a server on it; the port is
 // still listed so it can be turned on again. The choice is kept for that
-// computer.
+// computer. Turning off a port that computer does not forward is refused.
 func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
 	c := m.current()
 	if c == nil {
@@ -339,6 +341,11 @@ func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
 	}
 	if port <= 0 || port > 65535 {
 		return Info{}, &Error{Status: http.StatusBadRequest, Msg: "invalid port"}
+	}
+	if !on {
+		if err := m.checkForwarded(c, port); err != nil {
+			return Info{}, err
+		}
 	}
 	if err := m.store.setOff(c.node.DNSName, port, !on); err != nil {
 		return Info{}, err
@@ -366,4 +373,28 @@ func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
 		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to " + c.node.Name}
 	}
 	return c.infoLocked(), nil
+}
+
+// checkForwarded fails unless the connected computer c forwards port, busy
+// here or turned off included, naming the ports it forwards.
+func (m *Manager) checkForwarded(c *conn, port int) error {
+	m.mu.Lock()
+	_, ok := c.want[port]
+	listed := make([]int, 0, len(c.want))
+	for p := range c.want {
+		listed = append(listed, p)
+	}
+	m.mu.Unlock()
+	if ok {
+		return nil
+	}
+	if len(listed) == 0 {
+		return &Error{Status: http.StatusNotFound, Msg: fmt.Sprintf("port %d is not forwarded from %s, which forwards no ports now", port, c.node.Name)}
+	}
+	slices.Sort(listed)
+	names := make([]string, len(listed))
+	for i, p := range listed {
+		names[i] = strconv.Itoa(p)
+	}
+	return &Error{Status: http.StatusNotFound, Msg: fmt.Sprintf("port %d is not forwarded from %s; forwarded ports: %s", port, c.node.Name, strings.Join(names, ", "))}
 }

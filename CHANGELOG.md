@@ -10,6 +10,7 @@
 - **CLI:** `portside up` right after `portside add` (or `rm`, or an edit in your editor) sees the change: the daemon checks the config file before each request instead of only once a second, so `unknown server or group` no longer appears for a server just added.
 - **CLI:** `portside daemon restart` from an older release than the running daemon refuses instead of replacing it, and the daemon refuses such a binary too; `--allow-downgrade` replaces it anyway, and the command and the daemon log then say `downgraded` instead of `upgraded`. Development builds are not compared.
 - **CLI:** the `portside computers` hint lists every command `--on` runs (also `attach` and `containers`), worded as in the help and the usage error.
+- **Other computers:** `portside forward off <port>` for a port the connected computer does not forward fails and lists the forwarded ports instead of storing the setting; a forwarded port that is busy here can still be turned off.
 
 ## 0.4.3
 
