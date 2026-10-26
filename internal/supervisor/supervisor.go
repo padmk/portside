@@ -746,6 +746,8 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		}
 		if restartIn > 0 {
 			p.note += fmt.Sprintf(", restarting in %s", restartIn.Round(time.Second))
+		} else if p.status == Exited && p.cfg.Restart == config.RestartAlways && p.retries >= maxRetries {
+			s.reportCrashLocked(p, &code, uptime) // gave up on a server meant to keep running
 		} else if p.status == Crashed {
 			s.reportCrashLocked(p, &code, uptime)
 			if s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {

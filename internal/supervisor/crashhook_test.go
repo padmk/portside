@@ -103,3 +103,17 @@ func TestCrashHookForFailedStart(t *testing.T) {
 		t.Fatalf("calls = %q", calls)
 	}
 }
+
+func TestCrashHookWhenAlwaysGivesUpOnCleanExits(t *testing.T) {
+	old := restartDelay
+	restartDelay = 10 * time.Millisecond
+	t.Cleanup(func() { restartDelay = old })
+	s, out := crashHookSupervisor(t, "exit 0", config.RestartAlways)
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("web|0|%d|exited on its own; gave up after %d restarts", maxRetries, maxRetries)
+	if calls := hookCalls(t, out, 15*time.Second); len(calls) != 1 || calls[0] != want {
+		t.Fatalf("calls = %q, want one %q", calls, want)
+	}
+}

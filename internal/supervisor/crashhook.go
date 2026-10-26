@@ -24,6 +24,22 @@ const (
 	crashHookOutput = 512
 )
 
+// crashHookSlots bounds the crash commands running at once; more wait for a slot.
+var crashHookSlots = make(chan struct{}, 4)
+
+// headWriter keeps the first max bytes written to it and drops the rest.
+type headWriter struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (w *headWriter) Write(p []byte) (int, error) {
+	if room := w.max - w.buf.Len(); room > 0 {
+		w.buf.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
 // crashReport is what an on_crash command learns about a server that has
 // crashed for good.
 type crashReport struct {
@@ -68,7 +84,8 @@ func boundedTail(lines []string, max int) string {
 }
 
 // reportCrashLocked runs the server's on_crash command for a crash that no
-// automatic restart follows, whatever the notify setting and connected apps.
+// automatic restart follows, or an exit after which restart = "always" gave
+// up, whatever the notify setting and connected apps.
 // The command runs in the background, so a slow one never delays the
 // supervisor; its failures go to the daemon log.
 func (s *Supervisor) reportCrashLocked(p *proc, exitCode *int, uptime time.Duration) {
@@ -97,13 +114,15 @@ func (s *Supervisor) reportCrashLocked(p *proc, exitCode *int, uptime time.Durat
 // runCrashHook runs command with sh in the home directory and its own
 // process group, ending the group after crashHookTimeout.
 func runCrashHook(command string, env []string, server string) {
+	crashHookSlots <- struct{}{}
+	defer func() { <-crashHookSlots }()
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Env = env
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home
 	}
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
+	out := &headWriter{max: crashHookOutput + 1}
+	cmd.Stdout, cmd.Stderr = out, out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		log.Printf("on_crash for %s: %v", server, err)
@@ -115,7 +134,7 @@ func runCrashHook(command string, env []string, server string) {
 	select {
 	case err := <-waited:
 		if err != nil {
-			log.Printf("on_crash for %s failed: %v: %s", server, err, firstBytes(out.String(), crashHookOutput))
+			log.Printf("on_crash for %s failed: %v: %s", server, err, firstBytes(out.buf.String(), crashHookOutput))
 			return
 		}
 		log.Printf("on_crash for %s ran", server)
