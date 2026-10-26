@@ -83,8 +83,18 @@ func cmdDaemon(e *env, args []string) error {
 		}
 		fmt.Fprintf(e.out, "%s running  pid %d  version %s  %s\n", e.paint(green, "●"), h.PID, h.Version, c.Base)
 	case "logs":
-		cmd := exec.Command("tail", "-n", "100", "-F", paths.DaemonLog())
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		fs := flag.NewFlagSet("daemon logs", flag.ContinueOnError)
+		n := fs.Int("n", 100, "")
+		follow := fs.Bool("f", false, "")
+		if _, err := parse(fs, args[1:]); err != nil {
+			return err
+		}
+		tailArgs := []string{"-n", strconv.Itoa(*n)}
+		if *follow {
+			tailArgs = append(tailArgs, "-F")
+		}
+		cmd := exec.Command("tail", append(tailArgs, paths.DaemonLog())...)
+		cmd.Stdout, cmd.Stderr = e.out, e.errOut
 		return cmd.Run()
 	default:
 		return usageError{"unknown subcommand " + args[0]}
