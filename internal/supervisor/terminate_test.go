@@ -48,13 +48,18 @@ func startGroup(t *testing.T, script string) (int, <-chan struct{}) {
 	t.Helper()
 	cmd := exec.Command("sh", "-c", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	out, err := cmd.StdoutPipe()
+	// An os.Pipe rather than StdoutPipe: Wait closes the latter once the
+	// leader exits, which can come before "ready" is read.
+	out, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	cmd.Stdout = w
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	w.Close()
+	t.Cleanup(func() { out.Close() })
 	pgid := cmd.Process.Pid
 	ready := make(chan struct{})
 	go func() {
