@@ -17,6 +17,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/csp"
 	"github.com/padmk/portside/internal/discover"
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
@@ -506,7 +507,7 @@ func (s *Server) icon(w http.ResponseWriter, r *http.Request) {
 	}
 	// Project files are untrusted: an SVG opened directly must not run script
 	// on the dashboard's origin.
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
+	w.Header().Set("Content-Security-Policy", csp.Untrusted)
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "max-age=300")
 	_, _ = w.Write(data)

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Security:** replies relayed from a connected computer are served with a sandboxing Content-Security-Policy and without cookies, site data or redirect headers, so a taken-over computer you connect to cannot run script on this dashboard's origin (for example through a server icon opened in a new tab).
+- **macOS app:** links from the dashboard open in the browser only when they are http or https.
+- **CLI:** `portside scan --add` asks before adding when run on a terminal (`--yes` skips the question); scripts and agents are unaffected.
 - **Agents:** with `portside mcp --dir`, `ensure_server` reuses a server that already runs even when a dependency outside the scope is stopped, since nothing would be started; `restart_server` still refuses then.
 
 ## 0.3.1

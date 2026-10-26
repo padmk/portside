@@ -225,8 +225,16 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         if url.scheme == "about" || isDashboard(url) || (signInLink != nil && url == signInLink) {
             return decisionHandler(.allow)
         }
-        NSWorkspace.shared.open(url)
+        openExternally(url)
         decisionHandler(.cancel)
+    }
+
+    /// Opens a link from the dashboard in the default browser. Only web
+    /// addresses: a page shown in the window must not reach files or other
+    /// apps' URL schemes through it.
+    private func openExternally(_ url: URL) {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse, decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
@@ -241,7 +249,7 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = action.request.url { NSWorkspace.shared.open(url) }
+        if let url = action.request.url { openExternally(url) }
         return nil
     }
 

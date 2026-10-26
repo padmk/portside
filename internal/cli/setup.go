@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"os"
@@ -95,9 +94,7 @@ func cmdSetup(e *env, args []string) error {
 			fmt.Fprintf(e.out, "\nRun `%s setup --yes` to apply.\n", app.ID)
 			return nil
 		}
-		fmt.Fprint(e.out, "\nContinue? [y/N] ")
-		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+		if !confirm(e, "\nContinue?") {
 			fmt.Fprintln(e.out, "Nothing changed.")
 			return nil
 		}

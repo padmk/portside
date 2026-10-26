@@ -139,4 +139,4 @@ Python commands use the project's tool by lockfile (`uv run`, `poetry run`, `pip
 
 Discovery visits each folder once, however many symlinks lead to it, skips commands already configured, keeps other services in the same folder, and checks live listeners when suggesting automatic ports.
 
-`portside scan` only lists; `portside scan --add` adds every proposal at once, and **Find projects** adds the ones you tick. A server added this way runs the project's own scripts (its `dev` script, `docker compose up`) when anyone starts it, a coding agent through `ensure_server` included, so leave out repositories you would not run yourself.
+`portside scan` only lists; `portside scan --add` adds every proposal at once (on a terminal it asks first, unless `--yes`), and **Find projects** adds the ones you tick. A server added this way runs the project's own scripts (its `dev` script, `docker compose up`) when anyone starts it, a coding agent through `ensure_server` included, so leave out repositories you would not run yourself.

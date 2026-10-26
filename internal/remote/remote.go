@@ -31,6 +31,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/csp"
 	"github.com/padmk/portside/internal/notify"
 	"github.com/padmk/portside/internal/share"
 	"github.com/padmk/portside/internal/tailnet"
@@ -882,9 +883,7 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 				}
 				return errUnverified
 			}
-			res.Header.Del(share.HeaderProof)
-			res.Header.Del(share.HeaderEpoch)
-			res.Header.Del("Set-Cookie")
+			sanitizeRelayed(res.Header)
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -970,4 +969,17 @@ func (m *Manager) wrapped(c *conn) []byte {
 		return nil
 	}
 	return data
+}
+
+// sanitizeRelayed makes a reply from another computer safe to serve on the
+// dashboard's origin. That computer is trusted to run servers, not to run
+// script here: whatever it sends (an icon that is really HTML, a page it
+// links to) is sandboxed, cannot set cookies or site data, and cannot
+// redirect or preload. The proof headers stay between the two daemons.
+func sanitizeRelayed(h http.Header) {
+	for _, k := range []string{share.HeaderProof, share.HeaderEpoch, "Set-Cookie", "Clear-Site-Data", "Refresh", "Link", "Content-Security-Policy-Report-Only"} {
+		h.Del(k)
+	}
+	h.Set("Content-Security-Policy", csp.Untrusted)
+	h.Set("X-Content-Type-Options", "nosniff")
 }

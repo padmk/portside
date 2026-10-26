@@ -122,6 +122,7 @@ func cmdEnable(on bool) func(*env, []string) error {
 func cmdScan(e *env, args []string) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	add := fs.Bool("add", false, "")
+	yes := fs.Bool("yes", false, "")
 	asJSON := fs.Bool("json", false, "")
 	depth := fs.Int("depth", 3, "")
 	rest, err := parse(fs, args)
@@ -175,6 +176,12 @@ func cmdScan(e *env, args []string) error {
 		fmt.Fprintf(e.out, "\nAdd them all with `%s scan --add`, or pick in the dashboard.\n", app.ID)
 		return nil
 	}
+	// Each added server runs its project's own command when started, so a
+	// person at a terminal confirms the list; scripts and agents pass as before.
+	if !*yes && isTerminal(os.Stdin) && !confirm(e, "\nAdd "+serverCount(len(found))+"?") {
+		fmt.Fprintln(e.out, "Nothing added.")
+		return nil
+	}
 	added, failed := 0, 0
 	for _, s := range found {
 		p := s.Port
@@ -186,7 +193,7 @@ func cmdScan(e *env, args []string) error {
 		}
 		added++
 	}
-	fmt.Fprintf(e.out, "\nAdded %d servers to %s.\n", added, paths.ShortenHome(e.cfgPath))
+	fmt.Fprintf(e.out, "\nAdded %s to %s.\n", serverCount(added), paths.ShortenHome(e.cfgPath))
 	if failed > 0 {
 		return silentError{1}
 	}
@@ -229,4 +236,12 @@ func cmdConfig(e *env, args []string) error {
 		return usageError{"unknown subcommand " + sub}
 	}
 	return nil
+}
+
+// serverCount is n with "server" or "servers".
+func serverCount(n int) string {
+	if n == 1 {
+		return "1 server"
+	}
+	return fmt.Sprintf("%d servers", n)
 }

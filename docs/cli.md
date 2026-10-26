@@ -19,7 +19,7 @@ portside ports [--json]                  every listening TCP port and its owner
 
 portside add <name> --cmd "..." [--dir .] [--port N] [--group G]
 portside rm <name> | enable <name> | disable <name>
-portside scan [dir] [--add]              discover projects
+portside scan [dir] [--add [--yes]]      discover projects; --add asks first on a terminal
 portside init                            write the starter config file
 portside config [path|edit|check]
 

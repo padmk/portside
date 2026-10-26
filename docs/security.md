@@ -63,7 +63,9 @@ Tailscale identifies devices, not accounts or processes, so the key is what keep
 
 A paired device has the same control you have here, which includes running any command through a server definition; the dashboard does not offer it stopping the daemon, opening desktop apps or changing sharing, but that is a convenience, not a security boundary. Pair only devices you trust as much as this one.
 
-On the computer you connect from, each forwarded port listens on `127.0.0.1` like a server started there, and neither it nor the `<name>.<computer>.localhost` proxy checks which program connects: other accounts on that computer and pages in its browsers reach the other computer's server through them just as they would reach a local one. A database without a password is as open as one you run locally. Disconnect to close the forwarded ports.
+On the computer you connect from, each forwarded port listens on `127.0.0.1` like a server started there, and neither it nor the `<name>.<computer>.localhost` proxy checks which program connects: other accounts on that computer and pages in its browsers reach the other computer's server through them just as they would reach a local one. A database without a password is as open as one you run locally; depending on the container engine, local containers may reach it too, through `host.docker.internal`. Disconnect to close the forwarded ports.
+
+The other direction is closed: replies the dashboard gets from the other computer (`/api/peer`) are served with a sandboxing Content-Security-Policy and without cookies, site data or redirect headers, so the computer you connect to cannot run script on this dashboard's origin, even when it was taken over.
 
 ## What it does not protect against
 

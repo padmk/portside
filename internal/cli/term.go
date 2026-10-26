@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/coder/websocket"
@@ -30,6 +32,15 @@ func colorEnabled() bool {
 }
 
 func isTerminal(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
+
+// confirm asks question on the terminal and reports a yes; anything else,
+// an empty answer included, is a no.
+func confirm(e *env, question string) bool {
+	fmt.Fprint(e.out, question+" [y/N] ")
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	a := strings.ToLower(strings.TrimSpace(answer))
+	return a == "y" || a == "yes"
+}
 
 func (e *env) paint(code, s string) string {
 	if !e.color || s == "" {

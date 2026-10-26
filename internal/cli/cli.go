@@ -162,7 +162,7 @@ func init() {
 		{names: []string{"rm", "remove"}, section: "Configuration", usage: "rm <name>", summary: "Remove a server from the config", run: cmdRemove},
 		{names: []string{"enable"}, section: "Configuration", usage: "enable <name>", summary: "Include a server in --all and restore", run: cmdEnable(true)},
 		{names: []string{"disable"}, section: "Configuration", usage: "disable <name>", summary: "Exclude a server from --all and restore", run: cmdEnable(false)},
-		{names: []string{"scan"}, section: "Configuration", usage: "scan [dir] [--add] [--json]", summary: "Find projects with dev servers and propose entries", run: cmdScan},
+		{names: []string{"scan"}, section: "Configuration", usage: "scan [dir] [--add [--yes]] [--json]", summary: "Find projects with dev servers and propose entries", run: cmdScan},
 		{names: []string{"init"}, section: "Configuration", usage: "init", summary: "Create the config file", run: cmdInit},
 		{names: []string{"config"}, section: "Configuration", usage: "config [path|edit|check]", summary: "Show, edit or validate the config", run: cmdConfig},
 
