@@ -10,7 +10,6 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -74,7 +73,8 @@ type proc struct {
 	pidStart       string
 	startedAt      time.Time
 	readyAt        time.Time
-	logReady       atomic.Bool // a line of this generation's output matched ready_log
+	logReady       atomic.Bool   // a line of this generation's output matched ready_log
+	readyMatch     *readyMatcher // matches ready_log while waiting for it; nil otherwise
 	exitedAt       time.Time
 	exitCode       int
 	hasExit        bool
@@ -605,14 +605,10 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	// Watched before the process starts, so its first lines are seen;
 	// ready_log was checked when the config loaded.
 	p.logReady.Store(false)
-	if sv.ReadyLog != "" {
-		p.logs.WatchLines(readyLogWatch(p, regexp.MustCompile(sv.ReadyLog)))
-	} else {
-		p.logs.WatchLines(nil)
-	}
+	installReadyLog(p, sv.ReadyLog, "")
 	f, err := pty.StartWithSize(cmd, size)
 	if err != nil {
-		p.logs.WatchLines(nil)
+		installReadyLog(p, "", "")
 		p.status = Crashed
 		p.note = "failed to start: " + err.Error()
 		s.reportCrashLocked(p, nil, 0)

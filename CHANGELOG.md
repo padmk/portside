@@ -2,9 +2,9 @@
 
 ## 0.7.1
 
-- **`portside check <name|group>...`** requires exactly the servers named, also after a stop, so a monitor can list what must run; an unknown name exits 2 instead of passing.
+- **`portside check <name|group>...`** requires exactly the servers named, also after a stop, so a monitor can list what must run; an unknown or empty name exits 2 instead of passing.
 - **`portside check`** also reports a running server that stopped answering on its port or `health` (after 4 seconds), with the reason, instead of counting it as ready.
-- **Readiness:** a server still waiting for its `ready_log` line keeps waiting through an upgrade in place (`portside daemon restart`), instead of counting as ready at once. The line is matched as the output is written, so a flood of output can no longer hide it, and only once it is whole, so `^Worker ready$` no longer matches the start of `Worker ready not yet`.
+- **Readiness:** a server still waiting for its `ready_log` line keeps waiting through an upgrade in place (`portside daemon restart`), instead of counting as ready at once, and a line the upgrade cut in two still counts as one; a server that had stopped answering stays reported as such after the upgrade. The line is matched as the output is written, so a flood of output can no longer hide it, and only once it is whole, so `^Worker ready$` no longer matches the start of `Worker ready not yet`.
 - **Crash command:** `on_crash` also runs when a server cannot start because another program holds its port.
 - **CLI:** `portside doctor` warns about notifications also when the daemon's `DISPLAY` or `WAYLAND_DISPLAY` is set but empty.
 

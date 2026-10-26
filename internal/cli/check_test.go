@@ -188,6 +188,7 @@ func TestCheckNamedServersAreRequired(t *testing.T) {
 		{[]string{"shop"}, 0, "1 of 1 server that should run is ready"},
 		{[]string{"web", "docs"}, checkDegraded, "docs"},
 		{[]string{"wbe"}, checkUnknown, `unknown server or group "wbe"`},
+		{[]string{""}, checkUnknown, "an empty server or group name"},
 	} {
 		e, out, errOut := testEnv(cfg)
 		if got := exitCode(cmdCheck(e, c.args)); got != c.want {

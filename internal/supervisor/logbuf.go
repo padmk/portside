@@ -157,6 +157,13 @@ func (lb *LogBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// Locked runs f under the buffer's lock, as WatchLines functions run.
+func (lb *LogBuffer) Locked(f func()) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	f()
+}
+
 // WatchLines calls fn with every chunk written from now on, under the
 // buffer's lock so that, unlike a subscription, it misses no output; it
 // stops once fn returns true or another WatchLines (nil for none) replaces it.

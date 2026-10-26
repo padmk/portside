@@ -149,6 +149,9 @@ func (e *env) checkState() (*server.State, error) {
 // typo in a monitor's command is not a silent success.
 func unknownNames(st *server.State, names []string) error {
 	for _, n := range names {
+		if n == "" {
+			return errors.New("an empty server or group name")
+		}
 		if !slices.ContainsFunc(st.Servers, func(v supervisor.View) bool { return v.Name == n || v.Group == n }) {
 			return fmt.Errorf("unknown server or group %q", n)
 		}

@@ -71,7 +71,7 @@ func TestReadyAfterDelaysRunning(t *testing.T) {
 
 func TestReadyLogSeesALineInAFlood(t *testing.T) {
 	p := &proc{logs: NewMemoryLog()}
-	p.logs.WatchLines(readyLogWatch(p, regexp.MustCompile(`^Worker ready$`)))
+	p.logs.WatchLines(newReadyMatcher(p, regexp.MustCompile(`^Worker ready$`), "").watch)
 	for i := 0; i < 20000; i++ {
 		fmt.Fprintf(p.logs, "\x1b[2mline %d\x1b[0m\r\n", i)
 		if i == 12345 {
@@ -84,9 +84,11 @@ func TestReadyLogSeesALineInAFlood(t *testing.T) {
 	}
 }
 
-func TestAdoptedServerKeepsWaitingForItsReadyLine(t *testing.T) {
-	s := lifecycleSupervisor(t, "unused", config.RestartNo)
-	cmd := exec.Command("sh", "-c", "sleep 2; echo 'Worker ready'; sleep 60")
+// adopt hands script, running in a terminal, to s as server web, as an
+// upgrade in place does with h's fields filled in.
+func adopt(t *testing.T, s *Supervisor, script string, h Handoff) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", script)
 	f, err := pty.Start(cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -98,26 +100,54 @@ func TestAdoptedServerKeepsWaitingForItsReadyLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	cfg := s.procs["web"].cfg
-	cfg.ReadyLog = "Worker ready"
-	waiting := false
-	h := Handoff{Name: "web", PID: pid, PIDStart: processStart(pid), PTY: fd, Config: cfg,
-		Status: Starting, Want: true, StartedAt: time.Now().Add(-time.Minute), LogReady: &waiting}
+	h.Name, h.PID, h.PIDStart, h.PTY, h.Want = "web", pid, processStart(pid), fd, true
+	if h.StartedAt.IsZero() {
+		h.StartedAt = time.Now().Add(-time.Minute)
+	}
 	if got := s.Adopt([]Handoff{h}); len(got) != 1 {
 		t.Fatalf("adopted %v", got)
 	}
-	time.Sleep(time.Second)
-	if st := s.Snapshot(19000)[0].Status; st != Starting {
-		t.Fatalf("adopted server before its ready line: %s", st)
+}
+
+func TestAdoptedServerKeepsWaitingForItsReadyLine(t *testing.T) {
+	waiting := false
+	for _, c := range []struct {
+		name, pending, script string
+		ready                 bool
+	}{
+		{"line still to come", "", "sleep 1; echo 'Worker ready'; sleep 60", true},
+		{"line split by the upgrade", "Worker re", "sleep 1; echo 'ady'; sleep 60", true},
+		{"pattern after other text", "Not ", "sleep 1; echo 'Worker ready'; sleep 60", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := lifecycleSupervisor(t, "unused", config.RestartNo)
+			cfg := s.procs["web"].cfg
+			cfg.ReadyLog = `^Worker ready$`
+			adopt(t, s, c.script, Handoff{Config: cfg, Status: Starting, LogReady: &waiting, LogLine: c.pending})
+			if st := s.Snapshot(19000)[0].Status; st != Starting {
+				t.Fatalf("adopted server before its ready line: %s", st)
+			}
+			time.Sleep(2500 * time.Millisecond)
+			if st := s.Snapshot(19000)[0].Status; (st == Running) != c.ready {
+				t.Fatalf("status %s, want ready %v", st, c.ready)
+			}
+		})
 	}
-	if err := s.WaitReady(context.Background(), "web", 5*time.Second); err != nil {
-		t.Fatal(err)
+}
+
+func TestAdoptedServerKeepsItsLostReadiness(t *testing.T) {
+	s := lifecycleSupervisor(t, "unused", config.RestartNo)
+	cfg := s.procs["web"].cfg
+	cfg.Port = 1 // nothing listens there
+	adopt(t, s, "sleep 60", Handoff{Config: cfg, Status: Running, Note: "not listening on :1", MissingSince: time.Now().Add(-time.Minute)})
+	if v := s.Snapshot(19000)[0]; !v.Unready || v.Health(false).Ready {
+		t.Fatalf("lost readiness hidden by the upgrade: unready %v, health %+v", v.Unready, v.Health(false))
 	}
 }
 
 func TestReadyLogWaitsForTheWholeLine(t *testing.T) {
 	p := &proc{logs: NewMemoryLog()}
-	p.logs.WatchLines(readyLogWatch(p, regexp.MustCompile(`^Worker ready$`)))
+	p.logs.WatchLines(newReadyMatcher(p, regexp.MustCompile(`^Worker ready$`), "").watch)
 	fmt.Fprint(p.logs, "Worker ready")
 	fmt.Fprint(p.logs, " not yet\r\n")
 	if p.logReady.Load() {
