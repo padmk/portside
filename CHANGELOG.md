@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - **Releases:** the files are built in jobs that cannot publish; a separate job creates the release, and the Homebrew tap token is only available to release tags in a protected environment.
 - **Security:** replies relayed from a connected computer are served with a sandboxing Content-Security-Policy and without cookies, site data or redirect headers, so a taken-over computer you connect to cannot run script on this dashboard's origin (for example through a server icon opened in a new tab).
