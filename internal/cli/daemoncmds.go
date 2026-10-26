@@ -52,7 +52,7 @@ func cmdDaemon(e *env, args []string) error {
 			return nil
 		}
 		fmt.Fprintln(e.out, "daemon stopped; servers it ran were stopped too. Any command starts it again.")
-		if service.Query().Installed {
+		if service.Query().Installed && service.OwnsState() {
 			fmt.Fprintf(e.errOut, "note: the login service starts it at your next login; `%s service uninstall` turns that off\n", app.ID)
 		}
 	case "restart":

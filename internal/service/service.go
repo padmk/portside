@@ -210,8 +210,10 @@ WantedBy=default.target
 // Unit is the systemd user unit's name.
 func Unit() string { return app.ID + ".service" }
 
-// Journaled reports whether systemd runs the daemon now, which keeps the
-// daemon's output in the user journal instead of the daemon log file.
+// Journaled reports whether the daemon of this state directory is systemd's
+// to run, so its output is in the user journal: the unit is installed for
+// this state directory and not stopped (running, starting or failed, so the
+// output of a start that failed is found too).
 func Journaled() bool {
 	if runtime.GOOS != "linux" {
 		return false
@@ -219,7 +221,12 @@ func Journaled() bool {
 	if _, err := exec.LookPath("journalctl"); err != nil {
 		return false
 	}
-	return exec.Command("systemctl", "--user", "is-active", "--quiet", Unit()).Run() == nil
+	if !OwnsState() {
+		return false
+	}
+	out, err := exec.Command("systemctl", "--user", "show", "-p", "ActiveState", "--value", Unit()).Output()
+	state := strings.TrimSpace(string(out))
+	return err == nil && state != "" && state != "inactive"
 }
 
 // Uninstall stops the service and removes its definition.
@@ -279,7 +286,15 @@ func Owns(configPath string) bool {
 		return false
 	}
 	cfg, ok := unitEnv(string(data), app.Env("CONFIG"))
-	if !ok || cfg != configPath {
+	return ok && cfg == configPath && OwnsState()
+}
+
+// OwnsState reports whether the installed service runs the daemon of this
+// process's state directory. A service installed before it pinned the state
+// directory runs with the default one.
+func OwnsState() bool {
+	data, err := os.ReadFile(File())
+	if err != nil {
 		return false
 	}
 	state, ok := unitEnv(string(data), app.Env("STATE_DIR"))
