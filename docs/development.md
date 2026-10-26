@@ -15,6 +15,16 @@ make app-install    # build the app, install it in /Applications and upgrade the
 
 `AGENTS.md` maps the code and lists the constraints changes must keep.
 
+## Next to an installed Portside
+
+On a Mac that runs Portside from Homebrew, keep that install for daily work and develop beside it:
+
+- `make dev-daemon`, `make dev-open` and `make dev-ui` run an isolated daemon on :7980 with its config and state in `.dev/`.
+- `make app` builds `dist/macos/Portside.app`; `scripts/onboarding-preview.sh` runs it as a second instance with its own config, state, daemon and temporary home.
+- Anything else runs isolated with `PORTSIDE_CONFIG` and `PORTSIDE_STATE_DIR` in a temporary directory and a free `port`.
+
+Do not run `make app-install` or `make install` there: they replace the app in `/Applications` and the `portside` command that Homebrew installed. Update the installed copy with `brew upgrade --cask portside`, then `portside daemon restart`.
+
 ## Idle benchmark
 
 `scripts/bench-idle.sh` measures what an idle daemon costs, for the numbers in [How it works](how-it-works.md#periodic-checks). It builds the binary (unless given `--binary PATH`) and the events client `scripts/benchclient` into a fresh temporary directory, starts an isolated daemon there on a free port with 21 `python3 -m http.server` servers, 5 of them running (`--servers`, `--running`), and counts the daemon's `ps` calls through a wrapper first on its `PATH`. It prints the daemon's CPU time and the `ps` calls and their CPU over one window each (`--window`, default 60 s): with no events client, with one connected with `usage=0` (the app with its panel closed) and with one showing usage (an open dashboard). It never talks to the account's own daemon, stops its daemon and servers on exit, and moves the temporary directory to the Trash with `trash` (or prints its path when `trash` is missing). Needs python3 and Go; macOS and Linux.
