@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2
+
+- **Login service:** `portside service install` records the binary by its link on `PATH` (such as Homebrew's `bin/portside`) instead of the versioned file behind it, so the service still starts after `brew upgrade` removes the old version. Run `portside service install` again once to update an existing service.
+
 ## 0.6.1
 
 - **Homebrew on Linux:** `brew install --formula padmk/tap/portside` builds the command-line tool and dashboard on Linux too, and its notes mention `portside service install`.
