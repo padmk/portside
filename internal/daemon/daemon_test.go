@@ -100,3 +100,28 @@ func TestServiceSkillRefreshIsolation(t *testing.T) {
 		t.Fatal("an isolated state directory must not refresh the installed skill")
 	}
 }
+
+func TestUpgradeRefusesOlderRelease(t *testing.T) {
+	defer func(v string) { app.Version = v }(app.Version)
+	app.Version = "0.4.4"
+	for _, c := range []struct {
+		version string
+		allow   bool
+		refused bool
+	}{
+		{"0.3.1", false, true},
+		{"0.3.1", true, false},
+		{"0.4.4", false, false},
+		{"0.5.0", false, false},
+		{"dev", false, false},
+	} {
+		err := refuseDowngrade("/bin/x", c.version, c.allow)
+		if (err != nil) != c.refused {
+			t.Errorf("binary %s, allow %v: %v, want refused %v", c.version, c.allow, err, c.refused)
+		}
+	}
+	app.Version = "dev"
+	if err := refuseDowngrade("/bin/x", "0.1.0", false); err != nil {
+		t.Errorf("a development daemon refused a release: %v", err)
+	}
+}

@@ -38,7 +38,7 @@ Reading listening addresses adds about 2 `lsof` calls a minute while servers run
 
 ## Upgrades in place
 
-`portside daemon restart` upgrades a running daemon in place: it asks the daemon to run the CLI's own binary, the daemon checks that binary (`<binary> version`) and then re-executes it in the same process. Servers stay its children and their terminals stay open, the listening sockets carry over (requests made meanwhile wait instead of failing), and launchd or systemd see no exit.
+`portside daemon restart` upgrades a running daemon in place: it asks the daemon to run the CLI's own binary, the daemon checks that binary (`<binary> version`) and then re-executes it in the same process. Servers stay its children and their terminals stay open, the listening sockets carry over (requests made meanwhile wait instead of failing), and launchd or systemd see no exit. A binary of an older release than the running daemon is refused, by the command and by the daemon, unless you pass `--allow-downgrade`; the command and the daemon log then say `downgraded`. Development builds on either side are not compared.
 
 A handoff file in the state directory (`handoff.json`, removed by the new daemon) lists each server's process, start time, terminal and state; the new daemon takes each one over and resumes its output, and anything it cannot take over is ended and restored as after a crash. The command waits until the daemon answers with the new version; if none answers within 30 seconds, it starts a fresh daemon, which restores servers as after a crash. The daemon refuses while a server is stopping or a Compose job runs, and stays on the old binary if the new one does not run.
 

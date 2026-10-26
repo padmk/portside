@@ -8,6 +8,7 @@
 - **Other computers:** a forwarded port is available again at once after the other computer's server goes down and up, after `portside forward on`, a reconnect or a local listener exiting, instead of staying busy here for up to 40 seconds while its closed connections linger (TIME_WAIT). A local listener on the port still takes precedence.
 - **Config:** removing the last server of the config file (`portside rm`, the dashboard) no longer leaves a blank line at the end of the file.
 - **CLI:** `portside up` right after `portside add` (or `rm`, or an edit in your editor) sees the change: the daemon checks the config file before each request instead of only once a second, so `unknown server or group` no longer appears for a server just added.
+- **CLI:** `portside daemon restart` from an older release than the running daemon refuses instead of replacing it, and the daemon refuses such a binary too; `--allow-downgrade` replaces it anyway, and the command and the daemon log then say `downgraded` instead of `upgraded`. Development builds are not compared.
 
 ## 0.4.3
 

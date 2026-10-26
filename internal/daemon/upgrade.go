@@ -190,6 +190,15 @@ func checkBinary(exe string) (string, error) {
 	return fields[1], nil
 }
 
+// refuseDowngrade fails for a binary of a release older than this daemon,
+// unless allow is set; a development build on either side passes.
+func refuseDowngrade(exe, version string, allow bool) error {
+	if allow || !app.Older(version) {
+		return nil
+	}
+	return fmt.Errorf("%s is version %s, older than this daemon (%s); `%s daemon restart --allow-downgrade` runs it anyway", exe, version, app.Version, app.ID)
+}
+
 // selfExecutable is the daemon's own binary path. On Linux a replaced
 // binary reads as "<path> (deleted)"; the path then holds the new one.
 func selfExecutable() (string, error) {

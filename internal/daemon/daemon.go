@@ -179,7 +179,7 @@ func Run(cfgPath string) error {
 	upgrades := make(chan upgradeRequest)
 	// upgrade checks the new binary, then has the main loop exec it. It
 	// returns only when the exec did not happen.
-	upgrade := func(exe string) error {
+	upgrade := func(exe string, allowDowngrade bool) error {
 		if exe == "" {
 			var err error
 			if exe, err = selfExecutable(); err != nil {
@@ -192,6 +192,9 @@ func Run(cfgPath string) error {
 		}
 		version, err := checkBinary(exe)
 		if err != nil {
+			return err
+		}
+		if err := refuseDowngrade(exe, version, allowDowngrade); err != nil {
 			return err
 		}
 		if stopping() {
@@ -226,7 +229,7 @@ func Run(cfgPath string) error {
 
 	if ho != nil {
 		adopted := sup.Adopt(ho.Servers)
-		log.Printf("upgraded from %s to %s; kept %d of %d running servers", ho.Version, app.Version, len(adopted), len(ho.Servers))
+		log.Printf("%s from %s to %s; kept %d of %d running servers", app.Replacement(ho.Version), ho.Version, app.Version, len(adopted), len(ho.Servers))
 	}
 	// Recover before serving: a request handled earlier could overwrite the
 	// state file that records the previous run's process groups.

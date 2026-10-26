@@ -62,6 +62,7 @@ func cmdDaemon(e *env, args []string) error {
 	case "restart":
 		fs := flag.NewFlagSet("daemon restart", flag.ContinueOnError)
 		inPlace := fs.Bool("in-place", false, "only upgrade a running daemon in place")
+		allowDowngrade := fs.Bool("allow-downgrade", false, "replace a daemon of a newer release")
 		if _, err := parse(fs, args[1:]); err != nil {
 			return err
 		}
@@ -69,9 +70,9 @@ func cmdDaemon(e *env, args []string) error {
 			return fmt.Errorf("refusing to restart daemon: %w", err)
 		}
 		if *inPlace {
-			return daemonUpgrade(e, c)
+			return daemonUpgrade(e, c, *allowDowngrade)
 		}
-		return daemonRestart(e, c)
+		return daemonRestart(e, c, *allowDowngrade)
 	case "info":
 		return daemonInfo(e, c, args[1:])
 	case "status":
@@ -244,13 +245,16 @@ func daemonListens(ctx context.Context, port, pid int) bool {
 // keeping its servers running. A daemon too old for that, or none at all,
 // is stopped and started again, through the login service when it runs
 // this daemon, so the service keeps supervising it.
-func daemonRestart(e *env, c *client.Client) error {
+func daemonRestart(e *env, c *client.Client, allowDowngrade bool) error {
 	old, pingErr := c.Ping(e.ctx)
 	running := pingErr == nil
 	// One that cannot prove itself gets no signed request; shutdown stops it
 	// when it is this account's daemon.
 	if running && old.Verified {
-		if done, err := upgradeInPlace(e, c, old); done || err != nil {
+		if err := refuseDowngrade(old, allowDowngrade); err != nil {
+			return err
+		}
+		if done, err := upgradeInPlace(e, c, old, allowDowngrade); done || err != nil {
 			return err
 		}
 	}
@@ -303,7 +307,7 @@ func daemonRestart(e *env, c *client.Client) error {
 // daemonUpgrade replaces a running daemon with this binary in place and
 // fails instead of stopping it when that is not possible, so its servers
 // never restart. The menu bar app runs it for a daemon older than itself.
-func daemonUpgrade(e *env, c *client.Client) error {
+func daemonUpgrade(e *env, c *client.Client, allowDowngrade bool) error {
 	old, err := c.Ping(e.ctx)
 	if err != nil {
 		return fmt.Errorf("no daemon is running: %w", err)
@@ -311,7 +315,10 @@ func daemonUpgrade(e *env, c *client.Client) error {
 	if !old.Verified {
 		return c.Unverified()
 	}
-	done, err := upgradeInPlace(e, c, old)
+	if err := refuseDowngrade(old, allowDowngrade); err != nil {
+		return err
+	}
+	done, err := upgradeInPlace(e, c, old, allowDowngrade)
 	if err != nil {
 		return err
 	}
@@ -319,6 +326,16 @@ func daemonUpgrade(e *env, c *client.Client) error {
 		return fmt.Errorf("the daemon (version %s) cannot be upgraded in place; `%s daemon restart` replaces it and restarts its servers", old.Version, app.ID)
 	}
 	return nil
+}
+
+// refuseDowngrade fails when the running daemon is a newer release than
+// this command, unless --allow-downgrade was given. The daemon checks the
+// same for the binary it is asked to run.
+func refuseDowngrade(old client.Health, allow bool) error {
+	if allow || !app.Newer(old.Version) {
+		return nil
+	}
+	return fmt.Errorf("the daemon runs %s, newer than this command (%s); `%s daemon restart --allow-downgrade` replaces it anyway", old.Version, app.Version, app.ID)
 }
 
 // nextClient is a client for the daemon that comes up next: at the port it
@@ -337,12 +354,12 @@ func (e *env) nextClient() *client.Client {
 // upgradeInPlace asks the daemon to re-execute this binary and waits until
 // the new one answers with this version. It reports false without an error
 // when the daemon predates in-place upgrades.
-func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
+func upgradeInPlace(e *env, c *client.Client, old client.Health, allowDowngrade bool) (bool, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return false, nil
 	}
-	err = c.Do(e.ctx, http.MethodPost, "/api/upgrade", map[string]string{"exe": exe}, nil)
+	err = c.Do(e.ctx, http.MethodPost, "/api/upgrade", map[string]any{"exe": exe, "allowDowngrade": allowDowngrade}, nil)
 	if errors.Is(err, client.ErrUnverified) {
 		return false, nil
 	}
@@ -365,7 +382,7 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health) (bool, error) {
 			if h.Version != app.Version {
 				return true, fmt.Errorf("the daemon now runs version %s, not %s", h.Version, app.Version)
 			}
-			fmt.Fprintf(e.out, "daemon upgraded in place to %s (pid %d) at %s; servers kept running\n", h.Version, h.PID, next.Base)
+			fmt.Fprintf(e.out, "daemon %s in place to %s (pid %d) at %s; servers kept running\n", app.Replacement(old.Version), h.Version, h.PID, next.Base)
 			return true, nil
 		}
 		if err == nil && h.Verified && h.PID != old.PID {

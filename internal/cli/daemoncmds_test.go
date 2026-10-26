@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -390,3 +391,19 @@ func TestShutdownSignalsOnlyProvenDaemon(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestRestartRefusesNewerDaemon(t *testing.T) {
+	defer func(v string) { app.Version = v }(app.Version)
+	app.Version = "0.3.1"
+	if err := refuseDowngrade(client.Health{Version: "0.4.3"}, false); err == nil || !strings.Contains(err.Error(), "--allow-downgrade") {
+		t.Errorf("newer daemon: %v, want a refusal naming --allow-downgrade", err)
+	}
+	for _, c := range []struct {
+		daemon string
+		allow  bool
+	}{{"0.4.3", true}, {"0.3.1", false}, {"0.2.0", false}, {"dev", false}} {
+		if err := refuseDowngrade(client.Health{Version: c.daemon}, c.allow); err != nil {
+			t.Errorf("daemon %s, allow %v: %v", c.daemon, c.allow, err)
+		}
+	}
+}

@@ -652,12 +652,14 @@ func (s *Server) freePort(w http.ResponseWriter, r *http.Request) {
 }
 
 // upgrade replaces the daemon's binary in place with the one at the
-// optional {"exe": path}, keeping servers running. On success the process
+// optional {"exe": path}, keeping servers running; {"allowDowngrade": true}
+// lets it run an older release. On success the process
 // becomes the new daemon and this connection drops without a reply; a reply
 // means the old daemon still runs, and says why.
 func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Exe string `json:"exe"`
+		Exe            string `json:"exe"`
+		AllowDowngrade bool   `json:"allowDowngrade"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		fail(w, http.StatusBadRequest, err)
@@ -667,7 +669,7 @@ func (s *Server) upgrade(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotImplemented, errors.New("this daemon cannot upgrade in place"))
 		return
 	}
-	if err := s.opt.Upgrade(body.Exe); err != nil {
+	if err := s.opt.Upgrade(body.Exe, body.AllowDowngrade); err != nil {
 		fail(w, http.StatusConflict, err)
 		return
 	}
