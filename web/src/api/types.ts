@@ -25,6 +25,8 @@ export interface ServerView {
   url?: string
   alias?: string
   status: Status
+  /** Running but no longer answering on its port or health path (the note says why); not restarted. */
+  unready?: boolean
   note?: string
   pid?: number
   startedAt?: string

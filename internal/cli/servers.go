@@ -127,7 +127,11 @@ func cmdStatus(e *env, args []string) error {
 		if s.Temporary {
 			note = strings.TrimSpace("temporary in " + paths.ShortenHome(s.Worktree) + " " + note)
 		}
-		note = e.paint(dim, note)
+		if s.Unready {
+			note = e.paint(yellow, note)
+		} else {
+			note = e.paint(dim, note)
+		}
 		if s.NetworkWarning {
 			exposed++
 			note = strings.TrimSpace(e.paint(yellow, "may be reachable from the network") + " " + note)
@@ -145,12 +149,14 @@ func cmdStatus(e *env, args []string) error {
 }
 
 func (e *env) statusDot(s supervisor.View) string {
-	switch s.Status {
-	case supervisor.Running:
+	switch {
+	case s.Status == supervisor.Running && s.Unready:
+		return e.paint(yellow, "●")
+	case s.Status == supervisor.Running:
 		return e.paint(green, "●")
-	case supervisor.Starting, supervisor.Stopping:
+	case s.Status == supervisor.Starting || s.Status == supervisor.Stopping:
 		return e.paint(yellow, "◐")
-	case supervisor.Crashed, supervisor.Blocked:
+	case s.Status == supervisor.Crashed || s.Status == supervisor.Blocked:
 		return e.paint(red, "●")
 	}
 	if s.External != nil {

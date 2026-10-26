@@ -68,6 +68,12 @@ enum L {
         return "\(n) " + plural(n, one: "z problemem w kontenerach", few: "z problemami w kontenerach", many: "z problemami w kontenerach")
     }
 
+    /// "1 nie odpowiada", "3 nie odpowiadają".
+    static func unreadyCount(_ n: Int) -> String {
+        guard polish else { return "\(n) not responding" }
+        return "\(n) " + plural(n, one: "nie odpowiada", few: "nie odpowiadają", many: "nie odpowiada")
+    }
+
     /// "1 startuje", "3 startują", "5 startuje".
     static func startingCount(_ n: Int) -> String {
         guard polish else { return "\(n) starting" }
@@ -77,6 +83,7 @@ enum L {
     static func status(_ s: String) -> String {
         switch s {
         case "running": return t("running", "działa")
+        case "unready": return t("not responding", "nie odpowiada")
         case "starting": return t("starting", "startuje")
         case "stopping": return t("stopping", "zatrzymuje się")
         case "crashed": return t("crashed", "awaria")
@@ -146,6 +153,8 @@ struct Lamp: View {
                     .onAppear {
                         withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
                     }
+            case "unready":
+                Circle().fill(Color.orange)
             case "crashed", "blocked":
                 Circle().fill(Color.red)
             case "external":
@@ -214,6 +223,7 @@ struct MenuPanel: View {
         var parts = [L.t("\(s.running) of \(s.total) running", "\(s.running) z \(s.total) działa")]
         if s.crashed > 0 { parts.append(L.crashedCount(s.crashed)) }
         if s.containerIssues > 0 { parts.append(L.containerIssueCount(s.containerIssues)) }
+        if s.unready > 0 { parts.append(L.unreadyCount(s.unready)) }
         if s.starting > 0 { parts.append(L.startingCount(s.starting)) }
         return parts.joined(separator: " · ")
     }
@@ -402,7 +412,7 @@ struct MenuPanel: View {
                 Text(v.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
                 Text(issues.isEmpty ? detail(v) : issues.map { "\($0.shortName) \($0.problem)" }.joined(separator: ", "))
                     .font(.system(size: 10.5))
-                    .foregroundStyle(status == "crashed" || !issues.isEmpty ? Color.red : Color.secondary)
+                    .foregroundStyle(status == "crashed" || !issues.isEmpty ? Color.red : status == "unready" ? Color.orange : Color.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
@@ -431,8 +441,8 @@ struct MenuPanel: View {
         case "external":
             if let cmd = v.external?.command { return L.t("port held by \(cmd)", "port zajmuje \(cmd)") }
             return L.status("external")
-        case "crashed", "blocked":
-            return v.note.map(L.note) ?? L.status(v.status)
+        case "crashed", "blocked", "unready":
+            return v.note.map(L.note) ?? L.status(v.displayStatus)
         case "running":
             var parts = [L.status("running")]
             if v.mem > 0 { parts.append(String(format: "%.0f MB", Double(v.mem) / 1_048_576)) }

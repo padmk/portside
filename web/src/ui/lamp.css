@@ -27,7 +27,8 @@
   animation: lamp-pulse 1.6s ease-in-out infinite;
 }
 .lamp--crashed,
-.lamp--blocked {
+.lamp--blocked,
+.lamp--unready {
   --lamp: var(--crashed);
   width: calc(var(--lamp-size) * 0.86);
   height: calc(var(--lamp-size) * 0.86);
@@ -36,6 +37,11 @@
   background: var(--lamp);
   transform: rotate(45deg);
   box-shadow: 0 0 0 calc(var(--lamp-size) * 0.28) var(--crashed-wash);
+}
+/* Alive but not answering: the attention shape in the starting color. */
+.lamp--unready {
+  --lamp: var(--starting);
+  box-shadow: 0 0 0 calc(var(--lamp-size) * 0.28) var(--starting-wash);
 }
 .lamp--stopped,
 .lamp--exited {
@@ -72,7 +78,8 @@
   color: var(--running-text);
 }
 .status-text--starting,
-.status-text--stopping {
+.status-text--stopping,
+.status-text--unready {
   color: var(--starting-text);
 }
 .status-text--crashed,

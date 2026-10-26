@@ -73,6 +73,7 @@ export function StateActions({ server: v, inDetail }: Props) {
 
   switch (status) {
     case 'running':
+    case 'unready':
       return (
         <div className="actions">
           {v.url ? (

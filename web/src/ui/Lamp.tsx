@@ -1,11 +1,16 @@
 import { useT } from '../i18n'
 import type { ServerView } from '../api/types'
 
-/** The status a server is displayed with; `external` is a stopped server whose port is held by another process. */
-export type DisplayStatus = 'running' | 'starting' | 'stopping' | 'crashed' | 'blocked' | 'stopped' | 'exited' | 'external'
+/**
+ * The status a server is displayed with: `external` is a stopped server whose
+ * port is held by another process, `unready` a running one that stopped
+ * answering on its port or health path.
+ */
+export type DisplayStatus = 'running' | 'unready' | 'starting' | 'stopping' | 'crashed' | 'blocked' | 'stopped' | 'exited' | 'external'
 
-export function displayStatus(v: Pick<ServerView, 'status' | 'external'>): DisplayStatus {
+export function displayStatus(v: Pick<ServerView, 'status' | 'external' | 'unready'>): DisplayStatus {
   if (v.status === 'stopped' && v.external) return 'external'
+  if (v.status === 'running' && v.unready) return 'unready'
   return v.status
 }
 

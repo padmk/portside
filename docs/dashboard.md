@@ -16,8 +16,9 @@ CPU and memory are shown per server, summed over the whole process tree, with sp
 
 ## Server states
 
-- `starting` until the port accepts connections (optionally an HTTP health path);
-- `running`, with a delayed warning if a running server loses its listener;
+- `starting` until the port accepts connections, its `health` path answers and its `ready_log` line appears, as configured;
+- `running`;
+- **not responding** (an amber diamond, in the menu bar an orange light) when a running server has stopped answering on its port or `health` path for 4 seconds, with the reason; it is not restarted, and `portside check` reports it;
 - `crashed` with the exit code;
 - `blocked` when another process holds the port.
 

@@ -103,12 +103,16 @@ struct Server: Decodable, Identifiable, Hashable {
     let hasIcon: Bool?
     /// May be reachable from the network although the config does not set `lan = true`.
     let networkWarning: Bool?
+    /// Running but no longer answering on its port or health path; the note says why.
+    let unready: Bool?
 
     var id: String { name }
 
-    /// What to show: a stopped server whose port is held elsewhere is "external".
+    /// What to show: a stopped server whose port is held elsewhere is
+    /// "external", a running one that stopped answering is "unready".
     var displayStatus: String {
         if status == "stopped", external != nil { return "external" }
+        if status == "running", unready == true { return "unready" }
         return status
     }
 

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Play, RotateCw, Square, X } from 'lucide-rea
 import type { BulkAction, ServerView } from '../../api/types'
 import { useT } from '../../i18n'
 import { useNow } from '../../ui/hooks'
+import { displayStatus } from '../../ui/Lamp'
 import { bulk, groupKey, groupTargets, useBusy } from '../servers/actions'
 import { ServerCard } from './ServerCard'
 import { ServerRow } from './ServerRow'
@@ -83,7 +84,7 @@ function GroupSection({ section, titled, collapsed, layout, density, now, cursor
   const t = useT()
   const key = section.group ?? ''
   const title = section.group ?? t('list.ungrouped')
-  const running = section.all.filter((s) => s.status === 'running').length
+  const running = section.all.filter((s) => displayStatus(s) === 'running').length
   const busy = useBusy(`bulk:${groupKey(key)}`)
   const targets = groupTargets(section.all)
   const act = (action: BulkAction) => bulk(groupKey(key), action, { names: targets[action] })

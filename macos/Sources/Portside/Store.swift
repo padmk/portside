@@ -108,6 +108,7 @@ final class Store {
 
     struct Summary: Equatable {
         var running = 0
+        var unready = 0
         var starting = 0
         var crashed = 0
         var external = 0
@@ -123,6 +124,7 @@ final class Store {
         for v in servers {
             switch v.displayStatus {
             case "running": s.running += 1
+            case "unready": s.unready += 1
             case "starting", "stopping": s.starting += 1
             case "crashed", "blocked": s.crashed += 1
             case "external": s.external += 1

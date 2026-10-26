@@ -18,6 +18,7 @@ export const en = {
   'common.openUrl': 'Open {url}',
 
   'status.running': 'running',
+  'status.unready': 'not responding',
   'status.starting': 'starting',
   'status.stopping': 'stopping',
   'status.crashed': 'crashed',
@@ -27,6 +28,7 @@ export const en = {
   'status.external': 'external',
 
   'count.running': 'running',
+  'count.unready': 'not responding',
   'count.starting': 'starting',
   'count.crashed': 'crashed',
   'count.external': 'external',
@@ -523,6 +525,7 @@ export const pl: Record<Key, Message> = {
   'common.openUrl': 'Otwórz {url}',
 
   'status.running': 'działa',
+  'status.unready': 'nie odpowiada',
   'status.starting': 'startuje',
   'status.stopping': 'zatrzymuje się',
   'status.crashed': 'awaria',
@@ -532,6 +535,7 @@ export const pl: Record<Key, Message> = {
   'status.external': 'zewnętrzny',
 
   'count.running': { one: 'działa', few: 'działają', many: 'działa', other: 'działa' },
+  'count.unready': { one: 'nie odpowiada', few: 'nie odpowiadają', many: 'nie odpowiada', other: 'nie odpowiada' },
   'count.starting': { one: 'startuje', few: 'startują', many: 'startuje', other: 'startuje' },
   'count.crashed': { one: 'awaria', few: 'awarie', many: 'awarii', other: 'awarii' },
   'count.external': { one: 'zewnętrzny', few: 'zewnętrzne', many: 'zewnętrznych', other: 'zewnętrznych' },
