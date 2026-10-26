@@ -48,7 +48,7 @@ func File() string {
 	if base == "" {
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "systemd", "user", app.ID+".service")
+	return filepath.Join(base, "systemd", "user", Unit())
 }
 
 // ErrNoSystemd means this Linux system does not run systemd, so there is
@@ -198,6 +198,21 @@ WantedBy=default.target
 		app.Env("STATE_DIR"), strconv.Quote(paths.StateDir()))
 }
 
+// Unit is the systemd user unit's name.
+func Unit() string { return app.ID + ".service" }
+
+// Journaled reports whether systemd runs the daemon now, which keeps the
+// daemon's output in the user journal instead of the daemon log file.
+func Journaled() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	if _, err := exec.LookPath("journalctl"); err != nil {
+		return false
+	}
+	return exec.Command("systemctl", "--user", "is-active", "--quiet", Unit()).Run() == nil
+}
+
 // Uninstall stops the service and removes its definition.
 func Uninstall() error {
 	file := File()
@@ -205,7 +220,7 @@ func Uninstall() error {
 	case "darwin":
 		_ = exec.Command("launchctl", "bootout", launchdTarget()).Run()
 	case "linux":
-		_ = exec.Command("systemctl", "--user", "disable", "--now", app.ID+".service").Run()
+		_ = exec.Command("systemctl", "--user", "disable", "--now", Unit()).Run()
 	}
 	if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -229,7 +244,7 @@ func Query() Status {
 			st.Running = strings.Contains(string(out), "state = running")
 		}
 	case "linux":
-		out, _ := exec.Command("systemctl", "--user", "is-active", app.ID+".service").Output()
+		out, _ := exec.Command("systemctl", "--user", "is-active", Unit()).Output()
 		st.Detail = strings.TrimSpace(string(out))
 		st.Running = st.Detail == "active"
 	}
@@ -336,7 +351,7 @@ func MissingDisplay() bool {
 	if runtime.GOOS != "linux" || (!localDisplay() && (os.Getenv("WAYLAND_DISPLAY") == "" || os.Getenv("SSH_CONNECTION") != "")) {
 		return false
 	}
-	out, err := exec.Command("systemctl", "--user", "show", "-p", "MainPID", "--value", app.ID+".service").Output()
+	out, err := exec.Command("systemctl", "--user", "show", "-p", "MainPID", "--value", Unit()).Output()
 	if err != nil {
 		return false
 	}
@@ -363,7 +378,7 @@ func Start() error {
 		return run("launchctl", "kickstart", launchdTarget())
 	case "linux":
 		importSessionEnv()
-		return run("systemctl", "--user", "start", app.ID+".service")
+		return run("systemctl", "--user", "start", Unit())
 	}
 	return fmt.Errorf("services are not supported on %s", runtime.GOOS)
 }
@@ -375,7 +390,7 @@ func Restart() error {
 		return run("launchctl", "kickstart", "-k", launchdTarget())
 	case "linux":
 		importSessionEnv()
-		return run("systemctl", "--user", "restart", app.ID+".service")
+		return run("systemctl", "--user", "restart", Unit())
 	}
 	return fmt.Errorf("services are not supported on %s", runtime.GOOS)
 }

@@ -553,9 +553,9 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	if err != nil {
 		return h, fmt.Errorf("starting daemon: %w", err)
 	}
-	failed := fmt.Errorf("daemon did not come up; see %s", paths.ShortenHome(paths.DaemonLog()))
+	failed := fmt.Errorf("daemon did not come up; `%s daemon logs` shows why", app.ID)
 	if held != nil {
-		failed = fmt.Errorf("%v; the daemon could not start (see %s)", held, paths.ShortenHome(paths.DaemonLog()))
+		failed = fmt.Errorf("%v; the daemon could not start (`%s daemon logs` shows why)", held, app.ID)
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

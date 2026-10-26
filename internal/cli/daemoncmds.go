@@ -89,11 +89,21 @@ func cmdDaemon(e *env, args []string) error {
 		if _, err := parse(fs, args[1:]); err != nil {
 			return err
 		}
-		tailArgs := []string{"-n", strconv.Itoa(*n)}
-		if *follow {
-			tailArgs = append(tailArgs, "-F")
+		name, args := "tail", []string{"-n", strconv.Itoa(*n)}
+		if service.Journaled() {
+			// systemd keeps the output of the daemon it runs in the user journal.
+			name = "journalctl"
+			args = append(args, "--user", "-u", service.Unit(), "-o", "cat", "--no-pager")
+			if *follow {
+				args = append(args, "-f")
+			}
+		} else {
+			if *follow {
+				args = append(args, "-F")
+			}
+			args = append(args, paths.DaemonLog())
 		}
-		cmd := exec.Command("tail", append(tailArgs, paths.DaemonLog())...)
+		cmd := exec.Command(name, args...)
 		cmd.Stdout, cmd.Stderr = e.out, e.errOut
 		return cmd.Run()
 	default:
@@ -287,7 +297,7 @@ func daemonRestart(e *env, c *client.Client, allowDowngrade bool) error {
 				}
 				time.Sleep(200 * time.Millisecond)
 			}
-			return fmt.Errorf("the login service did not bring the daemon back; see %s", paths.ShortenHome(paths.DaemonLog()))
+			return fmt.Errorf("the login service did not bring the daemon back; `%s daemon logs` shows why", app.ID)
 		}
 		fmt.Fprintf(e.errOut, "note: %v; restarting the daemon outside the login service\n", err)
 		_, pingErr = c.Ping(e.ctx)
@@ -402,9 +412,9 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health, allowDowngrade 
 	next := e.nextClient()
 	h, err := next.Ensure(e.ctx)
 	if err != nil {
-		return true, fmt.Errorf("the upgraded daemon did not answer and none could be started: %w; see %s", err, paths.ShortenHome(paths.DaemonLog()))
+		return true, fmt.Errorf("the upgraded daemon did not answer and none could be started: %w; `%s daemon logs` shows why", err, app.ID)
 	}
-	return true, fmt.Errorf("the upgraded daemon did not answer; started a fresh one (pid %d), which restores servers that were running; see %s", h.PID, paths.ShortenHome(paths.DaemonLog()))
+	return true, fmt.Errorf("the upgraded daemon did not answer; started a fresh one (pid %d), which restores servers that were running; `%s daemon logs` shows why", h.PID, app.ID)
 }
 
 // waitGone polls until the daemon stops answering, giving it 90s to stop
