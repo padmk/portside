@@ -257,7 +257,7 @@ func Main(args []string) int {
 		e.on = on
 	}
 	if err == nil && e.on != "" && !c.remote {
-		err = usageError{fmt.Sprintf("--on works with %s", strings.Join(remoteCommands(), ", "))}
+		err = usageError{"--on works with " + remoteList()}
 	}
 	if err == nil {
 		err = c.run(e, rest)
@@ -312,7 +312,7 @@ func usage(w io.Writer) {
 		}
 		fmt.Fprintf(w, "  %-10s %s\n", c.names[0], c.summary)
 	}
-	fmt.Fprintf(w, "\n--on COMPUTER runs %s on the connected computer.\n", strings.Join(remoteCommands(), ", "))
+	fmt.Fprintf(w, "\n--on COMPUTER runs %s on the connected computer.\n", remoteList())
 	fmt.Fprintf(w, "\nConfig: %s\nDashboard: `%s open`\nRun `%s help <command>` for arguments.\n",
 		paths.ShortenHome(paths.ConfigFile()), app.ID, app.ID)
 }
@@ -326,6 +326,16 @@ func remoteCommands() []string {
 		}
 	}
 	return out
+}
+
+// remoteList names the commands that take --on, as in "a, b and c": the
+// one wording of that list for help, errors and hints.
+func remoteList() string {
+	names := remoteCommands()
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 // parse parses flags that may appear anywhere among positional arguments.

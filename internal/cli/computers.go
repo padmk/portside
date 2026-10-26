@@ -125,7 +125,7 @@ func printConnection(e *env, cn *remote.Info) {
 	if len(ports) > 0 {
 		fmt.Fprintf(e.out, "  %s %s\n", e.paint(dim, "forwarded ports"), strings.Join(ports, ", "))
 	}
-	fmt.Fprintf(e.out, "  %s\n", e.paint(dim, fmt.Sprintf("--on %s runs status, logs, ensure, up, down and restart there", cn.Peer.Label)))
+	fmt.Fprintf(e.out, "  %s\n", e.paint(dim, fmt.Sprintf("--on %s runs %s there", cn.Peer.Label, remoteList())))
 }
 
 // cmdForward turns forwarding of a port of the connected computer on or off.
