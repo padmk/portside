@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -124,5 +126,55 @@ func TestForwardingOffClosesOpenConnections(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("the open connection kept running after the port was turned off")
+	}
+}
+
+// TestBindAfterClosedConnections binds a mirror again right after it ended
+// connections itself, which leaves them closing (TIME_WAIT) on the port for
+// about 30 seconds, while a listener of another process on the port still
+// keeps the mirror away.
+func TestBindAfterClosedConnections(t *testing.T) {
+	_, c := connected(t)
+	// The remote port is turned off, so the mirror ends every connection at
+	// once, before the client does.
+	c.update(func() { c.off[1] = true })
+	p := freePort(t)
+	addr := "127.0.0.1:" + strconv.Itoa(p)
+	for i := range 3 {
+		lns := c.bind(p, 1)
+		if lns == nil {
+			t.Fatalf("round %d: the port is busy right after the mirror's connections closed", i)
+		}
+		cn, err := net.Dial("tcp", addr)
+		if err != nil {
+			closeAll(lns)
+			t.Fatal(err)
+		}
+		_ = cn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if _, err := cn.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+			t.Fatalf("round %d: read = %v, want the mirror to close first", i, err)
+		}
+		cn.Close()
+		closeAll(lns)
+	}
+
+	for _, l := range []struct{ network, host string }{
+		{"tcp4", "127.0.0.1"},
+		{"tcp6", "::1"},
+		{"tcp4", "0.0.0.0"},
+		{"tcp", ""}, // all addresses, IPv4 and IPv6
+	} {
+		local, err := net.Listen(l.network, net.JoinHostPort(l.host, strconv.Itoa(p)))
+		if err != nil {
+			if l.network == "tcp6" {
+				continue // no IPv6 loopback
+			}
+			t.Fatalf("listener on %q next to closing connections: %v", l.host, err)
+		}
+		if lns := c.bind(p, 1); lns != nil {
+			closeAll(lns)
+			t.Errorf("bound port %d while another process listens on %s", p, local.Addr())
+		}
+		local.Close()
 	}
 }

@@ -46,8 +46,7 @@ func connected(t *testing.T) (*Manager, *conn) {
 // macOS also holds ports for other processes' connections on other
 // addresses that no loopback check sees, so the port is drawn from below
 // the ephemeral ranges of macOS (49152) and Linux (32768) instead. It is
-// checked with loopback binds without SO_REUSEADDR, like the mirrors' own,
-// and by dialing, never by a wildcard bind, which would make the macOS
+// checked with loopback binds without SO_REUSEADDR and by dialing, never by a wildcard bind, which would make the macOS
 // firewall ask about the test binary.
 func freePort(t *testing.T) int {
 	t.Helper()
@@ -77,6 +76,18 @@ func bindsLoopback(ctx context.Context, port int) bool {
 	}
 	return !errors.Is(err, syscall.EADDRINUSE)
 }
+
+// exclusive listens without SO_REUSEADDR, which Go sets by default, so a
+// port also counts as taken by connections still closing on it.
+var exclusive = net.ListenConfig{Control: func(_, _ string, rc syscall.RawConn) error {
+	var serr error
+	if err := rc.Control(func(fd uintptr) {
+		serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 0)
+	}); err != nil {
+		return err
+	}
+	return serr
+}}
 
 // answers reports whether a listener accepts a connection to port on any
 // of hosts.

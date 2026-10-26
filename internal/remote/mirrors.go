@@ -39,6 +39,10 @@ func (mr *mirror) close() {
 // computer that went away and its ports are free for local servers again.
 const dropAfter = time.Minute
 
+// retryBusy spaces out bind attempts on a port busy here, so a local server
+// that restarts gets its port back before the mirror tries it again.
+const retryBusy = 4 * time.Second
+
 // localFor returns the local port a remote port is forwarded to.
 func (c *conn) localFor(port int) int {
 	if l := c.locals[port]; l > 0 {
@@ -90,7 +94,7 @@ func (c *conn) reconcileLocked() {
 			}
 			continue
 		}
-		if local == c.m.localPort || now.Before(c.held[local]) || now.Sub(mr.tried) < 9*time.Second ||
+		if local == c.m.localPort || now.Before(c.held[local]) || now.Sub(mr.tried) < retryBusy ||
 			(c.m.wanted != nil && c.m.wanted(local)) {
 			continue
 		}
@@ -101,22 +105,26 @@ func (c *conn) reconcileLocked() {
 
 // bind listens on loopback port local, IPv4 and (where available) IPv6,
 // when it is free here, and forwards connections to port on the remote
-// machine. A port counts as taken when any address of it is bound:
-// 127.0.0.1 can be bound next to a process listening on all addresses and
-// would steal its traffic. Binds are tried instead of connecting, so local
+// machine. A port counts as taken when a socket of another process holds it
+// on loopback or on all addresses: 127.0.0.1 can be bound next to a process
+// listening on all addresses and would steal its traffic, so wildcardHeld
+// checks for one first. The binds use SO_REUSEADDR (Go's default), so
+// connections still closing after the mirror's last bind (TIME_WAIT) do not
+// keep the port busy. Binds are tried instead of connecting, so local
 // servers never see probe connections.
 func (c *conn) bind(local, port int) []net.Listener {
 	p := strconv.Itoa(local)
 	ctx := context.Background()
-	if !wildcardFree(local) {
+	if wildcardHeld(local) {
 		return nil
 	}
-	v4, err := exclusive.Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", p))
+	var lc net.ListenConfig
+	v4, err := lc.Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", p))
 	if err != nil {
 		return nil
 	}
 	lns := []net.Listener{v4}
-	v6, err := exclusive.Listen(ctx, "tcp", net.JoinHostPort("::1", p))
+	v6, err := lc.Listen(ctx, "tcp", net.JoinHostPort("::1", p))
 	switch {
 	case err == nil:
 		lns = append(lns, v6)
@@ -129,18 +137,6 @@ func (c *conn) bind(local, port int) []net.Listener {
 	}
 	return lns
 }
-
-// exclusive listens without SO_REUSEADDR, which Go sets by default: with it,
-// BSD systems let 127.0.0.1:port bind next to a listener on 0.0.0.0:port.
-var exclusive = net.ListenConfig{Control: func(_, _ string, rc syscall.RawConn) error {
-	var serr error
-	if err := rc.Control(func(fd uintptr) {
-		serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 0)
-	}); err != nil {
-		return err
-	}
-	return serr
-}}
 
 func (c *conn) accept(ln net.Listener, port int) {
 	for {
@@ -225,8 +221,8 @@ func (c *conn) closeTunnelsLocked(port int) {
 
 // retryMirrors reconciles the mirrors every few seconds: it notices a local
 // process taking a forwarded port soon after it starts, binds busy ports
-// again once they are free (every 9 s at most), and drops the mirrors of a
-// connection that stays down.
+// again soon after they are free (retryBusy apart), and drops the mirrors of
+// a connection that stays down.
 func (c *conn) retryMirrors() {
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
