@@ -63,6 +63,8 @@ Tailscale identifies devices, not accounts or processes, so the key is what keep
 
 A paired device has the same control you have here, which includes running any command through a server definition; the dashboard does not offer it stopping the daemon, opening desktop apps or changing sharing, but that is a convenience, not a security boundary. Pair only devices you trust as much as this one.
 
+On the computer you connect from, each forwarded port listens on `127.0.0.1` like a server started there, and it does not check which program connects: other accounts on that computer and pages in its browsers reach the other computer's server through it just as they would reach a local one. A database without a password is as open as one you run locally. Disconnect to close the forwarded ports.
+
 ## What it does not protect against
 
 Programs running as your own user can read the token, just as they could run the commands themselves. Keep the dashboard host to yourself while it lasts: a page served on another port of that host (`http://d-....localhost:<other port>`) would receive the session cookie. The daemon accepts it only on your account's connections, so this matters only against your own programs, which can read the token anyway. The `*.localhost` proxy needs no token: it only forwards to dev servers that already listen on loopback.
