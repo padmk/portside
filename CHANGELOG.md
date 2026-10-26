@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+
+- **CLI:** `portside daemon logs` reads the user journal also when the systemd service failed to start, which is when its reason is needed, and reads the log file for a daemon of another state directory than the service's. Stopping such a daemon no longer says the login service starts it at login.
+- **CI:** every push runs the Linux login service end to end on the runner's systemd: restarts and crash commands, the journal, an upgrade in place, a start that fails and an isolated instance (`scripts/linux-service-e2e.sh`).
+
 ## 0.6.2
 
 - **Login service:** `portside service install` records the binary by its link on `PATH` (such as Homebrew's `bin/portside`) instead of the versioned file behind it, so the service still starts after `brew upgrade` removes the old version. Run `portside service install` again once to update an existing service.
