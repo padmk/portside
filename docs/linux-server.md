@@ -49,12 +49,13 @@ A crash of the daemon itself is systemd's to report: `systemctl --user status po
 
 ## Reading state from scripts
 
+- `portside check` answers whether everything that should run is running, for monitors and timers, without the token. A server should run when it crashed, when it exited although its restart policy is `always`, and while it is started and not stopped by you; it is ready when it is `running`. It exits 0 when all such servers are ready, 1 when one is not (printing each with its status and reason) and 2 when it cannot tell: no daemon runs (it never starts one), what answers cannot prove it is yours, or the config does not load. `--json` prints `ok`, the daemon's `version` and `pid`, and per server `name`, `status`, `expected`, `ready` and `reason`, or `ok: false` with `error` for exit 2. In a crontab: `*/5 * * * * portside check >/dev/null || mail -s "dev servers" you@example.com`.
 - `portside status --json`: every server with `status` (`starting`, `running`, `stopping`, `stopped`, `crashed`, `exited`, or `blocked` when another process holds its port), `note`, `exitCode`, `restarts`, `restartPending`, `pid`, `port`, `url` and the last lines in `tail`. Fields without a value, such as `exitCode` of a running server, are left out.
 - `portside logs <name> -n 200` prints a server's output (`--grep`, `--since 10m`, `-t` for times) and `portside daemon logs -n 100` the daemon's; `-f` follows either.
 - `portside ensure <name> --json` starts a server if needed and waits until it is ready.
 - The HTTP API on `127.0.0.1` accepts `Authorization: Bearer $(cat ~/.local/state/portside/auth-token)`, for example `curl -H "Authorization: Bearer $(cat ~/.local/state/portside/auth-token)" http://127.0.0.1:7878/api/state`. The token controls every server, so keep it on the machine; give other systems only what you read from it.
 
-`portside status` exits 0 whatever state the servers are in, so check `status` in the JSON.
+`portside status` exits 0 whatever state the servers are in; use `portside check` for an exit code.
 
 ## Coding agents
 
