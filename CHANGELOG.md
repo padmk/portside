@@ -6,6 +6,7 @@
 - **CLI:** `portside daemon restart --in-place` only upgrades in place and fails instead of restarting the servers. `portside status` and `portside doctor` say when the daemon is older than the command; `daemon info` reports it as `outdated`.
 
 - **Other computers:** a forwarded port is available again at once after the other computer's server goes down and up, after `portside forward on`, a reconnect or a local listener exiting, instead of staying busy here for up to 40 seconds while its closed connections linger (TIME_WAIT). A local listener on the port still takes precedence.
+- **Config:** removing the last server of the config file (`portside rm`, the dashboard) no longer leaves a blank line at the end of the file.
 
 ## 0.4.3
 

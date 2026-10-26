@@ -359,6 +359,24 @@ func TestRemoveLastServerCollapsesBlankLine(t *testing.T) {
 	wantText(t, path, want)
 }
 
+func TestAddThenRemoveRestoresFile(t *testing.T) {
+	for name, text := range map[string]string{
+		"settings only":  "port = 7980\n",
+		"after a server": "port = 7980\n\n[servers.web]\ncmd = \"npm run dev\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := newConfig(t, text)
+			if err := AddServer(path, Spec{Name: "api", Cmd: "go run ."}); err != nil {
+				t.Fatal(err)
+			}
+			if err := RemoveServer(path, "api"); err != nil {
+				t.Fatal(err)
+			}
+			wantText(t, path, text)
+		})
+	}
+}
+
 func TestRemoveServerRejected(t *testing.T) {
 	path := newConfig(t, fixture)
 	wantRejected(t, path, fixture, RemoveServer(path, "ghost"))
