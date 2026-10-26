@@ -51,9 +51,9 @@ On a Linux server without a desktop (a preview), the daemon runs as a systemd us
 
 **Download.** Get `Portside-<version>.zip` from the [releases](https://github.com/padmk/portside/releases), move `Portside.app` to Applications, and choose **Settings > Install Command Line Tool** in its menu. The app is signed ad hoc and not notarized, so macOS blocks the first launch of a downloaded copy: open it once, then choose **Open Anyway** in **System Settings > Privacy & Security** and confirm ([Apple's instructions](https://support.apple.com/en-us/102445)). The Homebrew cask clears the quarantine flag itself.
 
-**Build with Homebrew.** `brew install --formula padmk/tap/portside` downloads the release's tagged source and builds the `portside` command with its embedded dashboard (with Homebrew's Go, Node and pnpm, needed only for the build). There is no menu bar app: open the dashboard in your browser with `portside open`. Update with `brew upgrade portside`, then `portside daemon restart`. The formula and the cask both install `portside`, so install only one of them.
+**Build with Homebrew.** `brew install --formula padmk/tap/portside` downloads the release's tagged source and builds the `portside` command with its embedded dashboard, on macOS or Linux (with Homebrew's Go, Node and pnpm, needed only for the build). There is no menu bar app: open the dashboard in your browser with `portside open`. Update with `brew upgrade portside`, then `portside daemon restart`. The formula and the cask both install `portside`, so install only one of them.
 
-**Linux (preview).** The CLI, daemon and dashboard run on x86-64 and arm64; CI builds and tests them, but macOS gets more use. Download `portside_<version>_linux_<arch>.tar.gz` from the releases, put `portside` on your `PATH`, and run `portside service install` to start the daemon at login ([Linux server](docs/linux-server.md) for a machine without a desktop).
+**Linux (preview).** The CLI, daemon and dashboard run on x86-64 and arm64; CI builds and tests them, but macOS gets more use. Download `portside_<version>_linux_<arch>.tar.gz` from the releases and put `portside` on your `PATH`, or build it with Homebrew (above); then `portside service install` starts the daemon at login ([Linux server](docs/linux-server.md) for a machine without a desktop).
 
 **From source** (Go 1.26+, Node 24 and pnpm 12):
 

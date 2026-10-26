@@ -4,7 +4,7 @@ Portside runs on a Linux machine you reach over SSH, such as a development or st
 
 ## Install and start at boot
 
-Download `portside_<version>_linux_<arch>.tar.gz` (x86-64 or arm64) from the [releases](https://github.com/padmk/portside/releases), put `portside` on your `PATH` (for example `~/.local/bin`), then:
+Download `portside_<version>_linux_<arch>.tar.gz` (x86-64 or arm64) from the [releases](https://github.com/padmk/portside/releases) and put `portside` on your `PATH` (for example `~/.local/bin`). With Homebrew, `brew install --formula padmk/tap/portside` builds it from source instead (a few minutes), and `brew upgrade portside` updates it. Then:
 
 ```sh
 portside init                       # writes ~/.config/portside/portside.toml
@@ -13,7 +13,7 @@ portside service install            # start the daemon now and at every boot
 portside doctor                     # check the setup
 ```
 
-Portside needs `ps`, `tail` and either `lsof` or `ss` (iproute2, installed on most distributions). `notify-send` is optional; without a desktop, use `on_crash` instead (below). Docker or Podman is optional too; for rootless Docker, set a Docker context or `DOCKER_HOST` in your login shell ([Containers](containers.md)). How the service runs without a login session is in [How it works](how-it-works.md#login-service).
+Portside needs `ps`, `tail` and either `lsof` or `ss` (iproute2, installed on most distributions). Desktop notifications need `notify-send` and a desktop session; without one, use `on_crash` instead (below). Docker or Podman is optional too; for rootless Docker, set a Docker context or `DOCKER_HOST` in your login shell ([Containers](containers.md)). How the service runs without a login session is in [How it works](how-it-works.md#login-service).
 
 After an update, run `portside daemon restart` with the new binary: servers keep running through it.
 
