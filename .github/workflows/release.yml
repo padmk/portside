@@ -2,22 +2,31 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # A dry run: builds and checks everything a tag would, publishes nothing.
+  workflow_dispatch:
 
+# Building runs the project's code and its dependencies, so the build jobs can
+# read the repository and attest what they made, but not change releases or
+# reach the tap. Only `publish` and `tap` write, and neither runs project code.
 permissions:
-  contents: write
+  contents: read
+
+env:
+  PUBLISH: ${{ github.event_name == 'push' }}
 
 jobs:
   cli:
     # Linux and macOS command-line archives with the embedded dashboard.
     runs-on: macos-26
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -35,6 +44,7 @@ jobs:
           syft-version: v1.55.0
       - name: Release notes from CHANGELOG.md
         # The section of this version, without its heading; a tag without one stops here.
+        if: env.PUBLISH == 'true'
         run: |
           awk -v h="## ${GITHUB_REF_NAME#v}" '$0 == h {on = 1; next} on && /^## / {exit} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || { echo "CHANGELOG.md has no section for ${GITHUB_REF_NAME#v}" >&2; exit 1; }
@@ -42,30 +52,41 @@ jobs:
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: v2.18.3
-          args: release --clean --release-notes=${{ runner.temp }}/notes.md
+          # The archives only; `publish` creates the release.
+          args: release --clean --skip=publish ${{ env.PUBLISH != 'true' && '--snapshot' || '' }}
         env:
+          # Read-only here (the job's permissions); GoReleaser reads repository metadata with it.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Collect the release files
+        run: |
+          mkdir out
+          cp dist/*.tar.gz dist/*.sbom.json dist/checksums.txt out/
+          if [ -f "$RUNNER_TEMP/notes.md" ]; then cp "$RUNNER_TEMP/notes.md" out/notes.md; fi
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: env.PUBLISH == 'true'
         with:
           subject-path: |
-            dist/*.tar.gz
-            dist/*.sbom.json
-            dist/checksums.txt
+            out/*.tar.gz
+            out/*.sbom.json
+            out/checksums.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli
+          path: out/
+          if-no-files-found: error
 
   app:
-    # macOS menu bar app, attached to the same release and published as a Homebrew cask, next to a formula that builds the CLI from the tag's source.
-    needs: cli
+    # The macOS menu bar app.
     runs-on: macos-26
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
-    env:
-      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -78,14 +99,63 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - name: Build Portside.app
-        run: VERSION="${GITHUB_REF_NAME#v}" scripts/build-macos-app.sh --zip
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [ "$PUBLISH" = true ] || version=0.0.0-dryrun
+          VERSION="$version" scripts/build-macos-app.sh --zip
+          mkdir out
+          cp "dist/macos/Portside-$version.zip" out/
+          # The tap job renders the cask from it, on a runner without PlistBuddy.
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' dist/macos/Portside.app/Contents/Info.plist > out/bundle-id
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: env.PUBLISH == 'true'
         with:
-          subject-path: dist/macos/Portside-*.zip
-      - name: Upload to the release
+          subject-path: out/Portside-*.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    # Creates the GitHub release from the built files; runs none of them.
+    if: github.event_name == 'push'
+    needs: [cli, app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: release
+      - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" "dist/macos/Portside-${GITHUB_REF_NAME#v}.zip" --clobber
+        run: |
+          gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file release/cli/notes.md \
+            release/cli/*.tar.gz release/cli/*.sbom.json release/cli/checksums.txt release/app/Portside-*.zip
+
+  tap:
+    # Publishes the cask and the source-build formula to <owner>/homebrew-tap.
+    # The token lives in the `release` environment, which only tags `v*` reach.
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    env:
+      HAS_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging/homebrew
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: app
+          path: app
       - name: Update the Homebrew cask and formula
         # Skipped until the tap repository and its token are set up.
         if: env.HAS_TAP_TOKEN == 'true'
@@ -94,13 +164,13 @@ jobs:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          sha=$(shasum -a 256 "dist/macos/Portside-$version.zip" | cut -d' ' -f1)
-          bundle=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' dist/macos/Portside.app/Contents/Info.plist)
+          sha=$(sha256sum "app/Portside-$version.zip" | cut -d' ' -f1)
+          bundle=$(cat app/bundle-id)
           # The app's bundle ID is the service label plus ".app" (internal/app).
           label="${bundle%.app}"
           # The formula builds from the tag's source archive.
           curl -fsSL -o "$RUNNER_TEMP/source.tar.gz" "https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$GITHUB_REF_NAME.tar.gz"
-          source_sha=$(shasum -a 256 "$RUNNER_TEMP/source.tar.gz" | cut -d' ' -f1)
+          source_sha=$(sha256sum "$RUNNER_TEMP/source.tar.gz" | cut -d' ' -f1)
           gh auth setup-git
           git clone "https://github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
           mkdir -p tap/Casks tap/Formula
