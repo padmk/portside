@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,5 +116,21 @@ func TestCrashHookWhenAlwaysGivesUpOnCleanExits(t *testing.T) {
 	want := fmt.Sprintf("web|0|%d|exited on its own; gave up after %d restarts", maxRetries, maxRetries)
 	if calls := hookCalls(t, out, 15*time.Second); len(calls) != 1 || calls[0] != want {
 		t.Fatalf("calls = %q, want one %q", calls, want)
+	}
+}
+
+func TestCrashHookWhenThePortIsTaken(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	s, out := crashHookSupervisor(t, "sleep 60", config.RestartNo)
+	s.procs["web"].cfg.Port = ln.Addr().(*net.TCPAddr).Port
+	if err := s.Start("web", StartOptions{}); err == nil {
+		t.Fatal("start on a taken port succeeded")
+	}
+	if calls := hookCalls(t, out, 5*time.Second); len(calls) != 1 || !strings.HasPrefix(calls[0], "web||0|port ") {
+		t.Fatalf("calls = %q", calls)
 	}
 }

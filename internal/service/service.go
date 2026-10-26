@@ -396,7 +396,7 @@ func HasDisplay(pid int) (has, known bool) {
 		return false, false
 	}
 	for _, kv := range strings.Split(string(data), "\x00") {
-		if strings.HasPrefix(kv, "DISPLAY=") || strings.HasPrefix(kv, "WAYLAND_DISPLAY=") {
+		if k, v, _ := strings.Cut(kv, "="); (k == "DISPLAY" || k == "WAYLAND_DISPLAY") && v != "" {
 			return true, true
 		}
 	}

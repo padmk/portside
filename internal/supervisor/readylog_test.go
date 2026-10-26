@@ -114,3 +114,17 @@ func TestAdoptedServerKeepsWaitingForItsReadyLine(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestReadyLogWaitsForTheWholeLine(t *testing.T) {
+	p := &proc{logs: NewMemoryLog()}
+	p.logs.WatchLines(readyLogWatch(p, regexp.MustCompile(`^Worker ready$`)))
+	fmt.Fprint(p.logs, "Worker ready")
+	fmt.Fprint(p.logs, " not yet\r\n")
+	if p.logReady.Load() {
+		t.Fatal("a line that only began like the pattern matched")
+	}
+	fmt.Fprint(p.logs, "Worker ready\r\n")
+	if !p.logReady.Load() {
+		t.Fatal("the whole line did not match")
+	}
+}

@@ -21,6 +21,7 @@ func TestViewHealth(t *testing.T) {
 		{"exited cleanly, on-failure", View{Status: Exited, Note: "exited on its own", Restart: config.RestartOnFailure}, Health{}},
 		{"starting", View{Status: Starting, Wanted: true, Restart: config.RestartNo}, Health{Expected: true, Reason: "starting"}},
 		{"blocked", View{Status: Blocked, Wanted: true, Note: "port 3000 is in use", Restart: config.RestartNo}, Health{Expected: true, Reason: "port 3000 is in use"}},
+		{"running but no longer answering", View{Status: Running, Wanted: true, Unready: true, Note: "health /health answers 503", Restart: config.RestartNo}, Health{Expected: true, Reason: "health /health answers 503"}},
 		{"stopped by the user", View{Status: Stopped, Restart: config.RestartAlways}, Health{}},
 		{"disabled, never started", View{Status: Stopped, Restart: config.RestartNo}, Health{}},
 		{"temporary copy crashed", View{Status: Crashed, Temporary: true, Note: "exited with code 2", Restart: config.RestartNo}, Health{Expected: true, Reason: "exited with code 2"}},

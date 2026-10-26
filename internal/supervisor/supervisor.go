@@ -470,7 +470,7 @@ func (s *Supervisor) failStart(name string, token int, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if p, ok := s.procs[name]; ok && p.pid == 0 && p.startSeq == token && p.want {
-		reported := p.status == Crashed // startOne itself failed and reported it
+		reported := p.status == Crashed || p.status == Blocked // startOne itself failed and reported it
 		p.status = Crashed
 		p.note = msg
 		if !reported {
@@ -534,6 +534,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 				p.note = fmt.Sprintf("port %d is already in use", sv.Port)
 			}
 			note := p.note
+			s.reportCrashLocked(p, nil, 0)
 			s.saveLocked()
 			s.changedLocked()
 			s.mu.Unlock()

@@ -15,16 +15,19 @@ import (
 
 // View is the public, JSON-serialisable state of one server.
 type View struct {
-	Name           string          `json:"name"`
-	Group          string          `json:"group,omitempty"`
-	Dir            string          `json:"dir"`
-	DirDisplay     string          `json:"dirDisplay"`
-	Cmd            string          `json:"cmd"`
-	Port           int             `json:"port"`
-	PortAuto       bool            `json:"portAuto,omitempty"`
-	URL            string          `json:"url,omitempty"`
-	Alias          string          `json:"alias,omitempty"`
-	Status         Status          `json:"status"`
+	Name       string `json:"name"`
+	Group      string `json:"group,omitempty"`
+	Dir        string `json:"dir"`
+	DirDisplay string `json:"dirDisplay"`
+	Cmd        string `json:"cmd"`
+	Port       int    `json:"port"`
+	PortAuto   bool   `json:"portAuto,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Alias      string `json:"alias,omitempty"`
+	Status     Status `json:"status"`
+	// Unready marks a running server whose port or health check has failed
+	// for listenerLossDelay; it is not restarted, and its note says why.
+	Unready        bool            `json:"unready,omitempty"`
 	Note           string          `json:"note,omitempty"`
 	PID            int             `json:"pid,omitempty"`
 	StartedAt      *time.Time      `json:"startedAt,omitempty"`
@@ -74,8 +77,8 @@ type View struct {
 	Kind           string         `json:"kind,omitempty"`
 }
 
-// Health is whether a server should run and whether it is ready, the rule
-// behind monitoring checks. A server should run when it crashed, when it
+// Health is whether a server should run and whether it is ready (running
+// and still answering), the rule behind monitoring checks. A server should run when it crashed, when it
 // exited although its restart policy is always (the policy gave up), and
 // while it is wanted (started and not stopped by the user). Reason explains
 // a server that should run and is not ready: its note, else its status.
@@ -93,7 +96,7 @@ func (h Health) Degraded() bool { return h.Expected && !h.Ready }
 func (v View) Health(required bool) Health {
 	h := Health{
 		Expected: required || v.Wanted || v.Status == Crashed || (v.Status == Exited && v.Restart == config.RestartAlways),
-		Ready:    v.Status == Running,
+		Ready:    v.Status == Running && !v.Unready,
 	}
 	if h.Degraded() {
 		h.Reason = v.Note
@@ -132,6 +135,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			Port:           active.Port,
 			PortAuto:       c.PortAuto,
 			Status:         p.status,
+			Unready:        p.status == Running && !p.missingSince.IsZero() && time.Since(p.missingSince) >= listenerLossDelay,
 			Note:           p.note,
 			PID:            p.pid,
 			Listening:      p.listening,

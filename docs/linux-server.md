@@ -39,7 +39,7 @@ ready_log = "Worker ready"          # running once it prints this line
 restart = "always"
 ```
 
-A crashed server is started again with backoff until it has failed 5 times in a row ([Server keys](configuration.md#server-keys) has the delays), and running servers come back after a reboot (`restore`, on by default). systemd restarts the daemon itself if it crashes, so do not also run these apps as systemd units of their own.
+A crashed server is started again with backoff, up to 5 restarts in a row ([Server keys](configuration.md#server-keys) has the delays), and running servers come back after a reboot (`restore`, on by default). systemd restarts the daemon itself if it crashes, so do not also run these apps as systemd units of their own.
 
 ## Crash reports
 
@@ -49,7 +49,7 @@ A crash of the daemon itself is systemd's to report: `systemctl --user status po
 
 ## Reading state from scripts
 
-- `portside check` tells monitors and timers whether everything that should run is running, without the token, and never starts a daemon. It exits 0 when every such server is `running`, 1 when one is not (printing each with its status and reason) and 2 when it cannot tell: no daemon runs, what answers cannot prove it is yours, or the config does not load. A server should run when it crashed, when `restart = "always"` gave up, and while it is started and not stopped by you; name servers or groups (`portside check api worker`) to require exactly those, also after a stop. `--json` prints `ok`, the daemon's `version` and `pid`, and per server `name`, `status`, `expected`, `ready` and `reason` (`ok: false` with `error` for exit 2). In a crontab: `*/5 * * * * portside check api worker >/dev/null || mail -s "dev servers" you@example.com`.
+- `portside check` tells monitors and timers whether everything that should run is running, without the token, and never starts a daemon. It exits 0 when every such server is `running` and still answers on its port and `health`, 1 when one is not (printing each with its status and reason) and 2 when it cannot tell: no daemon runs, what answers cannot prove it is yours, or the config does not load. A server should run when it crashed, when `restart = "always"` gave up, and while it is started and not stopped by you; name servers or groups (`portside check api worker`) to require exactly those, also after a stop. `--json` prints `ok`, the daemon's `version` and `pid`, and per server `name`, `status`, `expected`, `ready` and `reason` (`ok: false` with `error` for exit 2). In a crontab: `*/5 * * * * portside check api worker >/dev/null || mail -s "dev servers" you@example.com`.
 - `portside status --json`: every server with `status` (`starting`, `running`, `stopping`, `stopped`, `crashed`, `exited`, or `blocked` when another process holds its port), `note`, `exitCode`, `restarts`, `restartPending`, `pid`, `port`, `url` and the last lines in `tail`. Fields without a value, such as `exitCode` of a running server, are left out.
 - `portside logs <name> -n 200` prints a server's output (`--grep`, `--since 10m`, `-t` for times) and `portside daemon logs -n 100` the daemon's; `-f` follows either.
 - `portside ensure <name> --json` starts a server if needed and waits until it is ready.
