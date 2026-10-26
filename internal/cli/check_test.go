@@ -172,3 +172,32 @@ func TestCheckCannotTell(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckNamedServersAreRequired(t *testing.T) {
+	cfg, state, port := isolateDaemon(t)
+	serveState(t, state, port, server.State{Daemon: server.Health{Version: "9.9.9", PID: 4242}, Servers: []supervisor.View{
+		{Name: "web", Group: "shop", Status: supervisor.Running, Wanted: true, Restart: config.RestartNo},
+		{Name: "docs", Status: supervisor.Stopped, Restart: config.RestartNo},
+		{Name: "api", Status: supervisor.Crashed, Restart: config.RestartNo},
+	}})
+	for _, c := range []struct {
+		args []string
+		want int
+		out  string
+	}{
+		{[]string{"shop"}, 0, "1 of 1 server that should run is ready"},
+		{[]string{"web", "docs"}, checkDegraded, "docs"},
+		{[]string{"wbe"}, checkUnknown, `unknown server or group "wbe"`},
+	} {
+		e, out, errOut := testEnv(cfg)
+		if got := exitCode(cmdCheck(e, c.args)); got != c.want {
+			t.Fatalf("check %v: exit %d, want %d; output:\n%s%s", c.args, got, c.want, out, errOut)
+		}
+		if !strings.Contains(out.String()+errOut.String(), c.out) {
+			t.Errorf("check %v: output %q%q lacks %q", c.args, out, errOut, c.out)
+		}
+		if strings.Contains(out.String(), "api") {
+			t.Errorf("check %v reported a server it was not asked about: %q", c.args, out)
+		}
+	}
+}

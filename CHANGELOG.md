@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+
+- **`portside check <name|group>...`** requires exactly the servers named, also after a stop, so a monitor can list what must run; an unknown name exits 2 instead of passing.
+- **Readiness:** a server still waiting for its `ready_log` line keeps waiting through an upgrade in place (`portside daemon restart`), instead of counting as ready at once; and the line is matched as the output is written, so a flood of output can no longer hide it.
+
 ## 0.7.0
 
 - **`portside check`** for monitoring: exit 0 when every server that should run is ready, 1 when one is not (crashed, given up, starting or restarting), 2 when the daemon is not running or cannot tell; `--json` gives each server and the reason. It never starts a daemon, so a systemd timer or cron job can run it without the API token ([Linux server](docs/linux-server.md#reading-state-from-scripts)).

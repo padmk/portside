@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"slices"
 	"syscall"
 	"time"
@@ -38,8 +39,11 @@ type Handoff struct {
 	ReadyAt     time.Time     `json:"readyAt"`
 	ListenHost  string        `json:"listenHost,omitempty"`
 	ListenPorts []int         `json:"listenPorts,omitempty"`
-	Cols        uint16        `json:"cols"`
-	Rows        uint16        `json:"rows"`
+	// LogReady says whether a line already matched the server's ready_log;
+	// a daemon from before it is nil.
+	LogReady *bool  `json:"logReady,omitempty"`
+	Cols     uint16 `json:"cols"`
+	Rows     uint16 `json:"rows"`
 }
 
 // PrepareHandoff refuses new launches and returns every live server. A
@@ -67,13 +71,14 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 		if p == nil || p.pid == 0 || p.pty == nil {
 			continue
 		}
+		logReady := p.logReady.Load()
 		out = append(out, Handoff{
 			Name: name, PID: p.pid, PIDStart: p.pidStart, pty: p.pty,
 			Config: p.running, Env: slices.Clone(p.runningEnv), Shell: p.runningShell, Tool: p.runningTool, Launch: p.launch,
 			Status: p.status, Note: p.note, Want: p.want, Retries: p.retries,
 			StartedAt: p.startedAt, ReadyAt: p.readyAt,
 			ListenHost: p.listenHost, ListenPorts: slices.Clone(p.listenPorts),
-			Cols: p.cols, Rows: p.rows,
+			Cols: p.cols, Rows: p.rows, LogReady: &logReady,
 		})
 	}
 	return out, nil
@@ -166,9 +171,20 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		}
 		p.gen++
 		gen := p.gen
-		// Its output before the handoff is not read again, so ready_log
-		// cannot hold back a server that was starting.
-		p.logReady = true
+		// A server still waiting for its ready_log line keeps waiting; the
+		// output the process writes meanwhile waits in its terminal. A daemon
+		// that did not say had already let it count as ready.
+		logReady := h.LogReady == nil || *h.LogReady
+		var watch func([]byte) bool
+		if !logReady && h.Config.ReadyLog != "" {
+			if re, err := regexp.Compile(h.Config.ReadyLog); err == nil {
+				watch = readyLogWatch(p, re)
+			} else {
+				logReady = true
+			}
+		}
+		p.logReady.Store(logReady)
+		p.logs.WatchLines(watch)
 		p.process = process
 		p.pty = f
 		p.pid = h.PID

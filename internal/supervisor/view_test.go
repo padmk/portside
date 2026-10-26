@@ -28,7 +28,7 @@ func TestViewHealth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.view.Health()
+			got := tt.view.Health(false)
 			if got != tt.want {
 				t.Errorf("Health() = %+v, want %+v", got, tt.want)
 			}
@@ -36,5 +36,16 @@ func TestViewHealth(t *testing.T) {
 				t.Errorf("Degraded() = %v", got.Degraded())
 			}
 		})
+	}
+}
+
+func TestViewHealthRequired(t *testing.T) {
+	stopped := View{Status: Stopped, Restart: config.RestartNo}
+	if got, want := stopped.Health(true), (Health{Expected: true, Reason: "stopped"}); got != want {
+		t.Errorf("required and stopped: %+v, want %+v", got, want)
+	}
+	running := View{Status: Running, Restart: config.RestartNo}
+	if got := running.Health(true); got.Degraded() {
+		t.Errorf("required and running: %+v", got)
 	}
 }

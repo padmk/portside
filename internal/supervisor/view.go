@@ -88,10 +88,11 @@ type Health struct {
 // Degraded reports a server that should run and is not ready.
 func (h Health) Degraded() bool { return h.Expected && !h.Ready }
 
-// Health classifies the server for monitoring.
-func (v View) Health() Health {
+// Health classifies the server for monitoring; a required server should
+// run whatever its state, also after a stop.
+func (v View) Health(required bool) Health {
 	h := Health{
-		Expected: v.Wanted || v.Status == Crashed || (v.Status == Exited && v.Restart == config.RestartAlways),
+		Expected: required || v.Wanted || v.Status == Crashed || (v.Status == Exited && v.Restart == config.RestartAlways),
 		Ready:    v.Status == Running,
 	}
 	if h.Degraded() {

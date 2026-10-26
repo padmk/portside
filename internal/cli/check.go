@@ -5,11 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/server"
+	"github.com/padmk/portside/internal/supervisor"
 )
 
 // Exit codes of check, a contract for monitors.
@@ -38,14 +40,19 @@ type checkReport struct {
 }
 
 // cmdCheck tells a monitor whether every server that should run is ready,
-// by its exit code. It never starts a daemon.
+// by its exit code. Named servers and groups are required: only they are
+// checked, and each must run whatever its state. It never starts a daemon.
 func cmdCheck(e *env, args []string) error {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "")
-	if _, err := parse(fs, args); err != nil {
+	names, err := parse(fs, args)
+	if err != nil {
 		return err
 	}
 	st, err := e.checkState()
+	if err == nil {
+		err = unknownNames(st, names)
+	}
 	if err != nil {
 		if *asJSON {
 			if perr := printJSON(e, map[string]any{"ok": false, "error": err.Error()}); perr != nil {
@@ -60,7 +67,11 @@ func cmdCheck(e *env, args []string) error {
 	var degraded []checkServer
 	expected, ready := 0, 0
 	for _, s := range st.Servers {
-		h := s.Health()
+		required := slices.Contains(names, s.Name) || (s.Group != "" && slices.Contains(names, s.Group))
+		if len(names) > 0 && !required {
+			continue
+		}
+		h := s.Health(required)
 		cs := checkServer{Name: s.Name, Status: string(s.Status), Expected: h.Expected, Ready: h.Ready, Reason: h.Reason}
 		report.Servers = append(report.Servers, cs)
 		if h.Expected {
@@ -132,4 +143,15 @@ func (e *env) checkState() (*server.State, error) {
 		return nil, fmt.Errorf("config: %s", st.Config.Error)
 	}
 	return st, nil
+}
+
+// unknownNames refuses a name that is neither a server nor a group, so a
+// typo in a monitor's command is not a silent success.
+func unknownNames(st *server.State, names []string) error {
+	for _, n := range names {
+		if !slices.ContainsFunc(st.Servers, func(v supervisor.View) bool { return v.Name == n || v.Group == n }) {
+			return fmt.Errorf("unknown server or group %q", n)
+		}
+	}
+	return nil
 }

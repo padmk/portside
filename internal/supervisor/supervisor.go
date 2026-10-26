@@ -74,7 +74,7 @@ type proc struct {
 	pidStart       string
 	startedAt      time.Time
 	readyAt        time.Time
-	logReady       bool // a line of this generation's output matched ready_log
+	logReady       atomic.Bool // a line of this generation's output matched ready_log
 	exitedAt       time.Time
 	exitCode       int
 	hasExit        bool
@@ -601,16 +601,17 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	if tool.note != "" {
 		fmt.Fprintf(p.logs, "\x1b[33m%s\x1b[0m\r\n", tool.note)
 	}
-	// Subscribed before the process starts, so its first lines are seen.
-	var readyLog chan []byte
+	// Watched before the process starts, so its first lines are seen;
+	// ready_log was checked when the config loaded.
+	p.logReady.Store(false)
 	if sv.ReadyLog != "" {
-		_, readyLog = p.logs.Subscribe()
+		p.logs.WatchLines(readyLogWatch(p, regexp.MustCompile(sv.ReadyLog)))
+	} else {
+		p.logs.WatchLines(nil)
 	}
 	f, err := pty.StartWithSize(cmd, size)
 	if err != nil {
-		if readyLog != nil {
-			p.logs.Unsubscribe(readyLog)
-		}
+		p.logs.WatchLines(nil)
 		p.status = Crashed
 		p.note = "failed to start: " + err.Error()
 		s.reportCrashLocked(p, nil, 0)
@@ -640,7 +641,6 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.note = ""
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
-	p.logReady = false
 	p.hasExit = false
 	p.stopping = false
 	p.want = true
@@ -660,10 +660,6 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	}()
 	go s.wait(name, p, gen)
 	go s.watchReady(name, p, gen)
-	if readyLog != nil {
-		// ready_log was checked when the config loaded.
-		go s.watchReadyLog(p, gen, regexp.MustCompile(sv.ReadyLog), readyLog)
-	}
 	return nil
 }
 

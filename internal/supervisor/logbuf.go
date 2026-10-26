@@ -28,6 +28,8 @@ type LogBuffer struct {
 	path    string
 	written int64
 	subs    map[chan []byte]struct{}
+	// watch sees every chunk as it is written, until it returns true.
+	watch func(chunk []byte) bool
 }
 
 // mark records that the line starting at off in buf began at at. A line
@@ -142,6 +144,9 @@ func (lb *LogBuffer) Write(p []byte) (int, error) {
 			lb.openFile()
 		}
 	}
+	if lb.watch != nil && lb.watch(chunk) {
+		lb.watch = nil
+	}
 	for ch := range lb.subs {
 		select {
 		case ch <- chunk:
@@ -150,6 +155,15 @@ func (lb *LogBuffer) Write(p []byte) (int, error) {
 	}
 	lb.mu.Unlock()
 	return len(p), nil
+}
+
+// WatchLines calls fn with every chunk written from now on, under the
+// buffer's lock so that, unlike a subscription, it misses no output; it
+// stops once fn returns true or another WatchLines (nil for none) replaces it.
+func (lb *LogBuffer) WatchLines(fn func(chunk []byte) bool) {
+	lb.mu.Lock()
+	lb.watch = fn
+	lb.mu.Unlock()
 }
 
 // markLines records the time of the lines chunk starts, before it is

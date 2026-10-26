@@ -78,7 +78,7 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 		}
 		port, health, started, pid := p.running.Port, p.running.Health, p.startedAt, p.pid
 		readyLog := ""
-		if p.status == Starting && !p.logReady {
+		if p.status == Starting && !p.logReady.Load() {
 			readyLog = p.running.ReadyLog
 		}
 		after := p.running.ReadyAfter

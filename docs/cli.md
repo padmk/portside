@@ -2,8 +2,9 @@
 
 ```text
 portside status [--json]                 list servers with state, port and usage
-portside check [--json]                  exit 0 when every server that should run is ready,
-                                         1 when one is not, 2 when the daemon cannot tell
+portside check [name|group]... [--json] exit 0 when every server that should run (or each
+                                         one named) is ready, 1 when one is not, 2 when the
+                                         daemon cannot tell
 portside up <name|group>... | --all      start (dependencies first); --wait, --takeover
 portside down <name|group>... | --all    stop gracefully; removes temporary servers
 portside restart <name|group>...
