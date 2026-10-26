@@ -107,6 +107,9 @@ type Server struct {
 	// LAN says the server is meant to be reachable from other devices, so
 	// listening on the network is not pointed out.
 	LAN bool
+	// OnCrash is the shell command run once the server has crashed for good:
+	// the server's own on_crash, else the top-level one; "" runs nothing.
+	OnCrash string
 }
 
 // IsComposeCommand reports whether a server's command runs a compose stack.
@@ -214,6 +217,7 @@ type rawServer struct {
 	StopTimeout *Duration         `toml:"stop_timeout"`
 	Enabled     *bool             `toml:"enabled"`
 	LAN         bool              `toml:"lan"`
+	OnCrash     *string           `toml:"on_crash"`
 }
 
 type rawConfig struct {
@@ -229,6 +233,7 @@ type rawConfig struct {
 	StopTimeout *Duration            `toml:"stop_timeout"`
 	DockerStart string               `toml:"docker_start"`
 	Share       bool                 `toml:"share"`
+	OnCrash     string               `toml:"on_crash"`
 	Servers     map[string]rawServer `toml:"servers"`
 }
 
@@ -351,6 +356,10 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 			Stop:      cfg.StopTimeout,
 			Enabled:   r.Enabled == nil || *r.Enabled,
 			LAN:       r.LAN,
+			OnCrash:   strings.TrimSpace(raw.OnCrash),
+		}
+		if r.OnCrash != nil {
+			s.OnCrash = strings.TrimSpace(*r.OnCrash)
 		}
 		projects := map[string]bool{}
 		for _, project := range s.Projects {

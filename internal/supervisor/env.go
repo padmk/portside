@@ -65,7 +65,11 @@ func (s *Supervisor) Environ() []string {
 	s.mu.Lock()
 	prepend := s.cfg.PathPrepend
 	s.mu.Unlock()
-	base := slices.Clone(s.env.get())
+	return withPath(slices.Clone(s.env.get()), prepend)
+}
+
+// withPath puts the configured path entries in front of base's PATH.
+func withPath(base, prepend []string) []string {
 	if len(prepend) == 0 {
 		return base
 	}

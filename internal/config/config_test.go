@@ -167,6 +167,31 @@ func TestParseShare(t *testing.T) {
 	}
 }
 
+func TestParseOnCrash(t *testing.T) {
+	text := `on_crash = "report-crash"
+[servers.web]
+cmd = "x"
+[servers.api]
+cmd = "x"
+on_crash = "page-me"
+[servers.job]
+cmd = "x"
+on_crash = ""
+`
+	cfg, err := Parse("/tmp/portside.toml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Fatalf("warnings: %v", cfg.Warnings)
+	}
+	for name, want := range map[string]string{"web": "report-crash", "api": "page-me", "job": ""} {
+		if s, _ := cfg.Server(name); s.OnCrash != want {
+			t.Errorf("%s: OnCrash = %q, want %q", name, s.OnCrash, want)
+		}
+	}
+}
+
 func TestParseTerminal(t *testing.T) {
 	cfg, err := Parse("/tmp/config.toml", []byte("terminal = 'custom-terminal --cwd={DIR}'\n"))
 	if err != nil {

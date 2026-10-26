@@ -85,6 +85,13 @@ func (lb *LogBuffer) seedTail() {
 // NewMemoryLog returns a buffer that is kept only in memory.
 func NewMemoryLog() *LogBuffer { return newLogBuffer("", "") }
 
+// Path is the on-disk log file, "" for a log kept only in memory.
+func (lb *LogBuffer) Path() string {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	return lb.path
+}
+
 func (lb *LogBuffer) retarget(dir, name string) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()

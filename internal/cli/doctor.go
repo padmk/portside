@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/padmk/portside/internal/app"
@@ -145,6 +146,9 @@ func cmdDoctor(e *env, args []string) error {
 	if lsofErr != nil && ssErr != nil {
 		warn("neither lsof nor ss found; owners of busy ports cannot be shown")
 	}
+	if cfg != nil {
+		doctorCrashReports(cfg, ok, warn)
+	}
 	doctorShell(e, ok, warn)
 	doctorAgents(e, *fix, ok, warn, bad)
 	if problems == 0 {
@@ -152,6 +156,26 @@ func cmdDoctor(e *env, args []string) error {
 		return nil
 	}
 	return silentError{1}
+}
+
+// doctorCrashReports says where crashes are reported: by on_crash, and on
+// Linux whether desktop notifications can be shown at all.
+func doctorCrashReports(cfg *config.Config, ok, warn func(string, ...any)) {
+	hooked := 0
+	for _, s := range cfg.Servers {
+		if s.OnCrash != "" {
+			hooked++
+		}
+	}
+	if hooked > 0 {
+		ok("on_crash reports crashes of %d of %d servers", hooked, len(cfg.Servers))
+	}
+	if runtime.GOOS != "linux" || !cfg.Notify || hooked == len(cfg.Servers) {
+		return
+	}
+	if _, err := exec.LookPath("notify-send"); err != nil {
+		warn("notify-send is not installed, so a crash of a server without on_crash notifies no one; set on_crash to run a command for it (docs/configuration.md), or notify = false")
+	}
 }
 
 // doctorShell reports how servers get their environment: which shell was

@@ -30,6 +30,7 @@ root = "~/dev"                      # base for relative dirs
 # terminal = "Terminal"             # app (macOS) or command for "Open in Terminal"
 # docker_start = "colima start"     # how "Start Docker" starts the engine; detected by default
 # share = false                     # let your other devices on Tailscale connect (see other-computers.md)
+# on_crash = "~/bin/report-crash"   # run when a server crashes for good (see Crash command)
 
 [servers.shop-web]
 dir = "shop/apps/web"
@@ -72,8 +73,9 @@ stop_timeout = "30s"
 | `group` | Name for starting and stopping related servers together. |
 | `projects` | Explicit Compose project names attached to this server, overriding directory matching for those projects. Names must be unique within the list, start with a lowercase letter or digit, and contain only lowercase letters, digits, dashes or underscores. |
 | `depends_on` | Servers that must be running (and ready) before this one starts. |
-| `restart` | `no` (default), `on-failure` or `always`, with backoff up to 30 s and at most 5 quick retries. |
-| `health` | HTTP path that must answer (status < 500) before the server counts as running. |
+| `restart` | `no` (default), `on-failure` (after a non-zero exit) or `always` (after any exit). Restarts wait 1 s, then 2, 4, 8 and 16 s; after 5 restarts in a row the server stays `crashed`. A run longer than a minute starts the count again. |
+| `health` | HTTP path that must answer (status < 500) before the server counts as running. A running server that stops answering gets a note in its status; it is not restarted. |
+| `on_crash` | Command run when this server crashes for good, instead of the top-level `on_crash`; `""` runs none for it ([Crash command](#crash-command)). |
 | `env` | Extra environment variables. `{PORT}` works in values. The dashboard hides secret-looking values until revealed. |
 | `stop_timeout` | How long to wait after `Ctrl-C` before `SIGTERM`. |
 | `enabled` | `false` leaves the server out of `--all` and restore; it can still be started by name. |
@@ -83,6 +85,40 @@ stop_timeout = "30s"
 | `wrap` | How the command enters the project's tool environment (see [Version managers](#version-managers)): `auto` (the default) detects it, `none` runs the command as is, anything else is a command prefix such as `nix develop -c` (words separated by spaces). |
 
 Server names are lowercase letters, digits and dashes, because they double as `<name>.localhost` hostnames. `portside` is reserved for the dashboard; existing entries with that name load with a warning. Renaming a running server in the dashboard preserves its process and output.
+
+## Crash command
+
+`on_crash` runs a command when a server crashes and no automatic restart follows: at once with `restart = "no"`, after the last restart with `on-failure` or `always`, and when a server cannot start (a missing directory, a dependency that failed). It runs once per crash, whether or not desktop notifications are on or the app is open, so a server without a desktop can report crashes to your monitoring:
+
+```toml
+on_crash = "~/bin/report-crash"     # every server
+
+[servers.worker]
+cmd = "pnpm worker"
+port = 0
+on_crash = ""                       # except this one
+```
+
+```sh
+#!/bin/sh
+# ~/bin/report-crash: post the crash to a chat webhook
+curl -fsS --data-urlencode "text=$PORTSIDE_SERVER on $(hostname): $PORTSIDE_NOTE" https://hooks.example.com/alert
+```
+
+The command runs with `sh -c` in your home directory, with the environment servers get from your login shell, `path` and the top-level `env` (not the server's own `env`), plus these variables; nothing about the crash is put in its command line:
+
+| Variable | Value |
+| --- | --- |
+| `PORTSIDE_EVENT` | `crashed` |
+| `PORTSIDE_SERVER`, `PORTSIDE_GROUP` | The server's name and group (empty without one). |
+| `PORTSIDE_EXIT_CODE` | The exit code; empty when the server could not start. |
+| `PORTSIDE_UPTIME` | Seconds the last run lasted. |
+| `PORTSIDE_RESTARTS` | Automatic restarts before it gave up, `0` with `restart = "no"`. |
+| `PORTSIDE_NOTE` | The note `portside status` shows, such as `exited with code 2; gave up after 5 restarts`. |
+| `PORTSIDE_LOG_TAIL` | The last 20 lines of output (at most 8 KiB, without colors). Output can hold secrets, so treat it as you treat the logs. |
+| `PORTSIDE_LOG_FILE` | The server's full log file. |
+
+The daemon does not wait for the command: it is stopped after 30 seconds, not retried, and its result goes to the daemon log (`portside daemon logs`). `portside doctor` shows how many servers have one, and on Linux warns when `notify` is on but `notify-send` is missing, so a crash would otherwise notify no one.
 
 ## Editor, terminal, shell and Docker
 

@@ -49,6 +49,9 @@ const (
 	maxRetries  = 5
 )
 
+// restartDelay is the first automatic restart's delay; each further one doubles it.
+var restartDelay = time.Second
+
 type proc struct {
 	cfg            config.Server // latest configuration
 	runningEnv     []string
@@ -465,8 +468,12 @@ func (s *Supervisor) failStart(name string, token int, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if p, ok := s.procs[name]; ok && p.pid == 0 && p.startSeq == token && p.want {
+		reported := p.status == Crashed // startOne itself failed and reported it
 		p.status = Crashed
 		p.note = msg
+		if !reported {
+			s.reportCrashLocked(p, nil, 0)
+		}
 		s.saveLocked()
 		s.changedLocked()
 	}
@@ -547,6 +554,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		}
 		p.status = Crashed
 		p.note = msg
+		s.reportCrashLocked(p, nil, 0)
 		s.saveLocked()
 		s.changedLocked()
 		s.mu.Unlock()
@@ -595,6 +603,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	if err != nil {
 		p.status = Crashed
 		p.note = "failed to start: " + err.Error()
+		s.reportCrashLocked(p, nil, 0)
 		s.saveLocked()
 		s.changedLocked()
 		s.mu.Unlock()
@@ -737,8 +746,11 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		}
 		if restartIn > 0 {
 			p.note += fmt.Sprintf(", restarting in %s", restartIn.Round(time.Second))
-		} else if p.status == Crashed && s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {
-			go s.notifier(name+" crashed", fmt.Sprintf("Exited with code %d after %s", code, uptime.Round(time.Second)))
+		} else if p.status == Crashed {
+			s.reportCrashLocked(p, &code, uptime)
+			if s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {
+				go s.notifier(name+" crashed", fmt.Sprintf("Exited with code %d after %s", code, uptime.Round(time.Second)))
+			}
 		}
 	}
 	p.restartPending = restartIn > 0
@@ -790,7 +802,7 @@ func (s *Supervisor) backoffLocked(p *proc, uptime time.Duration) time.Duration 
 		p.note += fmt.Sprintf("; gave up after %d restarts", maxRetries)
 		return 0
 	}
-	d := time.Second << p.retries
+	d := restartDelay << p.retries
 	if d > maxBackoff {
 		d = maxBackoff
 	}
