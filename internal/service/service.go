@@ -24,6 +24,8 @@ type Status struct {
 	Detail    string
 }
 
+// executable is the binary the service definition starts: this one, by
+// the PATH link to it when there is one.
 func executable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -34,6 +36,13 @@ func executable() (string, error) {
 	}
 	if strings.Contains(exe, "/go-build") {
 		return "", errors.New("refusing to install a temporary `go run` binary; build or install it first")
+	}
+	// A link on PATH to this binary, such as Homebrew's bin entry, outlives
+	// an upgrade that replaces the versioned file it points to.
+	if p, err := exec.LookPath(app.ID); err == nil && filepath.IsAbs(p) {
+		if r, err := filepath.EvalSymlinks(p); err == nil && r == exe {
+			return p, nil
+		}
 	}
 	return exe, nil
 }
