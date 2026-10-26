@@ -60,6 +60,14 @@ type View struct {
 	// ForwardedFrom names the connected computer whose server answers on
 	// this stopped server's port, forwarded here.
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
+
+	// Exposure is where the running server's listeners can be reached from
+	// (loopback, tailnet or network); absent until read. NetworkWarning
+	// marks one reachable from the network whose config does not set
+	// `lan = true`, which LAN reports.
+	Exposure       ports.Exposure `json:"exposure,omitempty"`
+	NetworkWarning bool           `json:"networkWarning,omitempty"`
+	LAN            bool           `json:"lan,omitempty"`
 }
 
 // Snapshot returns all servers in configuration order. daemonPort is used to
@@ -108,12 +116,15 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			Tool:           p.runningTool,
 			HasIcon:        IconPath(c.Dir, c.Icon) != "",
 			Tail:           p.logs.Tail(6, 240),
+			LAN:            c.LAN,
 		}
 		v.ForwardedFrom = s.forwardedFromLocked(p)
 		if p.temp != nil {
 			v.Temporary, v.Origin, v.Worktree = true, p.temp.Origin, p.temp.Worktree
 		}
 		if p.pid != 0 {
+			v.Exposure = p.exposure
+			v.NetworkWarning = NetworkWarning(p.exposure, c.LAN)
 			v.CPUHistory = append([]float64(nil), p.hist.cpu...)
 			v.MemHistory = append([]int64(nil), p.hist.mem...)
 		}

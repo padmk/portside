@@ -79,6 +79,7 @@ stop_timeout = "30s"
 | `enabled` | `false` leaves the server out of `--all` and restore; it can still be started by name. |
 | `icon` | Path to an icon for the dashboard; by default a project favicon is detected. |
 | `open` | Path appended to the URL when opening the server, e.g. `/admin`. |
+| `lan` | `true` when the server is meant to be reachable from other devices: listening on the network is then not pointed out, for it or for the containers it owns ([Security](security.md#servers-reachable-from-the-network)). |
 | `wrap` | How the command enters the project's tool environment (see [Version managers](#version-managers)): `auto` (the default) detects it, `none` runs the command as is, anything else is a command prefix such as `nix develop -c` (words separated by spaces). |
 
 Server names are lowercase letters, digits and dashes, because they double as `<name>.localhost` hostnames. `portside` is reserved for the dashboard; existing entries with that name load with a warning. Renaming a running server in the dashboard preserves its process and output.

@@ -18,6 +18,22 @@ What Portside can do, and how to check what you install.
 
 The daemon binds to loopback only, on both `127.0.0.1` and `[::1]` wherever the system has IPv6 loopback. Browsers try `::1` first for `*.localhost`, so the daemon refuses to start while another program holds `[::1]:<port>` (it would receive every dashboard request and its cookie), names the address in the error, and `portside doctor` checks that the daemon itself answers on both. Clients dial `127.0.0.1` by address.
 
+## Servers reachable from the network
+
+Your servers and containers are another matter: many dev tools listen on every interface by default (Compose's `"5432:5432"`, `next dev`, Express's `app.listen(port)`, Go's `":8080"`, `vite --host`), and Portside keeps them running as you move between networks, so a database or dev server can be open to everyone on a café's Wi-Fi. The macOS firewall is off by default. Portside points these out and changes nothing.
+
+It reads the addresses each running server listens on, on its port and on any port of its process tree, and those of each container port a local engine publishes, from the host's own sockets (`lsof`, or `ss` on Linux), since an engine in a VM may forward a port published on `0.0.0.0` from `127.0.0.1` only. A listener counts as:
+
+- `loopback` on `127.0.0.0/8` and `::1` only;
+- `tailnet` on Tailscale addresses only (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), plus loopback;
+- `network` on all interfaces (`0.0.0.0`, `::`, `*`) or any other address.
+
+A `network` listener gets **Reachable from network** in the dashboard (on the server's card, row and header, and next to the container port), with the fix for its tool, a marker in `portside status`, a line in `portside doctor` and `networkWarning` in `list_servers`. The addresses are read when a server becomes ready and then every 30 seconds with a usage sample; container ports are read with each container resync.
+
+To keep a listener on this computer, bind it to `127.0.0.1`: `"127.0.0.1:5432:5432"` in Compose, Vite without `--host` (or `--host 127.0.0.1`), `next dev --hostname 127.0.0.1`, `app.listen(port, '127.0.0.1')` in Node, `"127.0.0.1:8080"` in Go, `--bind 127.0.0.1` for `python3 -m http.server`. To open it from your other Mac, connect the two computers ([Other computers](other-computers.md)), which forwards its port to loopback there. When a server is meant to be reachable, set `lan = true` in its table ([Configuration](configuration.md#server-keys)); that also silences the containers it owns. `exposure` stays in the API either way.
+
+A listener that `lsof` cannot see, such as a rootful engine's `docker-proxy` on Linux, and the ports of an engine on another computer get no `exposure` and no warning.
+
 ## Signed requests
 
 Every API call needs the token in `~/.local/state/portside/auth-token` (mode `0600`, created on first start), which is never sent. Each daemon start picks a random epoch.

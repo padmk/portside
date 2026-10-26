@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/padmk/portside/internal/notify"
+	"github.com/padmk/portside/internal/ports"
 )
 
 // Compose labels identify a container's project, service and files.
@@ -40,7 +41,15 @@ type Port struct {
 	Private int    `json:"private"`
 	Public  int    `json:"public"`
 	Proto   string `json:"proto"`
-	IP      string `json:"ip,omitempty"`
+	// IP is the widest host address the engine binds it to.
+	IP string `json:"ip,omitempty"`
+	// Exposure is where the host-side listener of a local engine can be
+	// reached from, read from the host's sockets rather than IP: engines in a
+	// VM may forward a port published on 0.0.0.0 from 127.0.0.1 only.
+	Exposure ports.Exposure `json:"exposure,omitempty"`
+	// NetworkWarning marks a port reachable from the network whose owning
+	// server does not set `lan = true`; the HTTP layer decides.
+	NetworkWarning bool `json:"networkWarning,omitempty"`
 }
 
 // Container is the JSON view of one container.
@@ -254,7 +263,7 @@ func (m *Monitor) Find(ref string) (Container, bool) {
 func (m *Monitor) Publishing(port int) []Container {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.status != Ready || m.ep.Network == "ssh" || (m.ep.Network == "tcp" && !isLoopback(m.ep.Address)) {
+	if m.status != Ready || m.ep.remote() {
 		return nil
 	}
 	var out []Container
@@ -529,6 +538,7 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 		}(i, it.ID)
 	}
 	wg.Wait()
+	hostAddrs := hostAddresses(lctx, c.ep, infos)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -551,6 +561,13 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 		}
 		next := build(it, infos[i])
 		next.Buildable = buildable[i]
+		if hostAddrs != nil && infos[i].State.Running {
+			for j, p := range next.Ports {
+				if p.Proto == "tcp" {
+					next.Ports[j].Exposure = ports.Classify(hostAddrs[p.Public])
+				}
+			}
+		}
 		if at := m.killedAt[next.ID]; !at.IsZero() && next.StartedAt != nil && next.StartedAt.After(at) {
 			m.clearStoppedLocked(next.ID)
 		}
@@ -591,6 +608,32 @@ func (m *Monitor) refresh(ctx context.Context, c *Client) {
 		}
 	}
 	m.changedLocked()
+}
+
+// hostAddresses lists this computer's listening addresses by port, with one
+// lsof (or ss) call, when a running container of a local engine publishes a
+// TCP port; nil otherwise.
+func hostAddresses(ctx context.Context, ep Endpoint, infos []*Inspect) map[int][]string {
+	if ep.remote() {
+		return nil
+	}
+	publishes := false
+	for _, in := range infos {
+		if in == nil || !in.State.Running {
+			continue
+		}
+		for key, binds := range in.NetworkSettings.Ports {
+			publishes = publishes || (strings.HasSuffix(key, "/tcp") && len(binds) > 0)
+		}
+	}
+	if !publishes {
+		return nil
+	}
+	out := map[int][]string{}
+	for _, l := range ports.Sockets(ctx) {
+		out[l.Port] = append(out[l.Port], l.Addresses...)
+	}
+	return out
 }
 
 // follow records usage samples of one running container.
@@ -824,22 +867,35 @@ func build(it apiContainer, in *Inspect) Container {
 	c.Buildable = c.Compose() && (strings.TrimSuffix(c.Image, ":latest") == c.Project+"-"+c.Service || strings.TrimSuffix(c.Image, ":latest") == c.Project+"_"+c.Service)
 	c.configFiles = splitList(labels[labelConfigFiles])
 	c.envFiles = splitList(labels[labelEnvFiles])
-	seen := map[string]bool{}
+	at := map[string]int{}
 	for key, binds := range in.NetworkSettings.Ports {
 		num, proto, _ := strings.Cut(key, "/")
 		private, _ := strconv.Atoi(num)
 		for _, b := range binds {
 			public, _ := strconv.Atoi(b.HostPort)
-			k := strconv.Itoa(public) + "/" + proto
-			if public == 0 || seen[k] {
+			if public == 0 {
 				continue
 			}
-			seen[k] = true
+			// One entry per host port (0.0.0.0 and :: bindings, or several
+			// addresses), keeping the widest address.
+			k := strconv.Itoa(public) + "/" + proto
+			if i, ok := at[k]; ok {
+				if bindExposure(b.HostIP).Wider(bindExposure(c.Ports[i].IP)) {
+					c.Ports[i].IP = b.HostIP
+				}
+				continue
+			}
+			at[k] = len(c.Ports)
 			c.Ports = append(c.Ports, Port{Private: private, Public: public, Proto: proto, IP: b.HostIP})
 		}
 	}
 	sort.Slice(c.Ports, func(i, j int) bool { return c.Ports[i].Public < c.Ports[j].Public })
 	return c
+}
+
+// bindExposure classifies an engine's host binding; "" binds all addresses.
+func bindExposure(hostIP string) ports.Exposure {
+	return ports.Classify([]string{hostIP})
 }
 
 func splitList(s string) []string {

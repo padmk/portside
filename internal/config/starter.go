@@ -180,6 +180,7 @@ root = %[2]s
 # depends_on = ["api"]           # started (and ready) before this one
 # restart = "on-failure"         # no | on-failure | always
 # health = "/"                   # HTTP path that must answer before "running"
+# lan = true                     # meant to be reachable from other devices: no network warning
 # wrap = "none"                  # auto (default) detects direnv, devbox, mise, fnm or nvm; none skips them; or a prefix such as "nix develop -c"
 # env = { NODE_ENV = "development" }
 `, app.Name, Quote(StarterRoot()), app.DefaultPort)

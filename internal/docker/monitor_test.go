@@ -295,3 +295,24 @@ func TestCustomBuiltImageLabels(t *testing.T) {
 		t.Fatal("image built for another service was recognized")
 	}
 }
+
+// Bindings of one host port on several addresses become one port with the
+// widest address, so 127.0.0.1 listed first does not hide 0.0.0.0.
+func TestBuildMergesPortBindings(t *testing.T) {
+	in := inspect(t, "running", 0, false, "")
+	type bind = struct{ HostIP, HostPort string }
+	in.NetworkSettings.Ports = map[string][]bind{
+		"5432/tcp": {{"127.0.0.1", "5432"}, {"0.0.0.0", "5432"}, {"::", "5432"}},
+		"6379/tcp": {{"127.0.0.1", "6379"}, {"::1", "6379"}},
+		"80/tcp":   {{"100.64.0.7", "8080"}, {"127.0.0.1", "8080"}},
+	}
+	got := build(apiContainer{ID: "abc", State: "running"}, in).Ports
+	want := []Port{
+		{Private: 5432, Public: 5432, Proto: "tcp", IP: "0.0.0.0"},
+		{Private: 6379, Public: 6379, Proto: "tcp", IP: "127.0.0.1"},
+		{Private: 80, Public: 8080, Proto: "tcp", IP: "100.64.0.7"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ports = %+v, want %+v", got, want)
+	}
+}

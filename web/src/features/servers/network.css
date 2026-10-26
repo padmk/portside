@@ -1,0 +1,55 @@
+/* The "reachable from the network" badge and its popover. */
+.net-badge {
+  border: 0;
+  cursor: pointer;
+  anchor-name: var(--net-anchor);
+}
+.net-badge:hover {
+  text-decoration: underline;
+}
+/* Next to the badge where anchor positioning works, else centered. */
+@supports (position-area: bottom) {
+  .net-pop {
+    position-anchor: var(--net-anchor);
+    position-area: bottom span-right;
+    position-try-fallbacks: flip-block, flip-inline;
+    margin: 6px 0;
+  }
+}
+.net-pop {
+  width: min(360px, calc(100% - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  box-shadow: var(--elevation);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  white-space: normal;
+  text-align: left;
+}
+.net-pop:popover-open {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.net-pop p {
+  margin: 0;
+  color: var(--text-2);
+}
+.net-pop .net-pop-title {
+  color: var(--text);
+  font-weight: 600;
+}
+.net-code {
+  display: block;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+  user-select: all;
+}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/docker"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/supervisor"
@@ -41,7 +42,9 @@ func (s *Server) containerRoutes(m *http.ServeMux) {
 // dockerState attaches containers to their configured servers and marks issues.
 func (s *Server) dockerState(views []supervisor.View) docker.State {
 	st := s.opt.Docker.Snapshot()
-	attachContainers(st.Containers, s.sup.Definitions())
+	defs := s.sup.Definitions()
+	attachContainers(st.Containers, defs)
+	markNetworkPorts(st.Containers, defs)
 	for i := range st.Containers {
 		c := &st.Containers[i]
 		c.IssueFor = issueFor(c, views)
@@ -50,6 +53,18 @@ func (s *Server) dockerState(views []supervisor.View) docker.State {
 		}
 	}
 	return st
+}
+
+// markNetworkPorts flags published ports reachable from the network unless
+// the container's owning server sets `lan = true`.
+func markNetworkPorts(containers []docker.Container, servers []config.Server) {
+	for i := range containers {
+		c := &containers[i]
+		lan := slices.ContainsFunc(servers, func(d config.Server) bool { return d.Name == c.Server && d.LAN })
+		for j := range c.Ports {
+			c.Ports[j].NetworkWarning = supervisor.NetworkWarning(c.Ports[j].Exposure, lan)
+		}
+	}
 }
 
 // issueFor lists the servers a container needs attention for: it is

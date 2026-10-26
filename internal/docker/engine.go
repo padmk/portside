@@ -102,7 +102,7 @@ func (m *Monitor) startCommand(ep Endpoint) ([]string, error) {
 	if c := strings.TrimSpace(m.custom()); c != "" {
 		return []string{"/bin/sh", "-c", c}, nil
 	}
-	if ep.Network == "ssh" || (ep.Network == "tcp" && !isLoopback(ep.Address)) {
+	if ep.remote() {
 		return nil, errors.New("the engine runs on another computer; start it there")
 	}
 	name := engineName(ep)
@@ -143,6 +143,12 @@ func (m *Monitor) unitExists(systemctl string, user bool, unit string) bool {
 	cmd := exec.CommandContext(ctx, systemctl, args...)
 	cmd.Env = m.host.Environ()
 	return cmd.Run() == nil
+}
+
+// remote reports whether the engine runs on another computer, so its
+// published ports are not this computer's.
+func (ep Endpoint) remote() bool {
+	return ep.Network == "ssh" || (ep.Network == "tcp" && !isLoopback(ep.Address))
 }
 
 func isLoopback(addr string) bool {

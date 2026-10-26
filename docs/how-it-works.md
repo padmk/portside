@@ -19,6 +19,7 @@ Process exits are noticed as they happen; crashes and restart policies need no p
 - Readiness: the port (and `health` path) of each starting server every 400 ms until it is running, then every second. A running server warns once a listener or health failure has lasted 4 seconds.
 - Ports: every 2 seconds, a TCP connection to the port of each server that is not running, to show one taken by another process. Its owner is looked up with `lsof` (or `ss`) only when it is new.
 - CPU and memory: one `ps` call for all servers, every 2 seconds while a client shows usage, otherwise every 30 seconds. An events client (`/api/events`) shows usage unless it connects with `usage=0` or sends `{"usage": false}`, and sends `{"usage": true}` when it shows usage again. The dashboard says so when its tab or window is hidden, and the menu bar app shows usage only while its panel is open. The first client that shows usage gets a new sample at once. The sparkline history holds 2-second samples and starts over after a longer gap. The daemon sends state to clients only when something changed.
+- Listening addresses: one `lsof` call (or `ss`) when a server becomes ready, and every 30 seconds along with a usage sample while servers run, to tell which are reachable from the network ([Security](security.md#servers-reachable-from-the-network)); container ports are checked with each container resync while a local engine publishes one.
 - The config file's modification time, every second.
 - Containers: the Docker event stream, a full resync every 30 seconds and a stats stream per running container (see [Containers](containers.md)).
 - While connected to another computer: a ping every 15 seconds and a check of the forwarded ports every 2 seconds.
@@ -32,6 +33,8 @@ Measured with `scripts/bench-idle.sh` on an Apple M4 Pro (macOS 27.0.1, about 69
 | one showing usage (an open dashboard) | 0.55 s | 30 | 0.58 s |
 
 With the app's panel closed that is about 0.8 % of one core; an open dashboard brings it to about 1.9 %. To measure on your machine, run `scripts/bench-idle.sh` (`--servers`, `--running` and `--window` change the setup; see [Development](development.md)).
+
+Reading listening addresses adds about 2 `lsof` calls a minute while servers run and 2 more while running containers publish ports; on the same Mac with 7 such containers, the 3 to 4 calls took 0.11 to 0.13 s of CPU a minute in all three cases.
 
 ## Upgrades in place
 

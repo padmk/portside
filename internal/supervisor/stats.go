@@ -284,7 +284,7 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 				}
 				delete(knownExternal, c.name)
 			} else if owner != nil {
-				changed = changed || p.external == nil || *p.external != *owner || p.externalStart != identity
+				changed = changed || p.external == nil || !p.external.Same(*owner) || p.externalStart != identity
 				p.external = owner
 				p.externalStart = identity
 				knownExternal[c.name] = c.port
@@ -296,5 +296,8 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 		s.mu.Lock()
 		s.changedLocked()
 		s.mu.Unlock()
+	}
+	if s.exposureDue(usage, now) {
+		s.checkExposure(ctx, table, now)
 	}
 }

@@ -21,6 +21,8 @@ CPU and memory are shown per server, summed over the whole process tree, with sp
 - `crashed` with the exit code;
 - `blocked` when another process holds the port.
 
+A running server or container port that listens on the network, not only on loopback, is marked **Reachable from network**; click the mark for the fix ([Security](security.md#servers-reachable-from-the-network)).
+
 Ports held by programs Portside did not start are shown with their owner, and you can take the port over in one click. With a restart policy (`on-failure` or `always`, exponential backoff), a server waiting for its next automatic restart can be stopped like a running one.
 
 ## Ports overview

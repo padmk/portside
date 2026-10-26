@@ -104,6 +104,9 @@ type Server struct {
 	StopRaw string // stop_timeout as written, "" when inherited
 	IconRaw string // icon as written
 	Enabled bool
+	// LAN says the server is meant to be reachable from other devices, so
+	// listening on the network is not pointed out.
+	LAN bool
 }
 
 // IsComposeCommand reports whether a server's command runs a compose stack.
@@ -210,6 +213,7 @@ type rawServer struct {
 	Wrap        string            `toml:"wrap"`
 	StopTimeout *Duration         `toml:"stop_timeout"`
 	Enabled     *bool             `toml:"enabled"`
+	LAN         bool              `toml:"lan"`
 }
 
 type rawConfig struct {
@@ -346,6 +350,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 			Wrap:      strings.TrimSpace(r.Wrap),
 			Stop:      cfg.StopTimeout,
 			Enabled:   r.Enabled == nil || *r.Enabled,
+			LAN:       r.LAN,
 		}
 		projects := map[string]bool{}
 		for _, project := range s.Projects {

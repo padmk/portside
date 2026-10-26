@@ -69,7 +69,7 @@ export function PortsDialog() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={`${r.pid}:${r.port}:${r.address ?? ''}`}>
+              <tr key={`${r.pid}:${r.port}`}>
                 <td><span className="chip chip--mono">{r.port}</span></td>
                 <td className="proc">{r.command}</td>
                 <td className="num">{r.pid}</td>

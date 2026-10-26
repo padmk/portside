@@ -247,3 +247,26 @@ func TestProjectRemovalNeedsConfirmation(t *testing.T) {
 		t.Fatalf("unconfirmed removal: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// A published port reachable from the network is flagged unless the
+// container's owning server sets lan = true; loopback ports never are.
+func TestNetworkPortsSilencedByOwnerLAN(t *testing.T) {
+	servers := []config.Server{
+		{Name: "db", Dir: "/work/db", Cmd: "docker compose up"},
+		{Name: "lab", Dir: "/work/lab", Cmd: "docker compose up", LAN: true},
+	}
+	network := []docker.Port{{Public: 5432, Proto: "tcp", Exposure: "network"}, {Public: 6379, Proto: "tcp", Exposure: "loopback"}}
+	containers := []docker.Container{
+		{Name: "db-1", WorkingDir: "/work/db", Ports: slices.Clone(network)},
+		{Name: "lab-1", WorkingDir: "/work/lab", Ports: slices.Clone(network)},
+		{Name: "loose", WorkingDir: "/elsewhere", Ports: slices.Clone(network)},
+	}
+	attachContainers(containers, servers)
+	markNetworkPorts(containers, servers)
+	for i, want := range []bool{true, false, true} {
+		c := containers[i]
+		if c.Ports[0].NetworkWarning != want || c.Ports[1].NetworkWarning {
+			t.Errorf("%s (server %q): warnings = %v, %v; want %v, false", c.Name, c.Server, c.Ports[0].NetworkWarning, c.Ports[1].NetworkWarning, want)
+		}
+	}
+}

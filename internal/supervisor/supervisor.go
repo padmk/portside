@@ -85,6 +85,7 @@ type proc struct {
 	cpu            float64
 	mem            int64
 	listening      bool
+	exposure       ports.Exposure // where the live listeners can be reached from; "" until read
 	external       *ports.Listener
 	cols           uint16
 	rows           uint16
@@ -124,6 +125,10 @@ type Supervisor struct {
 	usageWatchers int
 	// sampleNow asks Run for a sample at once (buffered, holds one request).
 	sampleNow chan struct{}
+	// exposureWanted asks Run to read listening addresses at once;
+	// exposureAt is when it last did (see checkExposure).
+	exposureWanted bool
+	exposureAt     time.Time
 	// activePorts holds the ports of servers that are starting or running,
 	// updated on every change, for readers that must not take mu.
 	activePorts atomic.Pointer[map[int]bool]
@@ -608,6 +613,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.listenPorts = nil
 	p.listenHost = ""
 	p.missingSince = time.Time{}
+	p.exposure = ""
 	p.status = Starting
 	p.note = ""
 	p.startedAt = time.Now()

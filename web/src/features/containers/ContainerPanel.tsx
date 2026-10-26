@@ -14,6 +14,8 @@ import { useBusy } from '../servers/actions'
 import { CopyButton } from '../../ui/CopyButton'
 import { onTabKey } from '../../ui/keys'
 import { formatAgo, formatUptime } from '../servers/format'
+import { composeFix } from '../servers/exposure'
+import { NetworkBadge } from '../servers/NetworkBadge'
 import { busyKey, containerAction, dismissJob, recreate } from './actions'
 import { ContainerDetailsTab } from './ContainerDetailsTab'
 import { containerStatus, failed } from './status'
@@ -78,6 +80,7 @@ export function ContainerPanel({ container: c }: { container: ContainerView }) {
                 ) : (
                   <span className="chip chip--mono" title={portHint(p)}>{p.public}</span>
                 )}
+                {p.networkWarning && <NetworkBadge port={p.public} fix={composeFix(p.public, p.private)} server={c.server} />}
               </li>
             ))}
           </ul>

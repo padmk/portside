@@ -11,6 +11,7 @@ import { formatAgo, formatBytes, formatCpu, formatUptime, hasProcess } from '../
 import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
 import { TemporaryBadge } from '../servers/TemporaryBadge'
+import { ServerNetworkBadge } from '../servers/NetworkBadge'
 import { ServerMenu } from '../servers/ServerMenu'
 import { StateActions } from '../servers/StateActions'
 import { ContainerStrip } from '../containers/ContainerStrip'
@@ -68,6 +69,7 @@ export function ServerCard({ server: v, density, now, cursor }: Props) {
               {v.stale && <span className="chip chip--warn" title={t('badge.staleHint')}>{t('badge.stale')}</span>}
               {!v.enabled && <span className="chip">{t('badge.disabled')}</span>}
               <TemporaryBadge server={v} />
+              <ServerNetworkBadge server={v} />
             </div>
             <ServerMenu server={v} className="icon-btn icon-btn--lg card-menu" />
           </header>

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,7 +38,14 @@ type Listener struct {
 	PID     int    `json:"pid"`
 	Command string `json:"command"`
 	Cwd     string `json:"cwd,omitempty"`
-	Address string `json:"address,omitempty"`
+	// Addresses are the local addresses the process listens on at Port, as
+	// lsof or ss write them ("127.0.0.1", "[::1]", "*"), in the order found.
+	Addresses []string `json:"addresses,omitempty"`
+}
+
+// Same reports whether two listeners describe the same sockets.
+func (l Listener) Same(o Listener) bool {
+	return l.Port == o.Port && l.PID == o.PID && l.Command == o.Command && l.Cwd == o.Cwd && slices.Equal(l.Addresses, o.Addresses)
 }
 
 func run(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -47,14 +55,59 @@ func run(ctx context.Context, name string, args ...string) ([]byte, error) {
 }
 
 // List returns all TCP listeners visible to the current user, one entry per
-// (port, pid), sorted by port. It uses lsof and falls back to ss on Linux.
+// (port, pid) with all of its addresses, sorted by port, with working
+// directories. It uses lsof and falls back to ss on Linux.
 func List(ctx context.Context) []Listener {
+	res := Sockets(ctx)
+	fillCwd(ctx, res)
+	return res
+}
+
+// Sockets is List without working directories: one lsof (or ss) call.
+func Sockets(ctx context.Context) []Listener {
 	out, err := run(ctx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn")
 	if err != nil && len(out) == 0 {
 		return listSS(ctx)
 	}
-	var res []Listener
-	seen := map[[2]int]bool{}
+	return parseLsof(out)
+}
+
+// listenerSet collects listeners, merging the sockets of one process on one
+// port (IPv4 and IPv6, or several interfaces) into one entry.
+type listenerSet struct {
+	res []Listener
+	at  map[[2]int]int
+}
+
+func (s *listenerSet) add(port, pid int, cmd, addr string) {
+	if s.at == nil {
+		s.at = map[[2]int]int{}
+	}
+	k := [2]int{port, pid}
+	i, ok := s.at[k]
+	if !ok {
+		s.at[k] = len(s.res)
+		s.res = append(s.res, Listener{Port: port, PID: pid, Command: cmd})
+		i = len(s.res) - 1
+	}
+	if addr != "" && !slices.Contains(s.res[i].Addresses, addr) {
+		s.res[i].Addresses = append(s.res[i].Addresses, addr)
+	}
+}
+
+func (s *listenerSet) sorted() []Listener {
+	sort.SliceStable(s.res, func(i, j int) bool {
+		if s.res[i].Port != s.res[j].Port {
+			return s.res[i].Port < s.res[j].Port
+		}
+		return s.res[i].PID < s.res[j].PID
+	})
+	return s.res
+}
+
+// parseLsof reads lsof -F pcn output.
+func parseLsof(out []byte) []Listener {
+	var set listenerSet
 	var pid int
 	var cmd string
 	sc := bufio.NewScanner(bytes.NewReader(out))
@@ -78,22 +131,10 @@ func List(ctx context.Context) []Listener {
 			if err != nil {
 				continue
 			}
-			k := [2]int{port, pid}
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-			res = append(res, Listener{Port: port, PID: pid, Command: cmd, Address: addr[:i]})
+			set.add(port, pid, cmd, addr[:i])
 		}
 	}
-	fillCwd(ctx, res)
-	sort.Slice(res, func(i, j int) bool {
-		if res[i].Port != res[j].Port {
-			return res[i].Port < res[j].Port
-		}
-		return res[i].PID < res[j].PID
-	})
-	return res
+	return set.sorted()
 }
 
 var ssRe = regexp.MustCompile(`:(\d+)\s.*users:\(\("([^"]+)",pid=(\d+)`)
@@ -103,23 +144,29 @@ func listSS(ctx context.Context) []Listener {
 	if err != nil {
 		return nil
 	}
-	var res []Listener
-	seen := map[[2]int]bool{}
-	for _, line := range strings.Split(string(out), "\n") {
+	return parseSS(string(out))
+}
+
+// parseSS reads ss -ltnpH output, whose fourth field is the local address
+// ("0.0.0.0:22", "[::]:22", "*:22", "127.0.0.53%lo:53").
+func parseSS(out string) []Listener {
+	var set listenerSet
+	for _, line := range strings.Split(out, "\n") {
 		m := ssRe.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
 		port, _ := strconv.Atoi(m[1])
 		pid, _ := strconv.Atoi(m[3])
-		if k := [2]int{port, pid}; !seen[k] {
-			seen[k] = true // IPv4 and IPv6 sockets of one process count once
-			res = append(res, Listener{Port: port, PID: pid, Command: m[2]})
+		addr := ""
+		if f := strings.Fields(line); len(f) >= 4 {
+			if i := strings.LastIndexByte(f[3], ':'); i > 0 {
+				addr = f[3][:i]
+			}
 		}
+		set.add(port, pid, m[2], addr)
 	}
-	fillCwd(ctx, res)
-	sort.Slice(res, func(i, j int) bool { return res[i].Port < res[j].Port })
-	return res
+	return set.sorted()
 }
 
 func fillCwd(ctx context.Context, ls []Listener) {

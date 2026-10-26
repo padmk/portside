@@ -7,8 +7,12 @@ export interface Listener {
   pid: number
   command: string
   cwd?: string
-  address?: string
+  /** Local addresses the process listens on at this port, such as `127.0.0.1`, `[::1]` or `*`. */
+  addresses?: string[]
 }
+
+/** Where a listener can be reached from: this computer, Tailscale addresses only, or the network. */
+export type Exposure = 'loopback' | 'tailnet' | 'network'
 
 export interface ServerView {
   name: string
@@ -56,6 +60,12 @@ export interface ServerView {
   temporary?: boolean
   origin?: string
   worktree?: string
+  /** Where the running server's listeners can be reached from; absent until read. */
+  exposure?: Exposure
+  /** Reachable from the network although the config does not set `lan = true`. */
+  networkWarning?: boolean
+  /** The server's `lan` setting: meant to be reachable from other devices. */
+  lan?: boolean
 }
 
 export interface Health {
@@ -103,6 +113,10 @@ export interface ContainerPort {
   public: number
   proto: string
   ip?: string
+  /** Where the host-side listener can be reached from, for a local engine. */
+  exposure?: Exposure
+  /** Reachable from the network although the owning server does not set `lan = true`. */
+  networkWarning?: boolean
 }
 
 /** The last compose recreate or rebuild run for a container. */

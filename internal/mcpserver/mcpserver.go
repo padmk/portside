@@ -181,6 +181,8 @@ type Server struct {
 	External       string  `json:"external,omitempty" jsonschema:"set when another process holds the port"`
 	CPU            float64 `json:"cpuPercent,omitempty"`
 	MemMB          int64   `json:"memMB,omitempty"`
+	Exposure       string  `json:"exposure,omitempty" jsonschema:"where its listeners can be reached from: loopback (this computer only), tailnet (Tailscale addresses only) or network (other devices on the network)"`
+	NetworkWarning bool    `json:"networkWarning,omitempty" jsonschema:"reachable from the network although its config does not set lan = true; binding it to 127.0.0.1 fixes that"`
 
 	Containers []Container `json:"containers,omitempty" jsonschema:"containers attached by project mapping, directory or local project ID"`
 	Outcome    string      `json:"outcome,omitempty" jsonschema:"what ensure_server did: reused (already running) or started"`
@@ -192,22 +194,23 @@ type Server struct {
 
 // Container is the compact view of a container returned to agents.
 type Container struct {
-	Name      string   `json:"name"`
-	Service   string   `json:"service,omitempty" jsonschema:"compose service"`
-	Project   string   `json:"project,omitempty" jsonschema:"compose project"`
-	Server    string   `json:"server,omitempty" jsonschema:"the server it belongs to"`
-	Shared    []string `json:"sharedWith,omitempty" jsonschema:"other servers that use this container too"`
-	IssueFor  []string `json:"issueFor,omitempty" jsonschema:"servers it needs attention for: unhealthy, restarting, or failed while the server ran"`
-	Image     string   `json:"image"`
-	State     string   `json:"state" jsonschema:"created, running, paused, restarting, removing, exited or dead"`
-	Status    string   `json:"status" jsonschema:"the engine's summary, e.g. Up 3 hours (healthy)"`
-	Health    string   `json:"health,omitempty" jsonschema:"starting, healthy or unhealthy"`
-	Buildable bool     `json:"buildable,omitempty" jsonschema:"the compose service is known to build its image"`
-	Failed    bool     `json:"failed,omitempty" jsonschema:"exited in failure (not finished or stopped on request), or dead"`
-	ExitCode  *int     `json:"exitCode,omitempty"`
-	Restarts  int      `json:"restarts,omitempty"`
-	Ports     []string `json:"ports,omitempty" jsonschema:"published ports as host:container/protocol"`
-	Dir       string   `json:"projectDir,omitempty" jsonschema:"compose project directory, where docker compose commands for it run"`
+	Name         string   `json:"name"`
+	Service      string   `json:"service,omitempty" jsonschema:"compose service"`
+	Project      string   `json:"project,omitempty" jsonschema:"compose project"`
+	Server       string   `json:"server,omitempty" jsonschema:"the server it belongs to"`
+	Shared       []string `json:"sharedWith,omitempty" jsonschema:"other servers that use this container too"`
+	IssueFor     []string `json:"issueFor,omitempty" jsonschema:"servers it needs attention for: unhealthy, restarting, or failed while the server ran"`
+	Image        string   `json:"image"`
+	State        string   `json:"state" jsonschema:"created, running, paused, restarting, removing, exited or dead"`
+	Status       string   `json:"status" jsonschema:"the engine's summary, e.g. Up 3 hours (healthy)"`
+	Health       string   `json:"health,omitempty" jsonschema:"starting, healthy or unhealthy"`
+	Buildable    bool     `json:"buildable,omitempty" jsonschema:"the compose service is known to build its image"`
+	Failed       bool     `json:"failed,omitempty" jsonschema:"exited in failure (not finished or stopped on request), or dead"`
+	ExitCode     *int     `json:"exitCode,omitempty"`
+	Restarts     int      `json:"restarts,omitempty"`
+	Ports        []string `json:"ports,omitempty" jsonschema:"published ports as host:container/protocol"`
+	NetworkPorts []int    `json:"networkPorts,omitempty" jsonschema:"published host ports reachable from the network although the owning server does not set lan = true"`
+	Dir          string   `json:"projectDir,omitempty" jsonschema:"compose project directory, where docker compose commands for it run"`
 }
 
 func brief(c docker.Container) Container {
@@ -218,6 +221,9 @@ func brief(c docker.Container) Container {
 	}
 	for _, p := range c.Ports {
 		out.Ports = append(out.Ports, fmt.Sprintf("%d:%d/%s", p.Public, p.Private, p.Proto))
+		if p.NetworkWarning {
+			out.NetworkPorts = append(out.NetworkPorts, p.Public)
+		}
 	}
 	return out
 }
@@ -268,7 +274,7 @@ func (t *tools) withContainers(ctx context.Context, g target, s Server) Server {
 func compact(v supervisor.View) Server {
 	s := Server{Name: v.Name, Group: v.Group, Status: string(v.Status), URL: v.URL, Alias: v.Alias, Port: v.Port,
 		Dir: v.Dir, Cmd: v.Cmd, Note: v.Note, RestartPending: v.RestartPending, ListenPorts: v.ListenPorts, Listening: v.Listening, CPU: v.CPU, MemMB: v.Mem >> 20,
-		Temporary: v.Temporary, Origin: v.Origin, Worktree: v.Worktree}
+		Temporary: v.Temporary, Origin: v.Origin, Worktree: v.Worktree, Exposure: string(v.Exposure), NetworkWarning: v.NetworkWarning}
 	if v.External != nil && v.PID == 0 {
 		s.External = fmt.Sprintf("%s (pid %d) in %s", v.External.Command, v.External.PID, v.External.Cwd)
 	} else if v.ForwardedFrom != "" {

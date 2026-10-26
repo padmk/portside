@@ -141,6 +141,7 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 		p.listenPorts = nil
 		if p.status == Starting {
 			p.status, p.readyAt = Running, now
+			s.requestExposureLocked()
 		}
 	} else {
 		if inspect {

@@ -2,9 +2,9 @@
 # Measures what an idle daemon costs: an isolated daemon (config and state in
 # a fresh temporary directory, a free port, never the account's own daemon)
 # with N trivial servers (`python3 -m http.server`), M of them running. A
-# wrapper put first on the daemon's PATH counts its `ps` calls. For each
-# condition the script reports the daemon's CPU time and `ps` calls over a
-# fixed window:
+# wrapper put first on the daemon's PATH counts its `ps` and `lsof` calls.
+# For each condition the script reports the daemon's CPU time and those
+# calls over a fixed window:
 #
 #   - no events client;
 #   - one events client with usage=0 (the menu bar app with its panel closed);
@@ -40,8 +40,9 @@ command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 for v in $(env | sed -n 's/^\(PORTSIDE_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 
 REAL_PS="$(command -v ps)"
+REAL_LSOF="$(command -v lsof || true)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/portside-bench.XXXXXX")"
-PS_LOG="$T/ps.log"
+PS_LOG="$T/ps.log" LSOF_LOG="$T/lsof.log"
 dpid="" cpid=""
 
 cleanup() {
@@ -74,18 +75,22 @@ else
 fi
 go build -o "$T/benchclient" ./scripts/benchclient
 
-# The ps wrapper: one line per call with the call's user and system CPU
-# seconds and its arguments.
+# The ps and lsof wrappers: one line per call with the call's user and
+# system CPU seconds and its arguments.
 mkdir -p "$T/bin"
-cat > "$T/bin/ps" <<EOF
+wrap() { # command name, real path, log
+  cat > "$T/bin/$1" <<EOF
 #!/bin/bash
 args="\$*"
 TIMEFORMAT="%3U %3S \${args//\\%/%%}"
 exec 3>&2
-{ time "$REAL_PS" "\$@" 2>&3; } 2>>"$PS_LOG"
+{ time "$2" "\$@" 2>&3; } 2>>"$3"
 EOF
-chmod +x "$T/bin/ps"
-: > "$PS_LOG"
+  chmod +x "$T/bin/$1"
+  : > "$3"
+}
+wrap ps "$REAL_PS" "$PS_LOG"
+if [ -n "$REAL_LSOF" ]; then wrap lsof "$REAL_LSOF" "$LSOF_LOG"; else : > "$LSOF_LOG"; fi
 
 # Free ports for the daemon and every server, held together so they differ.
 read -r -a ports <<< "$(python3 - "$((servers + 1))" <<'PY'
@@ -131,16 +136,17 @@ cpu_seconds() {
 
 rows=()
 measure() {
-  local c0 c1 l0 l1
+  local c0 c1 l0 l1 s0 s1 lsof
   c0="$(cpu_seconds "$dpid")"
-  l0="$(wc -l < "$PS_LOG")"
+  l0="$(wc -l < "$PS_LOG")" s0="$(wc -l < "$LSOF_LOG")"
   sleep "$window"
   c1="$(cpu_seconds "$dpid")"
-  l1="$(wc -l < "$PS_LOG")"
-  rows+=("$(awk -v l0="$l0" -v l1="$l1" -v label="$1" -v cpu="$(awk -v a="$c0" -v b="$c1" 'BEGIN { print b - a }')" -v w="$window" '
+  l1="$(wc -l < "$PS_LOG")" s1="$(wc -l < "$LSOF_LOG")"
+  lsof="$(awk -v l0="$s0" -v l1="$s1" 'NR > l0 && NR <= l1 { calls++; t += $1 + $2 } END { printf "%10d %9.2f s", calls, t }' "$LSOF_LOG")"
+  rows+=("$(awk -v l0="$l0" -v l1="$l1" -v label="$1" -v lsof="$lsof" -v cpu="$(awk -v a="$c0" -v b="$c1" 'BEGIN { print b - a }')" -v w="$window" '
       NR <= l0 || NR > l1 { next }
       { calls++; pscpu += $1 + $2; if ($3 == "-A" && $5 ~ /^pid=,ppid=,rss=/) usage++ }
-      END { printf "%-26s %9.2f s %9.2f s %8d %9d %9.2f s\n", label, cpu, cpu * 60 / w, calls, usage, pscpu }' "$PS_LOG")")
+      END { printf "%-26s %9.2f s %9.2f s %8d %9d %9.2f s %s\n", label, cpu, cpu * 60 / w, calls, usage, pscpu, lsof }' "$PS_LOG")")
 }
 
 with_client() {
@@ -168,5 +174,5 @@ echo
 echo "$("$PS" version 2>/dev/null | head -n 1); $machine; $("$REAL_PS" -A | wc -l | tr -d ' ') processes; ${containers:-0} running containers"
 echo "$running of $servers servers running; window ${window} s"
 echo
-printf '%-26s %11s %11s %8s %9s %11s\n' condition "daemon CPU" "per minute" "ps calls" "usage ps" "ps CPU"
+printf '%-26s %11s %11s %8s %9s %11s %10s %11s\n' condition "daemon CPU" "per minute" "ps calls" "usage ps" "ps CPU" "lsof calls" "lsof CPU"
 printf '%s\n' "${rows[@]}"

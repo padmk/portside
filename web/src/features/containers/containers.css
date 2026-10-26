@@ -167,6 +167,11 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.ct-ports li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .ct-ports a.chip {
   text-decoration: none;
 }
