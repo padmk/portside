@@ -63,3 +63,27 @@ func inheritedTerminal(t *testing.T, fd int) *os.File {
 	_ = syscall.SetNonblock(fd, true)
 	return os.NewFile(uintptr(fd), "pty")
 }
+
+func TestPauseReturnsAtOnceForAnEndedReader(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exec 0<&- 1>&- 2>&-; sleep 60")
+	f, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	r := newOutputReader(pollableTerminal(f), NewMemoryLog())
+	go r.run()
+	select {
+	case <-r.done:
+	case <-time.After(3 * time.Second):
+		t.Skip("this system keeps reading a terminal its process closed")
+	}
+	start := time.Now()
+	if !r.Pause(2 * time.Second) {
+		t.Fatal("Pause reported failure for an ended reader")
+	}
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Fatalf("Pause waited %v for an ended reader", d)
+	}
+}

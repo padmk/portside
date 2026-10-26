@@ -17,6 +17,8 @@ type outputReader struct {
 	f    *os.File
 	logs *LogBuffer
 
+	done chan struct{} // closed when run returns
+
 	mu      sync.Mutex
 	pausing bool
 	stopped chan struct{} // closed once the reader has stopped for the pause
@@ -24,11 +26,12 @@ type outputReader struct {
 }
 
 func newOutputReader(f *os.File, logs *LogBuffer) *outputReader {
-	return &outputReader{f: f, logs: logs}
+	return &outputReader{f: f, logs: logs, done: make(chan struct{})}
 }
 
 // run copies until the terminal ends.
 func (r *outputReader) run() {
+	defer close(r.done)
 	buf := make([]byte, 32*1024)
 	for {
 		k, err := r.f.Read(buf)
@@ -64,9 +67,15 @@ func (r *outputReader) holdIfPaused() bool {
 }
 
 // Pause stops the reader before its next read and reports whether it
-// stopped within timeout; a terminal without read deadlines cannot be
-// interrupted while it waits for output.
+// stopped (or had ended, as when the process closed its terminal) within
+// timeout; a terminal without read deadlines cannot be interrupted while it
+// waits for output.
 func (r *outputReader) Pause(timeout time.Duration) bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+	}
 	r.mu.Lock()
 	if r.pausing {
 		r.mu.Unlock()
@@ -81,6 +90,8 @@ func (r *outputReader) Pause(timeout time.Duration) bool {
 	}
 	select {
 	case <-stopped:
+		return true
+	case <-r.done:
 		return true
 	case <-time.After(timeout):
 		return false

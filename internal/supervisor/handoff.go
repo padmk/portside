@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -69,11 +70,13 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	// stays in their terminals for the new daemon, and the state below
 	// (ready_log matches) covers everything read so far. A terminal that
 	// cannot be interrupted leaves a short window.
+	var paused sync.WaitGroup
 	for _, name := range s.order {
 		if p := s.procs[name]; p != nil && p.pid != 0 && p.reader != nil {
-			p.reader.Pause(2 * time.Second)
+			paused.Go(func() { p.reader.Pause(2 * time.Second) })
 		}
 	}
+	paused.Wait()
 	// The state file keeps the process groups for orphan recovery, in case
 	// the new binary does not take them over.
 	s.saveLocked()
