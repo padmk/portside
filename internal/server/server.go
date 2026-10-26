@@ -228,14 +228,19 @@ func (s *Server) originAllowed(r *http.Request) bool {
 		return true
 	}
 	u, err := url.Parse(origin)
-	if err != nil || u.Scheme != "http" {
+	if err != nil || u.Scheme != "http" || !s.allowedHost(hostport.Host(u.Host)) {
 		return false
+	}
+	// The page's own origin, also on another port than the daemon's, as
+	// through a forwarded port (ssh -L 17878:127.0.0.1:7878).
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
 	}
 	port := u.Port()
 	if port == "" {
 		port = "80"
 	}
-	return s.allowedHost(hostport.Host(u.Host)) && port == strconv.Itoa(s.opt.Port)
+	return port == strconv.Itoa(s.opt.Port)
 }
 
 func isWebSocket(r *http.Request) bool {

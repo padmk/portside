@@ -42,6 +42,28 @@ func ownedBy(uid int, self bool) connOwnerFunc {
 	}
 }
 
+func TestOriginAllowedSameOriginOnForwardedPort(t *testing.T) {
+	s := authServer(t)
+	for _, c := range []struct {
+		host, origin string
+		want         bool
+	}{
+		{testDashboardHost + ":7999", "http://" + testDashboardHost + ":7999", true},
+		// Through ssh -L 17878:127.0.0.1:7999 the page and its requests use 17878.
+		{testDashboardHost + ":17878", "http://" + testDashboardHost + ":17878", true},
+		{testDashboardHost + ":17878", "http://" + testDashboardHost + ":3000", false},
+		{testDashboardHost + ":17878", "http://evil.example:17878", false},
+		{"evil.example:17878", "http://evil.example:17878", false},
+		{testDashboardHost + ":17878", "https://" + testDashboardHost + ":17878", false},
+	} {
+		r := httptest.NewRequest(http.MethodPost, "http://"+c.host+"/api/servers/web/start", nil)
+		r.Header.Set("Origin", c.origin)
+		if got := s.originAllowed(r); got != c.want {
+			t.Errorf("Host %s, Origin %s: allowed = %v, want %v", c.host, c.origin, got, c.want)
+		}
+	}
+}
+
 func TestSessionCookieBoundToDashboardHost(t *testing.T) {
 	s := authServer(t)
 	if s.sessionCookie == s.opt.Token || strings.Contains(s.sessionCookie, s.opt.Token) {
