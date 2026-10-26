@@ -42,6 +42,13 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: pnpm --dir web check:contrast
       - run: ./bin/portside version
+      # The login service on this runner's systemd, without a desktop:
+      # restarts, crash commands, the journal, an in-place upgrade, a start
+      # that fails and an isolated instance next to the service.
+      - name: Linux service end to end
+        run: |
+          go build -ldflags "-X main.version=e2e-next" -o "$RUNNER_TEMP/portside-next" ./cmd/portside
+          scripts/linux-service-e2e.sh bin/portside "$RUNNER_TEMP/portside-next"
 
   macos:
     if: github.event_name != 'workflow_dispatch' || inputs.macos
