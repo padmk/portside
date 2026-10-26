@@ -9,7 +9,17 @@
 <p align="center">
   <a href="https://github.com/padmk/portside/releases/latest"><img src="https://img.shields.io/github/v/release/padmk/portside" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-black" alt="macOS 26 or later on Apple Silicon">
+  <a href="docs/linux-server.md"><img src="https://img.shields.io/badge/Linux-preview-lightgrey" alt="Linux preview"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/padmk/portside" alt="MIT license"></a>
+  <a href="https://foreverbeta.app/portside/"><img src="https://img.shields.io/badge/website-foreverbeta.app-0a7ea4" alt="Website"></a>
+</p>
+
+<p align="center">
+  <a href="#install"><b>Install</b></a> ·
+  <a href="#quick-start"><b>Quick start</b></a> ·
+  <a href="#features"><b>Features</b></a> ·
+  <a href="#documentation"><b>Docs</b></a> ·
+  <a href="CHANGELOG.md"><b>Changelog</b></a>
 </p>
 
 <p align="center">
@@ -127,3 +137,5 @@ One static binary runs a daemon on `127.0.0.1`; the menu bar app, the dashboard,
 ## License
 
 [MIT](LICENSE). Third-party licenses are listed in `THIRD_PARTY_NOTICES.txt`. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
+<p align="center"><sub>Made by <a href="https://foreverbeta.app">foreverbeta</a></sub></p>
