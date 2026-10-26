@@ -294,7 +294,13 @@ struct MenuPanel: View {
                              "Demon\(running) nie przyjmuje żądań tej aplikacji. Ponowne uruchomienie zastąpi demona starszego niż ta aplikacja."), tint: .blue,
                    button: (L.t("Restart", "Uruchom ponownie"), { store.restartDaemon() }))
         }
-        if store.connection == .connected, store.versionDiffers, let running = store.daemonVersion {
+        if store.connection == .connected, store.versionDiffers, store.daemonNewer, let running = store.daemonVersion {
+            // Restarting from this app would be a downgrade, which the daemon refuses.
+            banner(icon: "arrow.up.circle",
+                   text: L.t("The daemon runs version \(running), newer than this app. Update the app, for example: brew upgrade --cask portside",
+                             "Demon działa w wersji \(running), nowszej niż ta aplikacja. Zaktualizuj aplikację, na przykład: brew upgrade --cask portside"),
+                   tint: .blue, button: nil)
+        } else if store.connection == .connected, store.versionDiffers, let running = store.daemonVersion {
             banner(icon: "arrow.triangle.2.circlepath",
                    text: L.t("The daemon runs version \(running), which differs from this app.", "Demon działa w wersji \(running), innej niż ta aplikacja.")
                        + (store.upgradeError.map { L.t(" Updating it failed: ", " Nie udało się go zaktualizować: ") + $0 } ?? ""), tint: .blue,

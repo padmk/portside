@@ -454,6 +454,9 @@ func daemonInfo(e *env, c *client.Client, args []string) error {
 		} else if app.Older(h.Version) {
 			// The app upgrades such a daemon in place on its own.
 			out["outdated"] = true
+		} else if app.Newer(h.Version) {
+			// Restarting would downgrade it; the app tells the user to update itself instead.
+			out["newer"] = true
 		}
 		return printJSON(e, out)
 	}

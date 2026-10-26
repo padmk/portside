@@ -47,6 +47,8 @@ final class Store {
     private(set) var bundledVersion: String?
     /// Why the automatic upgrade of an older daemon failed; the version banner shows it.
     private(set) var upgradeError: String?
+    /// The daemon is a newer release than this app, so the app, not the daemon, needs updating.
+    private(set) var daemonNewer = false
     /// Daemon versions this launch already tried to upgrade, so a refused upgrade is not repeated.
     @ObservationIgnored private var upgradeTried: Set<String> = []
     /// The other computer the dashboard shows, if any.
@@ -188,6 +190,7 @@ final class Store {
                     token = info.token
                     // Known even when the events connection is refused, so the restart banner can show it.
                     if let v = info.version { daemonVersion = v }
+                    daemonNewer = info.newer == true
                     if info.verified == false { throw DaemonError.unverified }
                     if info.outdated == true, let v = info.version, upgradeTried.insert(v).inserted {
                         await upgradeOutdated()

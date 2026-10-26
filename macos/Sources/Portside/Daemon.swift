@@ -136,6 +136,9 @@ struct DaemonInfo: Decodable {
     /// The verified daemon runs a release older than the bundled helper
     /// (the helper compares; development builds never count).
     let outdated: Bool?
+    /// The verified daemon runs a release newer than the bundled helper, so
+    /// restarting it from this app would be a downgrade, which is refused.
+    let newer: Bool?
 
     /// The API token, read from its private file (never passed through argv or logs).
     var token: String? {
