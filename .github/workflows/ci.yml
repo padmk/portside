@@ -4,8 +4,8 @@ on:
     branches: [main]
   pull_request:
   # Linux runs the full checks. macOS builds the menu bar app and runs the Go
-  # tests on pushes to main, pull requests, on demand (the input below) and
-  # for every release tag in release.yml.
+  # tests on pushes to main, pull requests and on demand (the input below);
+  # release.yml builds on macOS and requires this workflow to have passed.
   workflow_dispatch:
     inputs:
       macos:
