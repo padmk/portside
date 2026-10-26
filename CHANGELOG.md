@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- **Crash command:** `on_crash` (top level, or per server to override it; `""` turns it off for one) runs a command once a server has crashed for good: at once with `restart = "no"`, after the last automatic restart otherwise, and when a server cannot start. The server, exit code, uptime, restarts, note, log file and last 20 log lines come in `PORTSIDE_*` environment variables, never in the command line. It runs whatever the `notify` setting and connected apps, so a server without a desktop can report crashes ([Crash command](docs/configuration.md#crash-command)).
+- **Linux server:** a guide for a machine without a desktop: the systemd user service, restart policies, crash reports, reading state from scripts, coding agents and the dashboard over an SSH tunnel ([Linux server](docs/linux-server.md)).
+- **CLI:** `portside daemon logs` prints the last 100 lines and exits, as `portside logs` does; `-n` sets the count and `-f` follows the log, which it used to do always.
+- **CLI:** `portside doctor` says how many servers have an `on_crash` command, and on Linux warns when `notify` is on but `notify-send` is missing, since a crash would then notify no one.
+
 ## 0.5.0
 
 - **macOS app:** when the daemon is a newer release than the app, the panel says to update the app instead of offering a restart that would downgrade it.
