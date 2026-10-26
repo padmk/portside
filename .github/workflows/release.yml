@@ -120,8 +120,15 @@ jobs:
           cp "dist/macos/Portside-$version.zip" out/
           # The tap job renders the cask from it, on a runner without PlistBuddy.
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' dist/macos/Portside.app/Contents/Info.plist > out/bundle-id
-          # The app's own copy of the command runs and reports this version.
-          dist/macos/Portside.app/Contents/Helpers/portside version | grep -q " $version "
+      - name: Smoke-test the app as users get it
+        # The zip, unpacked: the app's signature holds and its command reports this version.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [ "$PUBLISH" = true ] || version=0.0.0-dryrun
+          t="$RUNNER_TEMP/unzipped"; mkdir -p "$t"
+          ditto -x -k "out/Portside-$version.zip" "$t"
+          codesign --verify --deep --strict "$t/Portside.app"
+          "$t/Portside.app/Contents/Helpers/portside" version | grep -q " $version "
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: env.PUBLISH == 'true'
         with:
@@ -142,23 +149,26 @@ jobs:
       actions: read
     steps:
       - name: Require a tested commit on main
-        # The tag must point at a commit of main whose `ci` run passed; a run
-        # still in progress is waited for.
+        # The tag must point at a commit of main whose `ci` and `codeql` runs
+        # passed; runs still in progress are waited for.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_SHA" --jq .status)
           case "$status" in identical|behind) ;; *) echo "$GITHUB_REF_NAME ($GITHUB_SHA) is not on main ($status)" >&2; exit 1;; esac
-          for _ in $(seq 60); do
-            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push" --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"')
-            case "$run" in
-              "completed success") echo "ci passed for $GITHUB_SHA"; exit 0;;
-              completed*) echo "ci did not pass for $GITHUB_SHA: $run" >&2; exit 1;;
-              ""|"null null") echo "no ci run for $GITHUB_SHA" >&2; exit 1;;
-            esac
-            sleep 30
-          done
-          echo "ci for $GITHUB_SHA did not finish in 30 minutes" >&2; exit 1
+          passed() {
+            for _ in $(seq 60); do
+              run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$1.yml/runs?head_sha=$GITHUB_SHA&event=push" --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"')
+              case "$run" in
+                "completed success") echo "$1 passed for $GITHUB_SHA"; return 0;;
+                completed*) echo "$1 did not pass for $GITHUB_SHA: $run" >&2; return 1;;
+                ""|"null null") echo "no $1 run for $GITHUB_SHA" >&2; return 1;;
+              esac
+              sleep 30
+            done
+            echo "$1 for $GITHUB_SHA did not finish in 30 minutes" >&2; return 1
+          }
+          passed ci && passed codeql
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: release
