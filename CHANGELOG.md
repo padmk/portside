@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- **Upgrades in place:** a server whose terminal cannot be paused for the upgrade is named in the daemon log, since a `ready_log` line it prints at that moment may be missed.
-- **CI:** the Linux service run also upgrades the daemon while a server is still waiting for its `ready_log` line.
+- **Dashboard, menu bar and CLI:** a running server that stopped answering on its port or `health` path shows as **not responding** (an amber diamond in the dashboard, an orange light in the menu bar, a yellow dot in `portside status`) and is counted apart from the running ones, as `portside check` already reported it.
+- **Upgrades in place:** the upgrade is refused, and the servers keep running under the current daemon, when the terminal of a server still waiting for its `ready_log` line cannot be paused, so that line cannot slip between the two daemons; for other servers it is only logged.
+- **CI:** the Linux service run also upgrades the daemon while a server is still waiting for its `ready_log` line, and both Linux and macOS upgrade the latest published release in place to the new build (`scripts/upgrade-from-release.sh`).
 
 ## 0.7.1
 

@@ -49,6 +49,11 @@ jobs:
         run: |
           go build -ldflags "-X main.version=e2e-next" -o "$RUNNER_TEMP/portside-next" ./cmd/portside
           scripts/linux-service-e2e.sh bin/portside "$RUNNER_TEMP/portside-next"
+      # An upgrade in place from the latest published release to this build.
+      - name: Upgrade from the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/upgrade-from-release.sh bin/portside
 
   macos:
     if: github.event_name != 'workflow_dispatch' || inputs.macos
@@ -68,3 +73,9 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: scripts/build-macos-app.sh
       - run: go test ./...
+      - name: Upgrade from the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          go build -o "$RUNNER_TEMP/portside" ./cmd/portside
+          scripts/upgrade-from-release.sh "$RUNNER_TEMP/portside"
