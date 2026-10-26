@@ -13,7 +13,7 @@ portside service install            # start the daemon now and at every boot
 portside doctor                     # check the setup
 ```
 
-Portside needs `ps`, `tail` and either `lsof` or `ss` (iproute2, installed on most distributions). `notify-send` is optional; without a desktop, use `on_crash` instead (below). Docker or Podman is optional too; for rootless Docker, a Docker context or `DOCKER_HOST` set in your login shell picks it ([Containers](containers.md)).
+Portside needs `ps`, `tail` and either `lsof` or `ss` (iproute2, installed on most distributions). `notify-send` is optional; without a desktop, use `on_crash` instead (below). Docker or Podman is optional too; for rootless Docker, set a Docker context or `DOCKER_HOST` in your login shell ([Containers](containers.md)). How the service runs without a login session is in [How it works](how-it-works.md#login-service).
 
 After an update, run `portside daemon restart` with the new binary: servers keep running through it.
 
@@ -38,34 +38,32 @@ port = 0                            # no port: running 1.5 s after it starts
 restart = "always"
 ```
 
-With `on-failure` a crashed server is started again after 1, 2, 4, 8 and 16 seconds; after 5 restarts in a row it stays `crashed` ([Server keys](configuration.md#server-keys)). Running servers come back after a reboot (`restore`, on by default). systemd restarts the daemon if it crashes; do not also run the same apps as their own systemd units.
+A crashed server is started again with backoff until it has failed 5 times in a row ([Server keys](configuration.md#server-keys) has the delays), and running servers come back after a reboot (`restore`, on by default). systemd restarts the daemon itself if it crashes, so do not also run these apps as systemd units of their own.
 
 ## Crash reports
 
-Notifications go to a desktop, so on a server they go nowhere. `on_crash` runs a command once a server has crashed for good, with the server, exit code, note and last log lines in `PORTSIDE_*` variables ([Crash command](configuration.md#crash-command)). A failed run of the command is in `portside daemon logs`.
+Desktop notifications need a desktop. On a server, set `on_crash`: it runs your command once a server has crashed for good, with the server, exit code, note and last log lines in `PORTSIDE_*` variables ([Crash command](configuration.md#crash-command)). When the command itself fails, `portside daemon logs` says so.
 
-The daemon's own crashes are systemd's: `systemctl --user status portside` and `journalctl --user -u portside`.
+A crash of the daemon itself is systemd's to report: `systemctl --user status portside` and `journalctl --user -u portside`.
 
 ## Reading state from scripts
 
-- `portside status --json`: every server with `status` (`starting`, `running`, `stopping`, `stopped`, `crashed`, `exited`, or `blocked` when another process holds its port), `note`, `exitCode`, `restarts`, `restartPending`, `pid`, `port`, `url` and the last lines in `tail`. Fields may be added; existing ones keep their meaning.
-- `portside logs <name> -n 200` (`--grep`, `--since 10m`, `-t` for times), `portside daemon logs -n 100`; `-f` follows either.
+- `portside status --json`: every server with `status` (`starting`, `running`, `stopping`, `stopped`, `crashed`, `exited`, or `blocked` when another process holds its port), `note`, `exitCode`, `restarts`, `restartPending`, `pid`, `port`, `url` and the last lines in `tail`.
+- `portside logs <name> -n 200` prints a server's output (`--grep`, `--since 10m`, `-t` for times) and `portside daemon logs -n 100` the daemon's; `-f` follows either.
 - `portside ensure <name> --json` starts a server if needed and waits until it is ready.
 - The HTTP API on `127.0.0.1` accepts `Authorization: Bearer $(cat ~/.local/state/portside/auth-token)`, for example `curl -H "Authorization: Bearer $(cat ~/.local/state/portside/auth-token)" http://127.0.0.1:7878/api/state`. The token controls every server, so keep it on the machine; give other systems only what you read from it.
 
-`portside status` exits 0 whatever the servers' states; read `status` from the JSON instead.
+`portside status` exits 0 whatever state the servers are in, so check `status` in the JSON.
 
 ## Coding agents
 
-`portside setup` registers the MCP server and the skill with Claude Code and Codex, through their own CLIs, as on a Mac ([Coding agents](coding-agents.md)). The agent then reuses running servers and reads their logs. `portside setup --mcp-mode read-only` registers it for an agent that should only look, and `--dir <project>` limits it to one project ([Modes and project scope](coding-agents.md#modes-and-project-scope)).
+`portside setup` registers the MCP server and the skill with Claude Code and Codex, through their own CLIs, as on a Mac ([Coding agents](coding-agents.md)). The agent then reuses running servers and reads their logs. For an agent that should only look, register it with `portside setup --mcp-mode read-only`; to limit it to one project, add `--dir` to its registration ([Modes and project scope](coding-agents.md#modes-and-project-scope)).
 
 ## The dashboard over SSH
 
-Forward the daemon's port and sign in with a link printed on the server:
-
 ```sh
 ssh -L 7878:127.0.0.1:7878 <server>   # on your computer
-portside open --print                 # on the server, in that session
+portside open                         # on the server: prints a sign-in link
 ```
 
-Open the printed link on your computer; it works once, within two minutes, and signs you in at the dashboard's `*.localhost` address. When port 7878 is taken on your computer, forward another one (`-L 17878:127.0.0.1:7878`) and change the port in the link to match. To use the dashboard from your own computers without a tunnel, see [Other computers](other-computers.md).
+Open the link on your computer ([Opening the dashboard](cli.md#opening-the-dashboard) has the details). To reach the dashboard from your own computers without a tunnel, see [Other computers](other-computers.md).

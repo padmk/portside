@@ -57,7 +57,7 @@ portside doctor [--fix]                  check the setup; --fix connects coding 
 
 `open` uses the first command in `$BROWSER` (commands separated by colons, `%s` standing for the address), else `open` on macOS, `wslview` or `explorer.exe` under WSL, and `xdg-open` on a Linux desktop. Without a browser, over SSH (`$SSH_CONNECTION` is set) or with `--print`, it prints the sign-in link instead, which works once, within two minutes, and only from a process of your account.
 
-Over SSH, forward the daemon's port with the same number, for example `ssh -L 7878:127.0.0.1:7878 <host>`, and open the link on your own computer, where `*.localhost` resolves to it. Under WSL the browser runs on Windows and reaches the daemon through the WSL network relay, so the daemon may not attribute the connection to your account and refuse the sign-in; then run a browser inside WSL or reach the dashboard over an SSH tunnel.
+Over SSH, forward the daemon's port, for example `ssh -L 7878:127.0.0.1:7878 <host>`, and open the link on your own computer, where `*.localhost` resolves to it. When that port is taken on your computer, forward another one (`-L 17878:127.0.0.1:7878`) and change the port in the link to match. Under WSL the browser runs on Windows and reaches the daemon through the WSL network relay, so the daemon may not attribute the connection to your account and refuse the sign-in; then run a browser inside WSL or reach the dashboard over an SSH tunnel.
 
 ## Stopping and readiness
 

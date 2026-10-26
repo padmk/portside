@@ -88,7 +88,13 @@ Server names are lowercase letters, digits and dashes, because they double as `<
 
 ## Crash command
 
-`on_crash` runs a command when a server crashes and no automatic restart follows: at once with `restart = "no"`, after the last restart with `on-failure` or `always`, and when a server cannot start (a missing directory, a dependency that failed). It runs once per crash, whether or not desktop notifications are on or the app is open, so a server without a desktop can report crashes to your monitoring:
+`on_crash` runs a command when a server has crashed and will not be restarted automatically:
+
+- with `restart = "no"`, at the first crash;
+- with `on-failure` or `always`, after the last automatic restart;
+- when the server cannot start, for example because its directory is missing or a dependency failed.
+
+It runs once per crash, also when desktop notifications are off or the app is open, so a server without a desktop can report crashes to your monitoring. A server's own `on_crash` replaces the top-level one:
 
 ```toml
 on_crash = "~/bin/report-crash"     # every server
@@ -105,7 +111,7 @@ on_crash = ""                       # except this one
 curl -fsS --data-urlencode "text=$PORTSIDE_SERVER on $(hostname): $PORTSIDE_NOTE" https://hooks.example.com/alert
 ```
 
-The command runs with `sh -c` in your home directory, with the environment servers get from your login shell, `path` and the top-level `env` (not the server's own `env`), plus these variables; nothing about the crash is put in its command line:
+The command runs with `sh -c` in your home directory. Its environment is what servers get from your login shell, `path` and the top-level `env` (without the server's own `env`), plus these variables; the crash details are never put in its command line:
 
 | Variable | Value |
 | --- | --- |
@@ -118,7 +124,7 @@ The command runs with `sh -c` in your home directory, with the environment serve
 | `PORTSIDE_LOG_TAIL` | The last 20 lines of output (at most 8 KiB, without colors). Output can hold secrets, so treat it as you treat the logs. |
 | `PORTSIDE_LOG_FILE` | The server's full log file. |
 
-The daemon does not wait for the command: it is stopped after 30 seconds, not retried, and its result goes to the daemon log (`portside daemon logs`). `portside doctor` shows how many servers have one, and on Linux warns when `notify` is on but `notify-send` is missing, so a crash would otherwise notify no one.
+The daemon does not wait for the command. One still running after 30 seconds is stopped, a failed one is not retried, and either result is in the daemon log (`portside daemon logs`). `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but `notify-send` is missing, because a crash would then notify no one.
 
 ## Editor, terminal, shell and Docker
 
