@@ -201,6 +201,7 @@ umask = "0007"
 on_unready = "page-me"
 on_recover = "all-clear"
 unready_after = "2m"
+retry_after = "5m"
 [servers.web]
 cmd = "x"
 restart = "on-failure"
@@ -210,6 +211,7 @@ restart = "always"
 umask = "077"
 on_unready = ""
 unready_after = "30s"
+retry_after = "0s"
 `
 	cfg, err := Parse("/tmp/portside.toml", []byte(text))
 	if err != nil {
@@ -220,16 +222,20 @@ unready_after = "30s"
 	}
 	web, _ := cfg.Server("web")
 	api, _ := cfg.Server("api")
-	if web.Umask != "0007" || web.OnUnready != "page-me" || web.OnRecover != "all-clear" || web.UnreadyAfter != 2*time.Minute {
+	if web.Umask != "0007" || web.OnUnready != "page-me" || web.OnRecover != "all-clear" || web.UnreadyAfter != 2*time.Minute || web.RetryAfter != 5*time.Minute {
 		t.Errorf("web inherits: %+v", web)
 	}
-	if api.Umask != "077" || api.OnUnready != "" || api.OnRecover != "all-clear" || api.UnreadyAfter != 30*time.Second {
+	if api.Umask != "077" || api.OnUnready != "" || api.OnRecover != "all-clear" || api.UnreadyAfter != 30*time.Second || api.RetryAfter != 0 {
 		t.Errorf("api overrides: %+v", api)
 	}
 	if cfg, err := Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n")); err != nil || cfg.OwnEnv || cfg.Servers[0].UnreadyAfter != DefaultUnreadyAfter || cfg.Servers[0].Umask != "" {
 		t.Errorf("defaults: %+v, %v", cfg, err)
 	}
-	for _, bad := range []string{`umask = "7"`, `umask = "0008"`, `umask = "u=rwx"`, `unready_after = "0s"`} {
+	cfg, err = Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\nretry_after = \"1m\"\n"))
+	if err != nil || len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "retry_after has no effect") {
+		t.Errorf("retry_after without a restart policy: %v, %v", cfg.Warnings, err)
+	}
+	for _, bad := range []string{`umask = "7"`, `umask = "0008"`, `umask = "u=rwx"`, `unready_after = "0s"`, `retry_after = "-1m"`} {
 		if _, err := Parse("/tmp/portside.toml", []byte(bad+"\n[servers.web]\ncmd = \"x\"\n")); err == nil {
 			t.Errorf("%s loaded", bad)
 		}

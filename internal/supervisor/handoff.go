@@ -323,8 +323,10 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	if p.want && p.cfg.Restart != config.RestartNo && p.retries < maxRetries {
 		s.handoffRestarts = append(s.handoffRestarts, h.Name)
 	} else {
-		p.want = false
 		s.reportCrashLocked(p, nil, p.exitedAt.Sub(h.StartedAt))
+		if !s.retryLocked(p) {
+			p.want = false
+		}
 	}
 	s.changedLocked()
 }

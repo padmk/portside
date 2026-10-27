@@ -6,6 +6,7 @@
 - **Crash command:** `PORTSIDE_STREAK` counts the crashes for good in a row without the server being ready in between, so a monitor that starts failed servers again can report each problem once, and `PORTSIDE_TRIGGER` says what began the run (`start` or `restore`). The streak and an open problem survive daemon restarts and upgrades.
 - **`umask`** (top level or per server) sets the mode mask for the files a server creates, such as `"0007"`; without it servers keep the daemon's, which launchd and systemd set to `0022`, readable by other accounts.
 - **`login_env = false`** gives servers the daemon's own environment plus `path` and `env` instead of the login shell's, for servers whose environment the config alone should decide. `portside doctor` says which one servers get.
+- **`retry_after`** (top level or per server, for `restart = "on-failure"` or `"always"`) starts a server again that long after its automatic restarts gave up or its start failed, with another 5 restarts, until it runs or you stop it; `PORTSIDE_TRIGGER` is then `retry`. The dashboard offers **Stop** while it waits, and the menu bar app still announces the crash.
 - **Docs:** the Linux server guide explains that `systemctl --user restart portside` stops every server, while `portside daemon restart` keeps them running.
 
 ## 0.8.0

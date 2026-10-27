@@ -53,12 +53,13 @@ export const hasProcess = (v: Pick<ServerView, 'status'>) =>
   isUp(v) || v.status === 'stopping'
 
 /**
- * A crashed or exited server waiting for its automatic restart. Daemons
+ * A crashed, exited or blocked server waiting for its automatic restart (or
+ * a retry after `retry_after`). Daemons
  * without the field say so in the note, which a stop leaves in place, so
  * there the server must also still be wanted.
  */
 export const restartPending = (v: Pick<ServerView, 'status' | 'restartPending' | 'note' | 'wanted'>) =>
-  (v.status === 'crashed' || v.status === 'exited') && (v.restartPending ?? (v.wanted && /restarting in /.test(v.note ?? '')))
+  (v.status === 'crashed' || v.status === 'exited' || v.status === 'blocked') && (v.restartPending ?? (v.wanted && /restarting in /.test(v.note ?? '')))
 
 /** Stop has something to do: a process runs, or an automatic restart is due. */
 export const canStop = (v: Pick<ServerView, 'status' | 'restartPending' | 'note' | 'wanted'>) =>

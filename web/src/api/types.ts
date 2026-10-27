@@ -56,6 +56,8 @@ export interface ServerView {
   tool?: string
   /** A crashed or exited server waits for its automatic restart. */
   restartPending?: boolean
+  /** The pending restart is a retry after `retry_after`, scheduled once the automatic restarts gave up. */
+  retrying?: boolean
   /** Ports the process tree listens on, when they differ from the configured port. */
   listenPorts?: number[]
   /** A copy of the configured server `origin` running in the checkout `worktree`; not in the config file. */

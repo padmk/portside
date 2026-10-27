@@ -60,6 +60,7 @@ type proc struct {
 	launch         *launchInputs // what runningEnv was built from; nil when unknown
 	detected       *string       // tool detection for cfg as last sampled; nil before the first sample
 	restartPending bool
+	retrying       bool // the pending restart is a retry after retry_after
 	listenPorts    []int
 	listenHost     string
 	missingSince   time.Time
@@ -536,7 +537,7 @@ func (s *Supervisor) failStart(name string, token int, msg string) {
 		}
 		p.status = Crashed
 		p.note = msg
-		s.reportCrashLocked(p, nil, 0)
+		s.startFailedLocked(p)
 		s.saveLocked()
 		s.changedLocked()
 	}
@@ -612,7 +613,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 				p.note = fmt.Sprintf("port %d is already in use", sv.Port)
 			}
 			note := p.note
-			s.reportCrashLocked(p, nil, 0)
+			s.startFailedLocked(p)
 			s.saveLocked()
 			s.changedLocked()
 			s.mu.Unlock()
@@ -635,7 +636,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		}
 		p.status = Crashed
 		p.note = msg
-		s.reportCrashLocked(p, nil, 0)
+		s.startFailedLocked(p)
 		s.saveLocked()
 		s.changedLocked()
 		s.mu.Unlock()
@@ -689,7 +690,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		installReadyLog(p, "", nil)
 		p.status = Crashed
 		p.note = "failed to start: " + err.Error()
-		s.reportCrashLocked(p, nil, 0)
+		s.startFailedLocked(p)
 		s.saveLocked()
 		s.changedLocked()
 		s.mu.Unlock()
@@ -820,22 +821,25 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			restartIn = s.backoffLocked(p, uptime)
 		}
 	}
+	p.restartPending, p.retrying = restartIn > 0, false
 	if p.status == Crashed || p.status == Exited {
-		if restartIn == 0 {
-			p.want = false // nothing to restore after a daemon restart
-		}
+		// Down for good: a crash nothing restarts, or restart = "always"
+		// gave up on a server meant to keep running.
+		down := restartIn == 0 && (p.status == Crashed || (p.cfg.Restart == config.RestartAlways && p.retries >= maxRetries))
+		retrying := false
 		if restartIn > 0 {
 			p.note += fmt.Sprintf("%s%s", restartingNote, restartIn.Round(time.Second))
-		} else if p.status == Exited && p.cfg.Restart == config.RestartAlways && p.retries >= maxRetries {
-			s.reportCrashLocked(p, &code, uptime) // gave up on a server meant to keep running
-		} else if p.status == Crashed {
+		} else if down {
 			s.reportCrashLocked(p, &code, uptime)
-			if s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {
+			if p.status == Crashed && s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {
 				go s.notifier(name+" crashed", fmt.Sprintf("Exited with code %d after %s", code, uptime.Round(time.Second)))
 			}
+			retrying = s.retryLocked(p)
+		}
+		if restartIn == 0 && !retrying {
+			p.want = false // nothing to restore after a daemon restart
 		}
 	}
-	p.restartPending = restartIn > 0
 	name = p.cfg.Name
 	token := p.startSeq
 	removed := p.removed
@@ -888,6 +892,35 @@ func isClosed(ch chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+// retryLocked starts p again after its retry_after, with a fresh round of
+// automatic restarts, when it is down for good although its restart policy
+// would keep it running; it reports whether a retry is due. A start or stop
+// meanwhile cancels it.
+func (s *Supervisor) retryLocked(p *proc) bool {
+	after := p.cfg.RetryAfter
+	if after <= 0 || p.cfg.Restart == config.RestartNo || !p.want || p.removed || s.closing {
+		return false
+	}
+	p.restartPending, p.retrying = true, true
+	p.note += restartingNote + after.String()
+	token := p.startSeq
+	time.AfterFunc(after, func() {
+		s.mu.Lock()
+		name := p.cfg.Name
+		ok := s.procs[name] == p && p.startSeq == token && p.restartPending && p.want && p.pid == 0 && !p.alive() && !p.removed && !s.closing
+		var deps []string
+		if ok {
+			p.retries = 0
+			deps = s.cfg.WithDeps(p.cfg.DependsOn)
+		}
+		s.mu.Unlock()
+		if ok {
+			_ = s.launch(name, deps, StartOptions{trigger: triggerRetry}, token)
+		}
+	})
+	return true
 }
 
 // restartingNote starts the part of a note that announces an automatic restart.

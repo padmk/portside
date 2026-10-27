@@ -97,6 +97,8 @@ struct Server: Decodable, Identifiable, Hashable {
     let exitedAt: String?
     /// True while a crashed or exited server waits for an automatic restart.
     let restartPending: Bool?
+    /// The pending restart is a retry after `retry_after`: the crash itself was final.
+    let retrying: Bool?
     /// The computer whose server holds this port through a forward, if any.
     let forwardedFrom: String?
     /// Whether the project has an icon the daemon serves at /api/servers/<name>/icon.
@@ -118,9 +120,9 @@ struct Server: Decodable, Identifiable, Hashable {
 
     var isAlive: Bool { status == "running" || status == "starting" || status == "stopping" }
 
-    /// Whether the daemon restarts it on its own; daemons without the field
-    /// say so in the note.
-    var waitsForRestart: Bool { restartPending ?? (note?.contains("restarting in") ?? false) }
+    /// Whether the daemon restarts it on its own, so its crash is not final;
+    /// daemons without the field say so in the note.
+    var waitsForRestart: Bool { retrying != true && (restartPending ?? (note?.contains("restarting in") ?? false)) }
 }
 
 /// What `daemon info` reports (see internal/cli/daemoncmds.go).

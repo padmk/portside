@@ -27,30 +27,33 @@ type View struct {
 	Status     Status `json:"status"`
 	// Unready marks a running server whose port or health check has failed
 	// for listenerLossDelay; it is not restarted, and its note says why.
-	Unready        bool            `json:"unready,omitempty"`
-	Note           string          `json:"note,omitempty"`
-	PID            int             `json:"pid,omitempty"`
-	StartedAt      *time.Time      `json:"startedAt,omitempty"`
-	ReadyAt        *time.Time      `json:"readyAt,omitempty"`
-	ExitedAt       *time.Time      `json:"exitedAt,omitempty"`
-	ExitCode       *int            `json:"exitCode,omitempty"`
-	RestartPending bool            `json:"restartPending"`
-	ListenPorts    []int           `json:"listenPorts,omitempty"`
-	Listening      bool            `json:"listening"`
-	External       *ports.Listener `json:"external,omitempty"`
-	Stale          bool            `json:"stale,omitempty"`
-	Removed        bool            `json:"removed,omitempty"`
-	Enabled        bool            `json:"enabled"`
-	DependsOn      []string        `json:"dependsOn,omitempty"`
-	Restart        string          `json:"restart"`
-	Restarts       int             `json:"restarts,omitempty"`
-	CPU            float64         `json:"cpu"`
-	Mem            int64           `json:"mem"`
-	CPUHistory     []float64       `json:"cpuHistory,omitempty"`
-	MemHistory     []int64         `json:"memHistory,omitempty"`
-	HasIcon        bool            `json:"hasIcon"`
-	Tail           []string        `json:"tail"` // last few plain output lines
-	Wanted         bool            `json:"wanted"`
+	Unready        bool       `json:"unready,omitempty"`
+	Note           string     `json:"note,omitempty"`
+	PID            int        `json:"pid,omitempty"`
+	StartedAt      *time.Time `json:"startedAt,omitempty"`
+	ReadyAt        *time.Time `json:"readyAt,omitempty"`
+	ExitedAt       *time.Time `json:"exitedAt,omitempty"`
+	ExitCode       *int       `json:"exitCode,omitempty"`
+	RestartPending bool       `json:"restartPending"`
+	// Retrying marks a pending restart that retry_after scheduled after the
+	// automatic restarts gave up, so the crash is still reported.
+	Retrying    bool            `json:"retrying,omitempty"`
+	ListenPorts []int           `json:"listenPorts,omitempty"`
+	Listening   bool            `json:"listening"`
+	External    *ports.Listener `json:"external,omitempty"`
+	Stale       bool            `json:"stale,omitempty"`
+	Removed     bool            `json:"removed,omitempty"`
+	Enabled     bool            `json:"enabled"`
+	DependsOn   []string        `json:"dependsOn,omitempty"`
+	Restart     string          `json:"restart"`
+	Restarts    int             `json:"restarts,omitempty"`
+	CPU         float64         `json:"cpu"`
+	Mem         int64           `json:"mem"`
+	CPUHistory  []float64       `json:"cpuHistory,omitempty"`
+	MemHistory  []int64         `json:"memHistory,omitempty"`
+	HasIcon     bool            `json:"hasIcon"`
+	Tail        []string        `json:"tail"` // last few plain output lines
+	Wanted      bool            `json:"wanted"`
 	// Tool is the environment tool the live process runs under, such as
 	// direnv or mise ("custom" for a configured wrap).
 	Tool string `json:"tool,omitempty"`
@@ -140,6 +143,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			PID:            p.pid,
 			Listening:      p.listening,
 			RestartPending: p.restartPending,
+			Retrying:       p.restartPending && p.retrying,
 			ListenPorts:    append([]int(nil), p.listenPorts...),
 			External:       p.external,
 			Stale:          p.stale(s.cfg, base, volatile),

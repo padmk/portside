@@ -267,6 +267,35 @@ func TestUnreadyAndRecoveryReportedOnce(t *testing.T) {
 	}
 }
 
+// retry_after starts a server again once its restarts gave up, with a
+// fresh round of restarts, until a stop.
+func TestRetryAfterGivingUp(t *testing.T) {
+	old := restartDelay
+	restartDelay = 10 * time.Millisecond
+	t.Cleanup(func() { restartDelay = old })
+	s := lifecycleSupervisor(t, "exit 3", config.RestartOnFailure)
+	out := eventHook(t, s, func(p *proc, c string) { p.cfg.OnCrash, p.cfg.RetryAfter = c, 300*time.Millisecond })
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	calls := waitCalls(t, out, 2, 20*time.Second)
+	if want := []string{"crashed|start|1|", "crashed|retry|2|"}; !slices.Equal(calls[:2], want) {
+		t.Fatalf("calls = %q, want %q first", calls, want)
+	}
+	if v := s.Snapshot(19000)[0]; !v.RestartPending || !strings.Contains(v.Note, "gave up after 5 restarts, restarting in 300ms") {
+		t.Fatalf("view after giving up: pending %v, note %q", v.RestartPending, v.Note)
+	}
+	if err := s.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	before, _ := os.ReadFile(out)
+	time.Sleep(time.Second)
+	if after, _ := os.ReadFile(out); len(after) != len(before) {
+		t.Fatalf("a stopped server was retried: %q", after)
+	}
+}
+
 // umask sets the mode of files the server creates; without it the server
 // keeps the daemon's.
 func TestServerUmask(t *testing.T) {

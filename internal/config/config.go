@@ -123,6 +123,10 @@ type Server struct {
 	OnUnready    string
 	OnRecover    string
 	UnreadyAfter time.Duration
+	// RetryAfter, when positive, starts a server that its restart policy
+	// gave up on (or that could not start) again after that long, with a
+	// fresh round of restarts. Only with on-failure or always.
+	RetryAfter time.Duration
 	// Umask, when set, is the file mode creation mask the command runs
 	// with, as octal digits such as "0007"; "" keeps the daemon's.
 	Umask string
@@ -248,6 +252,7 @@ type rawServer struct {
 	OnUnready   *string           `toml:"on_unready"`
 	OnRecover   *string           `toml:"on_recover"`
 	UnreadyAft  *Duration         `toml:"unready_after"`
+	RetryAfter  *Duration         `toml:"retry_after"`
 	Umask       *string           `toml:"umask"`
 }
 
@@ -268,6 +273,7 @@ type rawConfig struct {
 	OnUnready   string               `toml:"on_unready"`
 	OnRecover   string               `toml:"on_recover"`
 	UnreadyAft  *Duration            `toml:"unready_after"`
+	RetryAfter  *Duration            `toml:"retry_after"`
 	Umask       string               `toml:"umask"`
 	LoginEnv    *bool                `toml:"login_env"`
 	Servers     map[string]rawServer `toml:"servers"`
@@ -370,6 +376,10 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	retryAfter, err := nonNegative("retry_after", raw.RetryAfter, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	umask, err := checkUmask(raw.Umask)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -430,6 +440,9 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		if s.UnreadyAfter, err = positive("unready_after", r.UnreadyAft, unreadyAfter); err != nil {
 			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
 		}
+		if s.RetryAfter, err = nonNegative("retry_after", r.RetryAfter, retryAfter); err != nil {
+			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
+		}
 		s.Umask = umask
 		if r.Umask != nil {
 			if s.Umask, err = checkUmask(*r.Umask); err != nil {
@@ -478,6 +491,9 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		case RestartNo, RestartOnFailure, RestartAlways:
 		default:
 			return nil, fmt.Errorf("%s: [servers.%s]: restart must be no, on-failure or always", path, name)
+		}
+		if s.Restart == RestartNo && r.RetryAfter != nil && s.RetryAfter > 0 {
+			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s: retry_after has no effect with restart = %q", name, RestartNo))
 		}
 		if r.Port != nil {
 			s.Port = *r.Port

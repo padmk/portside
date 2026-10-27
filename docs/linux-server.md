@@ -43,7 +43,7 @@ ready_log = "Worker ready"          # running once it prints this line
 restart = "always"
 ```
 
-A crashed server is started again with backoff, up to 5 restarts in a row ([Server keys](configuration.md#server-keys) has the delays), and running servers come back after a reboot (`restore`, on by default). systemd restarts the daemon itself if it crashes, so do not also run these apps as systemd units of their own.
+A crashed server is started again with backoff, up to 5 restarts in a row ([Server keys](configuration.md#server-keys) has the delays), and running servers come back after a reboot (`restore`, on by default). After that it stays down; `retry_after = "5m"` starts it again every 5 minutes instead, until it runs or you stop it. systemd restarts the daemon itself if it crashes, so do not also run these apps as systemd units of their own.
 
 ## A predictable environment
 
@@ -57,7 +57,7 @@ path = ["~/.local/bin"]             # where uv and other tools are
 
 ## Crash and health reports
 
-Desktop notifications need a desktop. On a server, set `on_crash`, `on_unready` and `on_recover`: they run your command once a server has crashed for good, when a running one has not answered for a minute (`unready_after`), and when either is ready again, with the details in `PORTSIDE_*` variables ([Hook commands](configuration.md#hook-commands)). A timer that starts failed servers again gets one `crashed` report per failure; `PORTSIDE_STREAK` counts them, so report only the first. When a command itself fails, `portside daemon logs` says so.
+Desktop notifications need a desktop. On a server, set `on_crash`, `on_unready` and `on_recover`: they run your command once a server has crashed for good, when a running one has not answered for a minute (`unready_after`), and when either is ready again, with the details in `PORTSIDE_*` variables ([Hook commands](configuration.md#hook-commands)). With `retry_after`, or a timer that starts failed servers again, each failed round is another `crashed` report; `PORTSIDE_STREAK` counts them, so report only the first. When a command itself fails, `portside daemon logs` says so.
 
 A crash of the daemon itself is systemd's to report: `systemctl --user status portside`. While systemd runs the daemon, its output is in the user journal, which `portside daemon logs` reads then.
 

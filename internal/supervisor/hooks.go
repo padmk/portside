@@ -59,9 +59,11 @@ const (
 
 // Triggers say what began a server's round of runs, which its automatic
 // restarts continue, in PORTSIDE_TRIGGER: a start someone asked for (also
-// of a dependency), or the daemon bringing it back when it started.
+// of a dependency), a retry after retry_after, or the daemon bringing it
+// back when it started.
 const (
 	triggerStart   = "start"
+	triggerRetry   = "retry"
 	triggerRestore = "restore"
 )
 
@@ -178,6 +180,13 @@ func (s *Supervisor) reportCrashLocked(p *proc, exitCode *int, uptime time.Durat
 	if s.runHookLocked("on_crash", p.cfg.OnCrash, r) {
 		openIncidentLocked(p, eventCrashed, time.Now())
 	}
+}
+
+// startFailedLocked reports a start that failed and schedules the next try
+// when retry_after asks for one.
+func (s *Supervisor) startFailedLocked(p *proc) {
+	s.reportCrashLocked(p, nil, 0)
+	s.retryLocked(p)
 }
 
 // unreadyLocked runs on_unready once a running server has not answered for

@@ -96,6 +96,7 @@ stop_timeout = "30s"
 | `on_crash` | Command run when a server crashes for good ([Hook commands](#hook-commands)). |
 | `on_unready`, `on_recover` | Commands run when a running server stops answering, and when a server one of the hooks reported is ready again ([Hook commands](#hook-commands)). |
 | `unready_after` | How long a running server must go without answering before `on_unready` runs, `"1m"` unless set. |
+| `retry_after` | For servers with `restart = "on-failure"` or `"always"`: how long after the automatic restarts gave up (or a start failed) to start the server again, such as `"5m"`; unset, it stays down. |
 | `login_env` | `true` (default) gives servers the environment of your login shell, `false` the daemon's own ([Environment](#environment)). |
 | `umask` | File mode creation mask for every server, such as `"0007"`; without it servers get the daemon's ([File permissions](#file-permissions)). |
 
@@ -110,7 +111,7 @@ Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 | `port` | Port the server listens on. Omit it to assign the lowest free port from 3001 in file order (skipping the daemon's port, ports of temporary worktree servers, AirPlay's 5000 and 7000 and browser-blocked ports), written into the file when the daemon loads it. `0` means no port: such a server counts as running 1.5 s after it starts (see `ready_log` and `ready_after`). Two servers with the same port, or a reserved one, load with a warning. |
 | `group` | Name for starting and stopping related servers together. |
 | `depends_on` | Servers that must be running (and ready) before this one starts. Unknown names and cycles are errors. |
-| `restart` | `no` (default), `on-failure` (after a non-zero exit) or `always` (after any exit). Restarts wait 1 s, then 2, 4, 8 and 16 s; after 5 restarts in a row the server stays `crashed`. A run longer than a minute starts the count again. |
+| `restart` | `no` (default), `on-failure` (after a non-zero exit) or `always` (after any exit). Restarts wait 1 s, then 2, 4, 8 and 16 s; after 5 restarts in a row the server stays `crashed`, or starts again after `retry_after`. A run longer than a minute starts the count again. |
 | `health` | HTTP path that must answer with a success or a redirect (status 200 to 399, redirects not followed) before the server counts as running. A running server that stops answering is shown as [not responding](dashboard.md#server-states); it is not restarted. |
 | `ready_log` | Regular expression that a whole line of the server's output (ended by a newline) must match before it counts as running, in addition to its port and `health`; for example `ready_log = "Worker ready"` for a worker without a port. Until then it stays `starting`, and so do servers that `depends_on` it. An invalid expression is an error. |
 | `ready_after` | How long the process must run before it counts as running, such as `"10s"`; without it, a server with a port counts as soon as the port answers, and one without a port after 1.5 s. |
@@ -118,6 +119,7 @@ Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 | `stop_timeout` | How long to wait after `Ctrl-C` before `SIGTERM` (`SIGKILL` follows 3 s later); the top-level `stop_timeout` by default. |
 | `on_crash`, `on_unready`, `on_recover` | Commands for this server instead of the top-level ones; `""` runs none for it ([Hook commands](#hook-commands)). |
 | `unready_after` | This server's wait before `on_unready`, instead of the top-level one. |
+| `retry_after` | This server's wait before it is started again after giving up, instead of the top-level one; `"0s"` turns retries off for it. Each retry gets another 5 restarts, until the server runs or you stop it. Without `on-failure` or `always` it has no effect (a warning). |
 | `umask` | This server's file mode creation mask, instead of the top-level one ([File permissions](#file-permissions)). |
 | `enabled` | `false` leaves the server out of `--all` and restore; it can still be started by name or group. |
 | `icon` | Icon for the dashboard, relative to `dir` or absolute; by default a project favicon is detected. |
@@ -173,7 +175,7 @@ The command runs with `sh -c` in your home directory. Its environment is the ser
 | --- | --- |
 | `PORTSIDE_EVENT` | `crashed`, `unready` or `recovered`. |
 | `PORTSIDE_SERVER`, `PORTSIDE_GROUP` | The server's name and group (empty without one). |
-| `PORTSIDE_TRIGGER` | What began the server's current round of runs, which its automatic restarts continue: `start` (by you, a tool, an agent, or a server that depends on it) or `restore` (the daemon brought it back when it started). |
+| `PORTSIDE_TRIGGER` | What began the server's current round of runs, which its automatic restarts continue: `start` (by you, a tool, an agent, or a server that depends on it), `retry` (after `retry_after`) or `restore` (the daemon brought it back when it started). |
 | `PORTSIDE_STREAK` | For `crashed`: how many times in a row the server has crashed for good without being ready in between, `1` for the first. Empty for other events. |
 | `PORTSIDE_EXIT_CODE` | For `crashed`: the exit code, empty when the server could not start. Empty for other events. |
 | `PORTSIDE_UPTIME` | Seconds the last run lasted, or the current run has lasted so far. |
