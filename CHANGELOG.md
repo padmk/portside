@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
 - **MCP `--dir` scope:** a container counts as a scoped server's only through the server's `projects` in the config or a Compose working directory inside the scope, so a project's `supabase/config.toml` naming another project's ID no longer exposes that project's containers; a Supabase CLI project ID listed in a server's `projects` belongs to that server alone, also on the dashboard. Containers and `list_ports` no longer name a server outside the scope, and `ensure_server` refuses a `dir` outside it.
 - **Worktree copies:** `dir` must be a worktree git has registered for the repository; a directory whose `.git` file only points into the repository is refused.
