@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -150,11 +153,41 @@ func cmdForward(e *env, args []string) error {
 }
 
 // cmdPair redeems a pairing code shown on another computer and connects.
+// The code comes from standard input, never from the arguments: other
+// accounts here can read process arguments and could redeem it first.
 func cmdPair(e *env, args []string) error {
-	if len(args) != 2 {
+	switch len(args) {
+	case 1:
+	case 2:
+		return usageError{fmt.Sprintf("the pairing code is not taken as an argument, where other accounts on this computer can read it; run `%s pair %s` and type the code, or pipe it in", app.ID, args[0])}
+	default:
 		return usageError{fmt.Sprintf("get a code on the other computer: Computers in its dashboard, or `%s share code`", app.ID)}
 	}
-	return connect(e, "/api/remote/pair", map[string]string{"peer": args[0], "code": args[1]}, args[0])
+	code, err := readPairingCode(e, args[0])
+	if err != nil {
+		return err
+	}
+	return connect(e, "/api/remote/pair", map[string]string{"peer": args[0], "code": code}, args[0])
+}
+
+// readPairingCode reads one line from standard input, prompting for it on
+// a terminal.
+func readPairingCode(e *env, computer string) (string, error) {
+	if e.in == nil {
+		return "", errors.New("no pairing code on standard input")
+	}
+	if f, ok := e.in.(*os.File); ok && isTerminal(f) {
+		fmt.Fprintf(e.errOut, "Pairing code shown on %s: ", computer)
+	}
+	line, err := bufio.NewReader(e.in).ReadString('\n')
+	code := strings.TrimSpace(line)
+	if code == "" {
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
+		return "", fmt.Errorf("no pairing code on standard input; get one on %s (Computers in its dashboard, or `%s share code`)", computer, app.ID)
+	}
+	return code, nil
 }
 
 // cmdConnect connects to a paired computer.
@@ -174,7 +207,7 @@ func connect(e *env, path string, body map[string]string, name string) error {
 	if err := c.Do(e.ctx, http.MethodPost, path, body, &info); err != nil {
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) && apiErr.Code == remote.CodePairingRequired {
-			return fmt.Errorf("%s\nGet a code on %s (Computers in its dashboard, or `%s share code`) and run `%s pair %s <code>`", err, name, app.ID, app.ID, name)
+			return fmt.Errorf("%s\nGet a code on %s (Computers in its dashboard, or `%s share code`) and run `%s pair %s`", err, name, app.ID, app.ID, name)
 		}
 		return err
 	}

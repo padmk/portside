@@ -72,15 +72,22 @@ func (m *Manager) liveLocked(dev Device) *liveDevice {
 }
 
 // attach registers a request of dev and returns a context that ends when
-// dev is revoked, and the function to call when the request ends. A request
+// dev is revoked, and the function to call when the request ends. It
+// refuses (false) when dev's pairing is no longer current: the check and
+// the registration happen under m.mu, which endRevoked also holds, so a
+// request either is refused or is ended by the revocation. A request
 // that counts as a connection marks dev connected until it ends; the first
 // one after quietGap without any is announced.
-func (m *Manager) attach(dev Device, counts bool) (context.Context, func()) {
+func (m *Manager) attach(dev Device, counts bool) (context.Context, func(), bool) {
 	m.mu.Lock()
+	if !m.devs.current(dev) {
+		m.mu.Unlock()
+		return nil, nil, false
+	}
 	d := m.liveLocked(dev)
 	if !counts {
 		m.mu.Unlock()
-		return d.ctx, func() {}
+		return d.ctx, func() {}, true
 	}
 	now := time.Now()
 	first := d.active == 0
@@ -110,7 +117,7 @@ func (m *Manager) attach(dev Device, counts bool) (context.Context, func()) {
 				m.seen(dev.ID, now)
 			}
 		})
-	}
+	}, true
 }
 
 // seen keeps when a device connected or disconnected and tells subscribers.
@@ -141,11 +148,11 @@ func (m *Manager) deviceStatus() []DeviceStatus {
 // that are no longer paired. The listener stays: moving to a new one would
 // leave Tailscale Serve pointing at a freed port for a moment.
 func (m *Manager) endRevoked() {
+	m.mu.Lock()
 	paired := map[string]bool{}
 	for _, d := range m.devs.List() {
 		paired[d.ID] = true
 	}
-	m.mu.Lock()
 	for id, d := range m.live {
 		if !paired[id] {
 			d.cancel()

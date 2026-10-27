@@ -218,6 +218,18 @@ func (d *devices) Lookup(id string) (Device, bool) {
 	return Device{}, false
 }
 
+// current reports whether dev is still paired with the same key.
+func (d *devices) current(dev Device) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, x := range d.list {
+		if x.ID == dev.ID && x.Key == dev.Key {
+			return true
+		}
+	}
+	return false
+}
+
 // touch records when device id was last seen. A device revoked meanwhile
 // is left out.
 func (d *devices) touch(id string, at time.Time) error {

@@ -33,6 +33,7 @@ type command struct {
 type env struct {
 	ctx     context.Context
 	cfgPath string
+	in      io.Reader
 	out     io.Writer
 	errOut  io.Writer
 	color   bool
@@ -155,7 +156,7 @@ func init() {
 		{names: []string{"ports"}, section: "Servers", usage: "ports [--json]", summary: "Show every listening TCP port and its owner", run: cmdPorts},
 
 		{names: []string{"computers"}, section: "Other computers", usage: "computers [--json] | --print-prompt", summary: "List your other computers that share their servers, and the connection; --print-prompt prints a setup request for a coding agent", run: cmdComputers},
-		{names: []string{"pair"}, section: "Other computers", usage: "pair <computer> <code>", summary: "Pair with a computer using the code it shows, then connect", run: cmdPair},
+		{names: []string{"pair"}, section: "Other computers", usage: "pair <computer>", summary: "Pair with a computer using the code it shows (typed or piped in), then connect", run: cmdPair},
 		{names: []string{"connect"}, section: "Other computers", usage: "connect <computer>", summary: "Connect to a paired computer; --on <computer> then acts on it", run: cmdConnect},
 		{names: []string{"forward"}, section: "Other computers", usage: "forward on|off <port>", summary: "Turn forwarding of a port of the connected computer on or off, kept for that computer", run: cmdForward},
 		{names: []string{"disconnect"}, section: "Other computers", usage: "disconnect", summary: "End the connection to another computer", run: cmdDisconnect},
@@ -187,6 +188,7 @@ func Main(args []string) int {
 	e := &env{
 		ctx:     context.Background(),
 		cfgPath: paths.ConfigFile(),
+		in:      os.Stdin,
 		out:     os.Stdout,
 		errOut:  os.Stderr,
 		color:   colorEnabled(),

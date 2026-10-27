@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +23,14 @@ import (
 // with the token in state and answers signed /api/state requests with st.
 func serveState(t *testing.T, state string, port int, st server.State) {
 	t.Helper()
+	serveDaemon(t, state, port, map[string]func([]byte) any{"/api/state": func([]byte) any { return st }})
+}
+
+// serveDaemon runs a daemon stand-in on 127.0.0.1:port that proves itself
+// with the token in state and answers signed requests for the paths in
+// routes with what their function returns for the request body.
+func serveDaemon(t *testing.T, state string, port int, routes map[string]func(body []byte) any) {
+	t.Helper()
 	token := signing.RandomHex(32)
 	if err := os.WriteFile(filepath.Join(state, paths.TokenName), []byte(token+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -29,16 +38,18 @@ func serveState(t *testing.T, state string, port int, st server.State) {
 	epoch := signing.NewEpoch()
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body []byte
-		switch r.URL.Path {
-		case "/api/health":
+		route, ok := routes[r.URL.Path]
+		switch {
+		case r.URL.Path == "/api/health":
 			body, _ = json.Marshal(server.Health{App: app.ID, Version: "9.9.9", PID: 4242})
-		case "/api/state":
+		case ok:
+			req, _ := io.ReadAll(r.Body)
 			var v signing.Verifier
-			if v.Verify(r, token, r.RequestURI, nil) != nil || signing.CheckEpoch(r.Header, epoch) != nil {
+			if v.Verify(r, token, r.RequestURI, req) != nil || signing.CheckEpoch(r.Header, epoch) != nil {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			body, _ = json.Marshal(st)
+			body, _ = json.Marshal(route(req))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			return

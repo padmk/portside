@@ -7,7 +7,9 @@
 // Linux lets only administrators serve one.) A request is accepted when all
 // of these hold:
 //
-//   - it arrived under that path, for this machine's tailnet name or address;
+//   - it arrived under that path, for this machine's tailnet name or address,
+//     and on Linux over a connection from root or this account, which
+//     tailscaled runs as (see fromserve.go);
 //   - it carries the peer header, which a web page cannot add without a CORS
 //     preflight, so a browser on one of the devices cannot be abused;
 //   - Tailscale reports it from another device of the user who owns this
@@ -413,7 +415,7 @@ func (m *Manager) listen() (string, error) {
 	}
 	m.target, m.secret, m.epoch = target, secret, signing.NewEpoch()
 	go func(srv *http.Server) {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(fromServe(ln)); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("share: %v", err)
 		}
 	}(m.srv)
@@ -443,11 +445,16 @@ func PeerFrom(ctx context.Context) (Peer, bool) {
 func (m *Manager) Pair(p Peer, code, instance string) (Credential, error) {
 	id, key, err := m.devs.Pair(code, Device{Name: p.Node.Name, DNSName: p.Node.DNSName, OS: p.Node.OS, Instance: instance})
 	if err == nil {
+		// A pairing this one replaced ends like a revoked one.
+		m.endRevoked()
 		m.announce(p.Node.Name+" paired", "It can now connect to this computer and control its servers.")
 		m.changes.Notify()
 	}
 	return Credential{ID: id, Key: key}, err
 }
+
+// bodyTimeout bounds reading the body of a request from a paired device.
+var bodyTimeout = 30 * time.Second
 
 func writeJSONError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -534,11 +541,24 @@ func (m *Manager) guard() http.Handler {
 			if dev, ok := m.devs.Lookup(id); ok && strings.EqualFold(dev.DNSName, node.DNSName) {
 				var body []byte
 				if r.Body != nil {
+					// The body is read before the signature can be checked, so
+					// a sender that withholds it may hold the request only
+					// briefly; WebSockets keep no deadline once upgraded.
+					rc := http.NewResponseController(w)
+					_ = rc.SetReadDeadline(time.Now().Add(bodyTimeout))
 					body, err = io.ReadAll(io.LimitReader(r.Body, signing.MaxBody+1))
-					if err != nil || len(body) > signing.MaxBody {
+					switch {
+					case err != nil:
+						// The deadline stays, so the server gives up on the
+						// rest of the body too.
+						w.Header().Set("Connection", "close")
+						refuse("could not read the request body")
+						return
+					case len(body) > signing.MaxBody:
 						refuse("request body too large")
 						return
 					}
+					_ = rc.SetReadDeadline(time.Time{})
 					r.Body = io.NopCloser(bytes.NewReader(body))
 				}
 				if err := verify(&m.nonces, r, dev, uri, body); err != nil {
@@ -551,14 +571,17 @@ func (m *Manager) guard() http.Handler {
 					writeJSONError(w, http.StatusForbidden, "epoch", "the shared computer restarted sharing; reconnecting")
 					return
 				}
-				peer.Device = &dev
-				signing.Prove(w.Header(), r.Header, dev.Key, epoch)
-				ctx, cancel := context.WithCancel(r.Context())
-				defer cancel()
-				life, end := m.attach(dev, !open)
-				defer end()
-				defer context.AfterFunc(life, cancel)()
-				r = r.WithContext(ctx)
+				// attach checks again that the pairing is current: it may have
+				// been revoked or replaced while the body was arriving.
+				if life, end, ok := m.attach(dev, !open); ok {
+					defer end()
+					peer.Device = &dev
+					signing.Prove(w.Header(), r.Header, dev.Key, epoch)
+					ctx, cancel := context.WithCancel(r.Context())
+					defer cancel()
+					defer context.AfterFunc(life, cancel)()
+					r = r.WithContext(ctx)
+				}
 			}
 		}
 		if peer.Device == nil && !open {

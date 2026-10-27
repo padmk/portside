@@ -1,7 +1,12 @@
 package share
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -211,5 +216,140 @@ func TestClosedManagerStaysClosed(t *testing.T) {
 	}
 	if _, err := m.listen(); err == nil {
 		t.Error("listen after Close started a listener")
+	}
+}
+
+// stalledBody is a request body that tells when it is first read and
+// delivers its bytes only once released.
+type stalledBody struct {
+	reading chan struct{}
+	release chan struct{}
+	once    bool
+	r       io.Reader
+}
+
+func (b *stalledBody) Read(p []byte) (int, error) {
+	if !b.once {
+		b.once = true
+		close(b.reading)
+		<-b.release
+	}
+	return b.r.Read(p)
+}
+
+func TestRevokeWhileBodyPendingRefusesRequest(t *testing.T) {
+	f := newGuard(t)
+	body := []byte(`{"wait":true}`)
+	path := "/api/servers/victim/start"
+	r := httptest.NewRequest(http.MethodPost, "/"+secret+path, nil)
+	r.Header = request(path).Header
+	r.Host = "127.0.0.1:5555"
+	f.cred.Sign(r.Header, http.MethodPost, path, body, epoch)
+	sb := &stalledBody{reading: make(chan struct{}), release: make(chan struct{}), r: bytes.NewReader(body)}
+	r.Body = io.NopCloser(sb)
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		f.m.guard().ServeHTTP(w, r)
+		close(done)
+	}()
+	<-sb.reading
+	if ok, err := f.m.Revoke(f.cred.ID); !ok || err != nil {
+		t.Fatalf("Revoke: %v, %v", ok, err)
+	}
+	close(sb.release)
+	<-done
+	if f.reached != nil {
+		t.Error("a request of a device revoked while its body was arriving reached the handler")
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status %d, want 401", w.Code)
+	}
+	if len(f.m.live) != 0 {
+		t.Error("the revoked device has a live connection record")
+	}
+}
+
+func TestAttachRefusesRevokedOrReplacedPairing(t *testing.T) {
+	f := newGuard(t)
+	dev, ok := f.m.devs.Lookup(f.cred.ID)
+	if !ok {
+		t.Fatal("device not paired")
+	}
+	replaced := dev
+	replaced.Key = strings.Repeat("cd", 32)
+	if _, _, ok := f.m.attach(replaced, true); ok {
+		t.Error("attach accepted a key the device no longer has")
+	}
+	if ok, err := f.m.Revoke(f.cred.ID); !ok || err != nil {
+		t.Fatalf("Revoke: %v, %v", ok, err)
+	}
+	if _, _, ok := f.m.attach(dev, true); ok {
+		t.Error("attach accepted a revoked device")
+	}
+	if len(f.m.live) != 0 {
+		t.Error("attach after revoke left a connection context nobody cancels")
+	}
+}
+
+func TestPairingAgainEndsOldConnections(t *testing.T) {
+	f := newGuard(t)
+	started := make(chan struct{})
+	ended := make(chan struct{})
+	f.m.SetHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+		close(ended)
+	}))
+	go f.m.guard().ServeHTTP(httptest.NewRecorder(), request("/api/events", signed(f.cred, epoch)))
+	<-started
+	c, err := f.m.devs.NewCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.Pair(Peer{Node: testStatus().Peers[0]}, c.Code, ""); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ended:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the replaced pairing's request kept running")
+	}
+}
+
+func TestGuardBoundsBodyReading(t *testing.T) {
+	f := newGuard(t)
+	old := bodyTimeout
+	bodyTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { bodyTimeout = old })
+	srv := httptest.NewServer(f.m.guard())
+	defer srv.Close()
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	path := "/api/servers/victim/start"
+	h := request(path).Header
+	f.cred.Sign(h, http.MethodPost, path, []byte("0123456789"), epoch)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "POST /%s%s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 10\r\n", secret, path)
+	for k, vs := range h {
+		for _, v := range vs {
+			fmt.Fprintf(&sb, "%s: %s\r\n", k, v)
+		}
+	}
+	sb.WriteString("\r\n01234")
+	if _, err := io.WriteString(conn, sb.String()); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	res, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("no reply while the body was withheld: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden || f.reached != nil {
+		t.Errorf("status %d, reached %v; want 403 and the handler not reached", res.StatusCode, f.reached != nil)
 	}
 }
