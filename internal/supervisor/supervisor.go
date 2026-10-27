@@ -61,25 +61,37 @@ type proc struct {
 	detected       *string       // tool detection for cfg as last sampled; nil before the first sample
 	restartPending bool
 	retryAt        time.Time // when the pending restart is a retry after retry_after, its time
-	listenPorts    []int
-	listenHost     string
-	missingSince   time.Time
-	externalStart  string
-	running        config.Server // configuration the live process was started with
-	status         Status
-	note           string // short human explanation of the status
-	process        *os.Process
-	pty            *os.File
-	pid            int
-	pidStart       string
-	startedAt      time.Time
-	readyAt        time.Time
-	logReady       atomic.Bool   // a line of this generation's output matched ready_log
-	readyMatch     *readyMatcher // matches ready_log while waiting for it; nil otherwise
-	exitedAt       time.Time
-	exitCode       int
-	hasExit        bool
-	stopping       bool
+	restartAt      time.Time // when the pending restart is an automatic one after a crash, its time
+	// scheduleReserved marks a scheduled run reserved but not begun yet.
+	scheduleReserved bool
+	listenPorts      []int
+	listenHost       string
+	missingSince     time.Time
+	externalStart    string
+	running          config.Server // configuration the live process was started with
+	status           Status
+	note             string // short human explanation of the status
+	process          *os.Process
+	pty              *os.File
+	pid              int
+	pidStart         string
+	startedAt        time.Time
+	readyAt          time.Time
+	logReady         atomic.Bool   // a line of this generation's output matched ready_log
+	readyMatch       *readyMatcher // matches ready_log while waiting for it; nil otherwise
+	exitedAt         time.Time
+	// settledAt is when the latest run or start attempt ended: an exit, a
+	// failed start or a stop of a server waiting to start. A task's waiters
+	// compare it with when they asked (see taskStateLocked).
+	settledAt time.Time
+	exitCode  int
+	hasExit   bool
+	stopping  bool
+	// overMemory is the note of a stop under way because a usage sample
+	// was over memory_limit, "" otherwise; the exit then counts as a crash.
+	// overMemorySeq is startSeq when that stop began.
+	overMemory    string
+	overMemorySeq int
 	// ending is closed once the latest Stop or Shutdown has ended the whole
 	// process group, which can outlive the leader; nil before the first
 	// (see Supervisor.endings).
@@ -110,6 +122,14 @@ type proc struct {
 	rows          uint16
 	removed       bool
 	temp          *temporary // set for a temporary copy of a configured server
+	// The schedule's next run, the expression it was computed for, and
+	// when the latest scheduled run began (see schedule.go).
+	nextRun      time.Time
+	scheduleExpr string
+	lastRun      time.Time
+	// watch is what the scans of the watch patterns found (see watch.go);
+	// nil without patterns.
+	watch *watchState
 }
 
 // Supervisor owns all managed processes.
@@ -176,6 +196,23 @@ type Supervisor struct {
 	// upgraded says this daemon took over from an upgrade in place, which
 	// keeps pending retries whatever restore says.
 	upgraded bool
+	// handedOver holds the servers adopted from the daemon this one
+	// replaced; Recover leaves them to their own state.
+	handedOver map[string]bool
+	// handoffEnd is signalled when an upgrade in place fails or turns into
+	// a shutdown (see awaitHandoffLocked).
+	handoffEnd *sync.Cond
+	// now is the wall clock schedules follow.
+	now func() time.Time
+	// processes reads the process table for usage samples.
+	processes func(context.Context) map[int]procSample
+	// watchEvery and watchQuiet are WatchInterval and WatchQuiet, and
+	// watchLimit WatchFileLimit, unless a test sets others; watchWake wakes
+	// an idle runWatches after a config change.
+	watchEvery time.Duration
+	watchQuiet time.Duration
+	watchLimit int
+	watchWake  chan struct{}
 }
 
 // AddDesktopClient registers a client that notifies the user itself and
@@ -196,18 +233,33 @@ func (s *Supervisor) AddDesktopClient() func() {
 
 // New creates a supervisor for cfg. Logs and state go below stateDir.
 func New(cfg *config.Config, stateDir string) *Supervisor {
+	return newWithClock(cfg, stateDir, time.Now)
+}
+
+// newWithClock is New with now as the wall clock schedules follow.
+func newWithClock(cfg *config.Config, stateDir string, now func() time.Time) *Supervisor {
 	s := &Supervisor{
-		procs:     map[string]*proc{},
-		logDir:    paths.LogDir(stateDir),
-		state:     statePath(stateDir),
-		notifier:  Notify,
-		selfPID:   os.Getpid(),
-		sampleNow: make(chan struct{}, 1),
+		procs:      map[string]*proc{},
+		logDir:     paths.LogDir(stateDir),
+		state:      statePath(stateDir),
+		notifier:   Notify,
+		selfPID:    os.Getpid(),
+		sampleNow:  make(chan struct{}, 1),
+		now:        now,
+		processes:  sampleProcesses,
+		watchEvery: WatchInterval,
+		watchQuiet: WatchQuiet,
+		watchLimit: WatchFileLimit,
+		watchWake:  make(chan struct{}, 1),
 	}
+	s.handoffEnd = sync.NewCond(&s.mu)
 	s.applyLocked(cfg)
 	s.previous = s.load()
 	s.restoreTemporaryLocked(s.previous.Temporary)
 	s.restoreHistoryLocked(s.previous.Servers)
+	for _, p := range s.procs {
+		syncScheduleLocked(p, s.now()) // Recover saves the state
+	}
 	return s
 }
 
@@ -289,6 +341,7 @@ func (s *Supervisor) changedLocked() {
 func (s *Supervisor) Apply(cfg *config.Config) {
 	s.mu.Lock()
 	removed := s.applyLocked(cfg)
+	s.syncSchedulesLocked()
 	s.changedLocked()
 	s.mu.Unlock()
 	for _, name := range removed {
@@ -325,6 +378,7 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 		}
 	}
 	removed := s.applyLocked(cfg)
+	s.syncSchedulesLocked()
 	s.saveLocked()
 	s.changedLocked()
 	s.mu.Unlock()
@@ -343,6 +397,9 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	for _, sv := range cfg.Servers {
 		keep[sv.Name] = true
 		if p, ok := s.procs[sv.Name]; ok && p.temp == nil {
+			if !p.cfg.Enabled && sv.Enabled {
+				p.nextRun = time.Time{} // runs due while disabled stay skipped
+			}
 			p.cfg = sv
 			p.removed = false
 			continue
@@ -377,8 +434,8 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	// After temporary copies took their origin's new settings.
 	cancelled := false
 	for _, p := range s.procs {
-		if p.restartPending && !p.retryAt.IsZero() && !p.cfg.RetriesAfterGivingUp() {
-			cancelRetryLocked(p)
+		if p.restartPending && ((!p.retryAt.IsZero() && !p.cfg.RetriesAfterGivingUp()) || (!p.restartAt.IsZero() && p.cfg.Restart == config.RestartNo)) {
+			cancelPendingLocked(p)
 			cancelled = true
 		}
 	}
@@ -386,6 +443,7 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 		s.saveLocked()
 	}
 	s.reorderLocked()
+	s.wakeWatchesLocked()
 	return removed
 }
 
@@ -398,7 +456,7 @@ func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool
 		return false
 	}
 	a, b := p.running, p.cfg
-	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || a.Wrap != b.Wrap || a.Umask != b.Umask || p.runningShell != cfg.Shell {
+	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || a.Wrap != b.Wrap || a.Umask != b.Umask || a.Oneshot != b.Oneshot || p.runningShell != cfg.Shell {
 		return true
 	}
 	if l := p.launch; l != nil {
@@ -425,6 +483,10 @@ func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool
 type StartOptions struct {
 	// Takeover stops a foreign process holding the port before starting.
 	Takeover bool
+	// Since is when the start was asked for, now when zero. A task that a
+	// server depends on counts as done after a successful run that ended at
+	// or after it, so starts asked for together (a bulk start) share one run.
+	Since time.Time
 	// trigger is what asks for the start; "" (an automatic restart) keeps
 	// the one that began the round.
 	trigger string
@@ -464,8 +526,11 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		return nil
 	}
 	pending := p.want && p.status == Starting
+	// A task that a run since this request finished (one a dependent of
+	// it in the same bulk start ran) is done for it.
+	done := p.cfg.Oneshot && !opt.Since.IsZero() && taskStateLocked(p, opt.Since) == taskDone
 	s.mu.Unlock()
-	if pending {
+	if pending || done {
 		return nil // a start (e.g. waiting for dependencies) is already under way
 	}
 
@@ -477,6 +542,9 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 // launch starts deps in order and then name, while token is the latest
 // start request for name.
 func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token int) error {
+	if opt.Since.IsZero() {
+		opt.Since = time.Now()
+	}
 	if len(deps) == 0 {
 		return s.startOne(name, opt, token)
 	}
@@ -497,12 +565,20 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 			if !s.current(name, token) {
 				return
 			}
+			task, done := s.taskDone(d, opt.Since)
+			if done {
+				continue // a run since the request satisfies it
+			}
 			if err := s.startOne(d, StartOptions{trigger: triggerStart}, s.reserve(d)); err != nil {
 				s.failStart(name, token, fmt.Sprintf("dependency %s failed: %v", d, err))
 				return
 			}
-			if err := s.WaitReady(context.Background(), d, 3*time.Minute); err != nil {
-				s.failStart(name, token, fmt.Sprintf("dependency %s did not become ready: %v", d, err))
+			if err := s.WaitReady(context.Background(), d, opt.Since, 3*time.Minute); err != nil {
+				if f, ok := errors.AsType[*waitFailure](err); ok && task {
+					s.failStart(name, token, fmt.Sprintf("dependency %s failed: %s", d, f.reason))
+				} else {
+					s.failStart(name, token, fmt.Sprintf("dependency %s did not become ready: %v", d, err))
+				}
 				return
 			}
 		}
@@ -525,6 +601,15 @@ func (s *Supervisor) reserve(name string) int {
 	return s.reserveLocked(p)
 }
 
+// reserveStartLocked records a start of p, which is down, for launch with
+// trigger, as Start does: a fresh round of automatic restarts, and the
+// dependencies to start first.
+func (s *Supervisor) reserveStartLocked(p *proc, trigger string) (deps []string, token int) {
+	p.retries = 0
+	p.trigger = trigger
+	return s.cfg.WithDeps(p.cfg.DependsOn), s.reserveLocked(p)
+}
+
 // reserveLocked records a start request for p and returns its token.
 func (s *Supervisor) reserveLocked(p *proc) int {
 	p.want = true
@@ -538,6 +623,7 @@ func (s *Supervisor) reserveLocked(p *proc) int {
 func (s *Supervisor) current(name string, token int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.awaitHandoffLocked()
 	p := s.procs[name]
 	return p != nil && !s.closing && p.want && (token == 0 || p.startSeq == token)
 }
@@ -570,6 +656,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		s.mu.Unlock()
 		return nil
 	}
+	s.awaitHandoffLocked()
 	if s.closing || !p.want || (token != 0 && p.startSeq != token) {
 		s.mu.Unlock()
 		return nil
@@ -616,6 +703,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		owner, found := ports.Owner(context.Background(), sv.Port)
 		if !opt.Takeover || !found {
 			s.mu.Lock()
+			s.awaitHandoffLocked()
 			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing {
 				s.mu.Unlock()
 				return nil
@@ -645,6 +733,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	if st, err := os.Stat(sv.Dir); err != nil || !st.IsDir() {
 		msg := "directory not found: " + paths.ShortenHome(sv.Dir)
 		s.mu.Lock()
+		s.awaitHandoffLocked()
 		if s.procs[name] != p || !p.want || p.startSeq != token || s.closing {
 			s.mu.Unlock()
 			return nil
@@ -670,6 +759,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	cmd.Env = mergeEnv(env, tool.env)
 
 	s.mu.Lock()
+	s.awaitHandoffLocked()
 	if p.pid != 0 { // lost a race with another Start
 		s.mu.Unlock()
 		return nil
@@ -687,6 +777,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		s.mu.Unlock()
 		return nil
 	}
+	p.scheduleReserved = false // the scheduled run, if any, has begun
 	size := &pty.Winsize{Cols: p.cols, Rows: p.rows}
 	stamp := time.Now().Format("15:04:05")
 	fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  %s ──\x1b[0m\r\n\x1b[2m$ %s\x1b[0m\r\n", stamp, "start", script)
@@ -735,6 +826,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.readyAt = time.Time{}
 	p.hasExit = false
 	p.stopping = false
+	p.overMemory = ""
 	p.want = true
 	p.external = nil
 	p.listening = false
@@ -779,7 +871,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	code := exitCode(process.Wait())
 	pgid := p.pid
 	s.mu.Lock()
-	stopping := s.requestedExitLocked(p)
+	stopping := s.requestedExitLocked(p) || p.overMemory != ""
 	s.mu.Unlock()
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
@@ -801,6 +893,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	_ = p.pty.Close()
 	uptime := time.Since(p.startedAt)
 	p.exitedAt = time.Now()
+	p.settledAt = p.exitedAt
 	p.exitCode = code
 	p.hasExit = true
 	p.pid = 0
@@ -808,6 +901,8 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	p.listening = false
 	close(p.done)
 	stamp := p.exitedAt.Format("15:04:05")
+	overMemory := p.overMemory
+	p.overMemory = ""
 
 	var restartIn time.Duration
 	again := false
@@ -821,6 +916,22 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			again = true
 			p.status = Starting
 		}
+	case overMemory != "" && p.want && p.startSeq != p.overMemorySeq && !p.removed && !s.closing:
+		// Started again while the memory limit stopped it.
+		p.status = Starting
+		p.note = ""
+		fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  stopped: %s ──\x1b[0m\r\n", stamp, overMemory)
+		again = true
+	case overMemory != "":
+		// Whatever the exit code, also a task's: the limit ended it.
+		p.status = Crashed
+		p.note = overMemory
+		fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  crashed: %s ──\x1b[0m\r\n", stamp, overMemory)
+		if p.cfg.Restart != config.RestartNo {
+			restartIn = s.backoffLocked(p, uptime)
+		}
+	case code == 0 && p.running.Oneshot:
+		s.taskDoneLocked(p, stamp)
 	case code == 0:
 		p.status = Exited
 		p.note = "exited on its own"
@@ -836,18 +947,23 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			restartIn = s.backoffLocked(p, uptime)
 		}
 	}
-	p.restartPending, p.retryAt = restartIn > 0, time.Time{}
+	p.restartPending, p.retryAt, p.restartAt = false, time.Time{}, time.Time{}
 	if p.status == Crashed || p.status == Exited {
 		// Down for good: a crash nothing restarts, or restart = "always"
 		// gave up on a server meant to keep running.
 		down := restartIn == 0 && (p.status == Crashed || (p.cfg.Restart == config.RestartAlways && p.retries >= maxRetries))
 		retrying := false
 		if restartIn > 0 {
-			p.note += fmt.Sprintf("%s%s", restartingNote, restartIn.Round(time.Second))
+			now := time.Now()
+			s.scheduleRestartLocked(p, now, now.Add(restartIn))
 		} else if down {
 			s.reportCrashLocked(p, &code, uptime)
 			if p.status == Crashed && s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {
-				go s.notifier(name+" crashed", fmt.Sprintf("Exited with code %d after %s", code, uptime.Round(time.Second)))
+				msg := fmt.Sprintf("Exited with code %d after %s", code, uptime.Round(time.Second))
+				if overMemory != "" {
+					msg = fmt.Sprintf("Stopped after %s: %s", uptime.Round(time.Second), overMemory)
+				}
+				go s.notifier(name+" crashed", msg)
 			}
 			retrying = s.retryLocked(p)
 		}
@@ -886,14 +1002,42 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		_ = s.launch(name, deps, StartOptions{trigger: triggerStart}, token)
 		return
 	}
-	if restartIn > 0 {
-		s.afterLocked(restartIn, func() func() {
-			if p.gen != gen || p.startSeq != token || !p.restartPending || !p.want || p.alive() || s.closing {
-				return nil
-			}
-			name := p.cfg.Name
-			return func() { _ = s.startOne(name, StartOptions{}, token) }
-		})
+}
+
+// scheduleRestartLocked restarts p at the time at, an automatic restart
+// after a crash that continues its round of restarts. A start or stop
+// meanwhile cancels it.
+func (s *Supervisor) scheduleRestartLocked(p *proc, now, at time.Time) {
+	p.restartPending, p.restartAt, p.retryAt = true, at, time.Time{}
+	left := pendingNoteLocked(p, now, at)
+	gen, token := p.gen, p.startSeq
+	s.afterLocked(left, func() func() {
+		if s.procs[p.cfg.Name] != p || p.removed || p.gen != gen || p.startSeq != token || !p.restartPending || !p.restartAt.Equal(at) || !p.want || p.alive() || s.closing {
+			return nil
+		}
+		name := p.cfg.Name
+		return func() { _ = s.startOne(name, StartOptions{}, token) }
+	})
+}
+
+// pendingNoteLocked ends p's note with when its pending restart at the time
+// at happens, and returns how long that is from now.
+func pendingNoteLocked(p *proc, now, at time.Time) time.Duration {
+	left := max(at.Sub(now), 0)
+	if left > time.Second {
+		left = left.Round(time.Second)
+	}
+	p.note, _, _ = strings.Cut(p.note, restartingNote)
+	p.note += restartingNote + left.String()
+	return left
+}
+
+// awaitHandoffLocked waits while an upgrade in place is under way: it
+// either replaces this process, or fails and lets a start in preflight go
+// on instead of giving it up.
+func (s *Supervisor) awaitHandoffLocked() {
+	for s.closing && s.handoff {
+		s.handoffEnd.Wait()
 	}
 }
 
@@ -946,13 +1090,8 @@ func (s *Supervisor) retryLocked(p *proc) bool {
 // automatic restarts. A start or stop meanwhile cancels it, and so does a
 // config that no longer asks for retries.
 func (s *Supervisor) scheduleRetryLocked(p *proc, now, at time.Time) {
-	p.restartPending, p.retryAt = true, at
-	left := max(at.Sub(now), 0)
-	if left > time.Second {
-		left = left.Round(time.Second)
-	}
-	p.note, _, _ = strings.Cut(p.note, restartingNote)
-	p.note += restartingNote + left.String()
+	p.restartPending, p.retryAt, p.restartAt = true, at, time.Time{}
+	left := pendingNoteLocked(p, now, at)
 	token := p.startSeq
 	s.afterLocked(left, func() func() {
 		name := p.cfg.Name
@@ -965,9 +1104,9 @@ func (s *Supervisor) scheduleRetryLocked(p *proc, now, at time.Time) {
 	})
 }
 
-// cancelRetryLocked drops p's pending retry, leaving it down.
-func cancelRetryLocked(p *proc) {
-	p.restartPending, p.retryAt = false, time.Time{}
+// cancelPendingLocked drops p's pending restart or retry, leaving it down.
+func cancelPendingLocked(p *proc) {
+	p.restartPending, p.retryAt, p.restartAt = false, time.Time{}, time.Time{}
 	p.note, _, _ = strings.Cut(p.note, restartingNote)
 	p.want = false
 }
@@ -1005,20 +1144,35 @@ func (s *Supervisor) backoffLocked(p *proc, uptime time.Duration) time.Duration 
 // Stop ends a server gracefully: Ctrl-C to its process group, then SIGTERM,
 // then SIGKILL. It returns when the process has exited.
 func (s *Supervisor) Stop(name string) error {
+	return s.stop(name, nil)
+}
+
+// errSuperseded is stop's error when only refused the stop.
+var errSuperseded = errors.New("superseded by a later start or stop")
+
+// stop is Stop; when only is set, it stops the server only if only, called
+// under the lock, accepts it.
+func (s *Supervisor) stop(name string, only func(*proc) bool) error {
 	s.mu.Lock()
 	p, ok := s.procs[name]
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("unknown server %q", name)
 	}
+	if only != nil && !only(p) {
+		s.mu.Unlock()
+		return errSuperseded
+	}
 	p.want = false
 	p.restartPending = false
+	p.scheduleReserved = false
 	p.retries = 0
 	p.startSeq++ // cancels any start still in preflight
 	if p.pid == 0 {
 		if p.status == Starting || p.status == Blocked || p.status == Crashed || p.status == Exited {
 			p.status = Stopped
 			p.note = ""
+			p.settledAt = time.Now()
 		}
 		s.changedLocked()
 		s.saveLocked()
@@ -1033,7 +1187,15 @@ func (s *Supervisor) Stop(name string) error {
 	done := p.done
 	if ending := p.ending; ending != nil && !isClosed(ending) {
 		// Already stopping: a second Ctrl-C would make tools such as
-		// docker compose abort their own graceful shutdown.
+		// docker compose abort their own graceful shutdown. A stop for
+		// memory_limit under way becomes this one, so the server ends up
+		// stopped rather than crashed.
+		if !p.stopping {
+			p.stopping = true
+			p.note = ""
+			s.changedLocked()
+			s.saveLocked()
+		}
 		s.mu.Unlock()
 		<-ending
 		return nil
@@ -1174,6 +1336,7 @@ func (s *Supervisor) Shutdown() {
 	s.savedLocked(writeState(s.state, st))
 	s.closing = true
 	s.handoff = false
+	s.handoffEnd.Broadcast()
 	var wg sync.WaitGroup
 	// Stops still ending a group, also after its leader exited or its
 	// server was removed: a second Ctrl-C would make tools such as docker

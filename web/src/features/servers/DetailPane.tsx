@@ -15,7 +15,10 @@ import { formatUptime, hasProcess, isUp } from './format'
 import { isDegraded, useServerNote } from './note'
 import { PortBanner } from './PortBanner'
 import { ProjectTile } from './ProjectTile'
+import { ScheduleBadge } from './ScheduleBadge'
+import { TaskBadge } from './TaskBadge'
 import { TemporaryBadge } from './TemporaryBadge'
+import { WatchBadge } from './WatchBadge'
 import { ServerNetworkBadge } from './NetworkBadge'
 import { ServerMenu } from './ServerMenu'
 import { StateActions } from './StateActions'
@@ -68,7 +71,7 @@ export function DetailPane({ server: v, servers, docker }: Props) {
         <div className="detail-title">
           <h2>
             {v.group && <span className="grp">{v.group}<span aria-hidden="true"> / </span></span>}
-            {v.name} <TemporaryBadge server={v} /> <ServerNetworkBadge server={v} />
+            {v.name} <TaskBadge server={v} /> <ScheduleBadge server={v} /> <WatchBadge server={v} /> <TemporaryBadge server={v} /> <ServerNetworkBadge server={v} />
           </h2>
           <p className={`detail-status status-text--${status}`}>
             <Lamp status={status} decorative large />

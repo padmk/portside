@@ -137,10 +137,13 @@ func (s *Supervisor) WatchUsage() func() {
 }
 
 // Run performs periodic bookkeeping until ctx ends: resource sampling,
-// listening checks and detection of foreign processes on configured ports.
+// listening checks, detection of foreign processes on configured ports and
+// scheduled runs and watched files.
 func (s *Supervisor) Run(ctx context.Context) {
 	tick := time.NewTicker(SampleInterval)
 	defer tick.Stop()
+	go s.runSchedules(ctx)
+	go s.runWatches(ctx)
 	go func() {
 		prune := time.NewTicker(PruneInterval)
 		defer prune.Stop()
@@ -185,7 +188,7 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 	var table map[int]procSample
 	var children map[int][]int
 	if usage {
-		table = sampleProcesses(ctx)
+		table = s.processes(ctx)
 		children = childIndex(table)
 	}
 	now := time.Now()
@@ -206,6 +209,7 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 		cfg  config.Server
 	}
 	var detections []detection
+	var overLimit []memoryStop
 	s.mu.Lock()
 	prepend, globalEnv := s.cfg.PathPrepend, s.cfg.Env
 	for name, p := range s.procs {
@@ -218,6 +222,9 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 				p.cpu, p.mem = cpu, mem
 				p.hist.add(cpu, mem, now)
 				changed = true
+				if stop, over := s.overMemoryLocked(p, mem); over {
+					overLimit = append(overLimit, stop)
+				}
 			}
 		}
 		// watchReady keeps the listener of a starting or running server current.
@@ -235,6 +242,12 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 		}
 	}
 	s.mu.Unlock()
+	for _, stop := range overLimit {
+		go func() {
+			Terminate(stop.pid, stop.done, stop.grace)
+			s.endEnding(stop.ending)
+		}()
+	}
 
 	if len(detections) > 0 {
 		base := s.env.get()

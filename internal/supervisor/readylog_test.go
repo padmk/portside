@@ -51,7 +51,7 @@ func TestReadyLogHoldsStartingUntilTheLine(t *testing.T) {
 	if st := startedFor(t, s, 2*time.Second); st != Starting {
 		t.Fatalf("status before the line: %s", st)
 	}
-	if err := s.WaitReady(context.Background(), "web", 5*time.Second); err != nil {
+	if err := s.WaitReady(context.Background(), "web", time.Time{}, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if st := s.Snapshot(19000)[0].Status; st != Running {
@@ -65,7 +65,7 @@ func TestReadyAfterDelaysRunning(t *testing.T) {
 	if st := startedFor(t, s, 2*time.Second); st != Starting {
 		t.Fatalf("status before ready_after: %s", st)
 	}
-	if err := s.WaitReady(context.Background(), "web", 5*time.Second); err != nil {
+	if err := s.WaitReady(context.Background(), "web", time.Time{}, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
 }

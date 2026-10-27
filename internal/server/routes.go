@@ -304,7 +304,7 @@ func (s *Server) action(kind string) http.HandlerFunc {
 			}
 			wait = d
 		}
-		opt := supervisor.StartOptions{Takeover: body.Takeover}
+		opt := supervisor.StartOptions{Takeover: body.Takeover, Since: time.Now()}
 		var err error
 		switch kind {
 		case "start":
@@ -319,7 +319,7 @@ func (s *Server) action(kind string) http.HandlerFunc {
 			return
 		}
 		if kind == "restart" && wait > 0 {
-			if err := s.sup.WaitReady(r.Context(), name, wait); err != nil {
+			if err := s.sup.WaitReady(r.Context(), name, opt.Since, wait); err != nil {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "server": s.view(name)})
 				return
 			}
@@ -348,6 +348,9 @@ type ensureBody struct {
 	// Dir is the caller's checkout; another checkout of the same repository
 	// gets a temporary copy of the server.
 	Dir string `json:"dir,omitempty"`
+	// Wait only waits, after a start the caller made itself (`up --wait`):
+	// a task (oneshot) that already finished that run is not run again.
+	Wait bool `json:"wait,omitempty"`
 }
 
 // ensure starts a server if needed and waits until it is ready. Agents use
@@ -380,11 +383,17 @@ func (s *Server) ensure(w http.ResponseWriter, r *http.Request) {
 		}
 		timeout = d
 	}
-	if err := s.sup.Start(name, supervisor.StartOptions{Takeover: body.Takeover}); err != nil {
-		fail(w, http.StatusBadRequest, err)
-		return
+	// A task is run again by every start, and the wait is for that run, or
+	// one already in progress; waiting only accepts the last one.
+	var since time.Time
+	if !body.Wait {
+		since = time.Now()
+		if err := s.sup.Start(name, supervisor.StartOptions{Takeover: body.Takeover, Since: since}); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
 	}
-	if err := s.sup.WaitReady(r.Context(), name, timeout); err != nil {
+	if err := s.sup.WaitReady(r.Context(), name, since, timeout); err != nil {
 		v := s.view(name)
 		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "server": v})
 		return
@@ -429,7 +438,8 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	for i, n := range names {
 		res[i].Name = n
 	}
-	opt := supervisor.StartOptions{Takeover: body.Takeover}
+	// One request time for all, so servers depending on one task share its run.
+	opt := supervisor.StartOptions{Takeover: body.Takeover, Since: time.Now()}
 	parallel := func(fn func(string) error) {
 		var wg sync.WaitGroup
 		for i, n := range names {

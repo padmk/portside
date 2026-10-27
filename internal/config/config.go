@@ -130,6 +130,20 @@ type Server struct {
 	// Umask, when set, is the file mode creation mask the command runs
 	// with, as octal digits such as "0007"; "" keeps the daemon's.
 	Umask string
+	// Oneshot makes the server a task: its command runs to completion,
+	// code 0 is success, and servers that depend on it wait for that
+	// instead of for readiness. A task has no port.
+	Oneshot bool
+	// Schedule, when set, starts the server at the times it matches in
+	// local time; nil for none.
+	Schedule *Schedule
+	// MemoryLimit, when above zero, is how much memory the server's process
+	// tree may use: a usage sample above it stops the server as a crash.
+	// The server's own memory_limit, else the top-level one.
+	MemoryLimit Size
+	// Watch, when set, holds file patterns relative to Dir whose changes
+	// restart the server; nil for none.
+	Watch *Watch
 }
 
 // RetriesAfterGivingUp reports whether s is started again after its
@@ -260,6 +274,10 @@ type rawServer struct {
 	UnreadyAft  *Duration         `toml:"unready_after"`
 	RetryAfter  *Duration         `toml:"retry_after"`
 	Umask       *string           `toml:"umask"`
+	Oneshot     bool              `toml:"oneshot"`
+	Schedule    string            `toml:"schedule"`
+	MemoryLimit *string           `toml:"memory_limit"`
+	Watch       []string          `toml:"watch"`
 }
 
 type rawConfig struct {
@@ -282,6 +300,7 @@ type rawConfig struct {
 	RetryAfter  *Duration            `toml:"retry_after"`
 	Umask       string               `toml:"umask"`
 	LoginEnv    *bool                `toml:"login_env"`
+	MemoryLimit *string              `toml:"memory_limit"`
 	Servers     map[string]rawServer `toml:"servers"`
 }
 
@@ -390,6 +409,10 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	memLimit, err := memoryLimit(raw.MemoryLimit, Size{})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		var keys []string
 		for _, k := range undecoded {
@@ -442,6 +465,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 			OnCrash:   orGlobal(r.OnCrash, raw.OnCrash),
 			OnUnready: orGlobal(r.OnUnready, raw.OnUnready),
 			OnRecover: orGlobal(r.OnRecover, raw.OnRecover),
+			Oneshot:   r.Oneshot,
 		}
 		if s.UnreadyAfter, err = positive("unready_after", r.UnreadyAft, unreadyAfter); err != nil {
 			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
@@ -449,11 +473,25 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		if s.RetryAfter, err = nonNegative("retry_after", r.RetryAfter, retryAfter); err != nil {
 			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
 		}
+		if s.MemoryLimit, err = memoryLimit(r.MemoryLimit, memLimit); err != nil {
+			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
+		}
+		if r.MemoryLimit != nil && s.MemoryLimit.Bytes > 0 && IsComposeCommand(s.Cmd) {
+			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s: memory_limit covers only the compose command's own processes, not its containers; set memory limits in the compose file", name))
+		}
 		s.Umask = umask
 		if r.Umask != nil {
 			if s.Umask, err = checkUmask(*r.Umask); err != nil {
 				return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
 			}
+		}
+		if strings.TrimSpace(r.Schedule) != "" {
+			if s.Schedule, err = ParseSchedule(r.Schedule); err != nil {
+				return nil, fmt.Errorf("%s: [servers.%s]: schedule %q: %w", path, name, r.Schedule, err)
+			}
+		}
+		if s.Watch, err = ParseWatch(r.Watch); err != nil {
+			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
 		}
 		if r.ReadyLog != "" {
 			if _, err := regexp.Compile(r.ReadyLog); err != nil {
@@ -498,6 +536,9 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		default:
 			return nil, fmt.Errorf("%s: [servers.%s]: restart must be no, on-failure or always", path, name)
 		}
+		if err := checkOneshot(r, s); err != nil {
+			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
+		}
 		if s.Restart == RestartNo && r.RetryAfter != nil && s.RetryAfter > 0 {
 			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s: retry_after has no effect with restart = %q", name, RestartNo))
 		}
@@ -519,7 +560,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 				}
 			}
 		} else {
-			s.PortAuto = true
+			s.PortAuto = !s.Oneshot
 		}
 		cfg.Servers = append(cfg.Servers, s)
 	}
@@ -542,6 +583,27 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// checkOneshot refuses settings a task (oneshot = true) cannot use: it has
+// no port, and it is done when it exits with code 0, not when it answers.
+func checkOneshot(r rawServer, s Server) error {
+	if !s.Oneshot {
+		return nil
+	}
+	switch {
+	case r.Port != nil && *r.Port != 0:
+		return errors.New("a oneshot task has no port; remove port")
+	case r.Health != "":
+		return errors.New("health does not apply to oneshot = true: a task is done when it exits with code 0")
+	case r.ReadyLog != "":
+		return errors.New("ready_log does not apply to oneshot = true: a task is done when it exits with code 0")
+	case r.ReadyAfter != nil:
+		return errors.New("ready_after does not apply to oneshot = true: a task is done when it exits with code 0")
+	case s.Restart == RestartAlways:
+		return errors.New(`restart = "always" does not apply to oneshot = true; use "on-failure"`)
+	}
+	return nil
 }
 
 // orGlobal is a server's hook command: its own when set, even to "", else

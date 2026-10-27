@@ -10,6 +10,8 @@ import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess, isUp, restar
 import { useProtectedReason } from '../servers/holder'
 import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
+import { ScheduleBadge } from '../servers/ScheduleBadge'
+import { TaskBadge } from '../servers/TaskBadge'
 import { TemporaryBadge } from '../servers/TemporaryBadge'
 import { ServerNetworkBadge } from '../servers/NetworkBadge'
 import { ContainerCount } from '../containers/ContainerStrip'
@@ -46,6 +48,8 @@ export function ServerRow({ server: v, now, cursor }: Props) {
           </button>
           {v.stale && <span className="chip chip--warn" title={t('badge.staleHint')}>{t('badge.stale')}</span>}
           {!v.enabled && <span className="chip">{t('badge.disabled')}</span>}
+          <TaskBadge server={v} />
+          <ScheduleBadge server={v} now={now} />
           <TemporaryBadge server={v} />
           <ServerNetworkBadge server={v} />
           <ContainerCount server={v} containers={containers} />

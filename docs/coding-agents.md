@@ -55,7 +55,7 @@ The server also gives agents instructions: reuse running servers rather than sta
 | Tool | Arguments | Changes state | What it does |
 | --- | --- | --- | --- |
 | `list_servers` | `dir` | no | Each server with its status, URLs, port, CPU and memory, and the containers of its Compose project. `dir` keeps the servers of one checkout: in that directory, inside it or containing it, and in the same git working tree. |
-| `ensure_server` | `name`, `dir`, `timeout` | yes, starts | Starts the server and its dependencies if needed, waits until it is ready (`timeout`, default `90s`) and reports its URL and whether it was `reused` or `started`. `dir` runs it from another [worktree](#worktrees). |
+| `ensure_server` | `name`, `dir`, `timeout` | yes, starts | Starts the server and its dependencies if needed, waits until it is ready (`timeout`, default `90s`) and reports its URL and whether it was `reused` or `started`. A [task](configuration.md#tasks) runs again, and the call succeeds once it exits with code 0. `dir` runs it from another [worktree](#worktrees). |
 | `restart_server` | `name`, `timeout` | yes, interrupts | Restarts the server and waits until it is ready (`timeout`, default `90s`). |
 | `stop_server` | `name` | yes, interrupts | Stops the server; a temporary one is removed. |
 | `server_logs`, `container_logs` | `name`, `lines`, `match`, `context`, `since` | no | Log lines, see [Logs](#logs). |

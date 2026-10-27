@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/paths"
 )
 
@@ -44,6 +45,18 @@ type exitState struct {
 	IncidentSince time.Time `json:"incidentSince,omitzero"`
 	// RetryAt is when a pending retry after retry_after starts the server.
 	RetryAt time.Time `json:"retryAt,omitzero"`
+	// RestartAt is when a pending automatic restart after a crash starts
+	// the server, and Retries the restarts of its round so far.
+	RestartAt time.Time `json:"restartAt,omitzero"`
+	Retries   int       `json:"retries,omitempty"`
+	// ScheduleReserved marks a scheduled run that was due but had not
+	// begun; the next daemon starts it.
+	ScheduleReserved bool `json:"scheduleReserved,omitempty"`
+	// The schedule's next run, the expression it was computed for, and
+	// the latest scheduled run.
+	Schedule string    `json:"schedule,omitempty"`
+	NextRun  time.Time `json:"nextRun,omitzero"`
+	LastRun  time.Time `json:"lastRun,omitzero"`
 }
 
 type pidStamp struct {
@@ -103,10 +116,15 @@ func (s *Supervisor) stateLocked() persisted {
 		st.Servers[name] = exitState{
 			Status: p.status, Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt,
 			Trigger: p.trigger, Streak: p.streak, Incident: p.incident, IncidentSince: p.incidentSince,
+			Schedule: p.scheduleExpr, NextRun: p.nextRun, LastRun: p.lastRun,
+			ScheduleReserved: p.scheduleReserved,
 		}
-		if p.restartPending && !p.retryAt.IsZero() {
+		if p.restartPending {
 			e := st.Servers[name]
-			e.RetryAt = p.retryAt
+			e.RetryAt, e.RestartAt = p.retryAt, p.restartAt
+			if !p.restartAt.IsZero() {
+				e.Retries = p.retries
+			}
 			st.Servers[name] = e
 		}
 		if p.want {
@@ -174,7 +192,8 @@ func (s *Supervisor) Recover(restore bool) {
 		}
 	}
 	for name, last := range st.Servers {
-		if p := s.procs[name]; p != nil && p.pid == 0 && !gone[name] {
+		// An adopted server that exited since keeps what its exit recorded.
+		if p := s.procs[name]; p != nil && p.pid == 0 && !gone[name] && !s.handedOver[name] {
 			p.exitCode, p.hasExit, p.exitedAt = last.Code, last.HasExit, last.At
 			if last.Status == Crashed || last.Status == Exited || last.Status == Blocked {
 				// A restart it announced is scheduled again below, or not at all.
@@ -210,38 +229,80 @@ func (s *Supervisor) Recover(restore bool) {
 		}
 	}
 	s.mu.Lock()
-	// A pending retry goes on with the time it had left, after an upgrade
-	// in place, or after a crash when restore brings servers back.
+	// A pending automatic restart or retry goes on with the time it had
+	// left and the restarts its round used, after an upgrade in place, or
+	// after a crash when restore brings servers back.
 	if restore && (s.upgraded || s.cfg.Restore) {
 		for name, last := range st.Servers {
 			p := s.procs[name]
-			if last.RetryAt.IsZero() || p == nil || p.pid != 0 || gone[name] || started[name] || !p.cfg.Enabled || p.removed || !p.cfg.RetriesAfterGivingUp() {
+			if p == nil || p.pid != 0 || gone[name] || started[name] || !p.cfg.Enabled || p.removed {
+				continue
+			}
+			switch {
+			case !last.RestartAt.IsZero() && p.cfg.Restart != config.RestartNo:
+				p.retries = last.Retries
+				s.scheduleRestartLocked(p, time.Now(), last.RestartAt)
+			case !last.RetryAt.IsZero() && p.cfg.RetriesAfterGivingUp():
+				s.scheduleRetryLocked(p, time.Now(), last.RetryAt)
+			case !last.RestartAt.IsZero() || !last.RetryAt.IsZero():
+				// The config no longer restarts it: it stays down.
+				started[name] = true
+				continue
+			default:
 				continue
 			}
 			started[name] = true
 			p.want = true
-			s.scheduleRetryLocked(p, time.Now(), last.RetryAt)
 			s.changedLocked()
 		}
 	}
+	// A scheduled run that was due but had not begun starts now, whatever
+	// restore says, as a run missed while the daemon was down would.
+	var scheduled []string
+	if restore {
+		for name, last := range st.Servers {
+			p := s.procs[name]
+			// Only for the schedule it was reserved under: a changed one
+			// counts from now.
+			if !last.ScheduleReserved || p == nil || p.pid != 0 || started[name] || gone[name] || s.handedOver[name] || !p.cfg.Enabled || p.removed || !scheduledLocked(p) || last.Schedule != p.cfg.Schedule.String() {
+				continue
+			}
+			started[name] = true
+			p.scheduleReserved = true // until the run begins, also across another crash
+			scheduled = append(scheduled, name)
+		}
+	}
+	// An upgrade in place keeps every wanted server, such as one that was
+	// still starting, whatever restore says; it is not a restore, so the
+	// server keeps the trigger of its round.
+	upgrade := restore && s.upgraded
 	restore = restore && s.cfg.Restore
 	s.mu.Unlock()
-	if restore {
+	if restore || upgrade {
 		for _, name := range st.Running {
 			// A server that exited during the upgrade was handled above, by
-			// its restart policy.
-			if started[name] || gone[name] {
+			// its restart policy, and an adopted one follows its own state
+			// (a task that finished since is done).
+			if started[name] || gone[name] || s.handedOver[name] {
 				continue
 			}
 			s.mu.Lock()
 			p, ok := s.procs[name]
-			// A restart or retry already pending keeps its time.
-			enabled := ok && p.cfg.Enabled && !p.removed && !p.restartPending
+			// A restart or retry already pending keeps its time, and an
+			// adopted server runs.
+			enabled := ok && p.cfg.Enabled && !p.removed && !p.restartPending && p.pid == 0
+			trigger := triggerRestore
+			if ok && upgrade && p.trigger != "" {
+				trigger = p.trigger
+			}
 			s.mu.Unlock()
 			if enabled {
-				_ = s.Start(name, StartOptions{trigger: triggerRestore})
+				_ = s.Start(name, StartOptions{trigger: trigger})
 			}
 		}
+	}
+	for _, name := range scheduled {
+		_ = s.Start(name, StartOptions{trigger: triggerSchedule})
 	}
 	s.mu.Lock()
 	s.saveLocked()
@@ -254,11 +315,13 @@ func (s *Supervisor) Recover(restore bool) {
 // restoreHistoryLocked brings back what the hooks knew about each server
 // before this daemon started: the trigger of its round of runs, its crash
 // streak and the problem a hook reported, so reports from an upgrade or a
-// restart on continue them.
+// restart on continue them, and each schedule's next and latest run, so a
+// run is neither repeated nor lost.
 func (s *Supervisor) restoreHistoryLocked(saved map[string]exitState) {
 	for name, last := range saved {
 		if p := s.procs[name]; p != nil {
 			p.trigger, p.streak, p.incident, p.incidentSince = last.Trigger, last.Streak, last.Incident, last.IncidentSince
+			p.scheduleExpr, p.nextRun, p.lastRun = last.Schedule, last.NextRun, last.LastRun
 		}
 	}
 }

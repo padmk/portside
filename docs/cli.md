@@ -8,16 +8,20 @@ Global flags go before the command:
 - `--on <computer>` runs `status`, `up`, `down`, `restart`, `ensure`, `logs`, `attach` or `containers` on the connected computer ([Other computers](other-computers.md#work-on-the-other-computer)); it may also follow the command.
 
 ```text
-portside status [--json]                 list servers with state, port and usage
+portside status [--json]                 list servers with state, port and usage; a task
+                                         shows task for its port and done after code 0, a
+                                         schedule its next run (next 09:00 today,
+                                         next Mon 09:00 within a week, else the date)
 portside check [name|group]... [--json]  exit 0 when every server that should run (or each
                                          one named) is ready, 1 when one is not, 2 when the
                                          daemon cannot tell
 portside up <name|group>... | --all      start, dependencies first; --wait waits until each
-                                         is ready and prints its URL, --takeover stops a
-                                         foreign process holding the port
+                                         is ready and prints its URL (done for a task),
+                                         --takeover stops a foreign process holding the port
 portside down <name|group>... | --all    stop gracefully; removes temporary servers
 portside restart <name|group>...         restart; --wait and --takeover as for up
-portside ensure <name> [--json]          start if needed, wait until ready, print the URL;
+portside ensure <name> [--json]          start if needed, wait until ready, print the URL
+                                         (a task runs again and must exit with code 0);
                                          --timeout 90s, --takeover as for up,
                                          --dir <checkout> runs it from another git worktree
 portside logs <name> [-n 200] [-f]       print or follow a server's or container's output;

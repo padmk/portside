@@ -25,9 +25,11 @@ Process exits are noticed as they happen, so crashes and restart policies need n
 
 - **Readiness:** the port (and `health` path) of each starting server every 400 ms, then every second while it runs ([Stopping and readiness](cli.md#stopping-and-readiness) has when it warns). A server not ready after 10 seconds also gets a `ps` and `lsof` call every 5 seconds to find other ports its processes listen on.
 - **Ports:** every 2 seconds, a TCP connection to the port of each server that is not running, to show one taken by another process. Its owner is looked up with `lsof` (or `ss`) only when it is new.
-- **CPU and memory:** one `ps` call for all servers, every 2 seconds while a client shows usage, otherwise every 30 seconds. The sparkline history holds 2-second samples and starts over after a longer gap.
+- **CPU and memory:** one `ps` call for all servers, every 2 seconds while a client shows usage, otherwise every 30 seconds. The sparkline history holds 2-second samples and starts over after a longer gap. Each sample also checks the servers' [`memory_limit`](configuration.md#memory-limit), so limits add no `ps` calls and the numbers below hold with or without them.
 - **Listening addresses:** one `lsof` (or `ss`) call when a server becomes ready, and every 30 seconds along with a usage sample while servers run, to tell which may be reachable from the network ([Security](security.md#servers-reachable-from-the-network)). Container ports are checked with each container resync while a local engine publishes one.
 - **Config file:** its modification time, every second and before each request from a client.
+- **Schedules:** the wall clock against each server's next scheduled run, every 15 seconds, with no process calls or file reads. A comparison of wall-clock time rather than a timer per run, because on macOS the timers' clock stops while the Mac sleeps; a run due meanwhile happens at the first check after it wakes ([Schedules](configuration.md#schedules)).
+- **Watched files:** every second, only for servers with [`watch`](configuration.md#restart-on-file-changes) that a change could restart, a walk of the directories their patterns can match, comparing each file's path, modification time and size; no process calls. Without `watch` nothing runs.
 - **Containers:** the Docker event stream, a full resync every 30 seconds and a stats stream per running container, polled instead for an `ssh://` engine ([Containers](containers.md)).
 - **Other computers:** while connected to one, a ping every 15 seconds and a check of the forwarded ports every 2 seconds; while sharing is on, the Tailscale Serve entry is applied again every minute.
 
@@ -42,6 +44,16 @@ Measured with `scripts/bench-idle.sh` on an Apple M4 Pro (macOS 27.0.1, about 69
 | one showing usage (an open dashboard) | 0.55 s | 30 | 0.58 s |
 
 With the app's panel closed that is about 0.8 % of one core; an open dashboard brings it to about 1.9 %. To measure on your machine, run `scripts/bench-idle.sh` ([Development](development.md#idle-benchmark)).
+
+[`watch`](configuration.md#restart-on-file-changes) costs nothing without it. Measured the same way on the same Mac (about 720 processes, 6 running containers, so the first row differs from the table above), with one running server watching 3,000 Python files in 60 directories:
+
+| Events clients | Daemon CPU without `watch` | With 3,000 watched files |
+| --- | --- | --- |
+| none | 0.43 s | 1.68 s |
+| one with `usage=0` | 0.46 s | 1.67 s |
+| one showing usage | 0.63 s | 1.99 s |
+
+That is about 21 ms of CPU per scan, some 7 µs per watched file, or 2 % of one core for 3,000 files; the `ps` and `lsof` calls do not change. Narrow patterns cost less: only the files they match are checked (`scripts/bench-idle.sh --watch FILES`).
 
 Reading listening addresses adds about 2 `lsof` calls a minute while servers run and 2 more while running containers publish ports; on the same Mac with 7 such containers, the 3 to 4 calls took 0.11 to 0.13 s of CPU a minute in all three cases.
 

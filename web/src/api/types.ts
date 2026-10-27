@@ -27,6 +27,18 @@ export interface ServerView {
   status: Status
   /** Running but no longer answering on its port or health path (the note says why); not restarted. */
   unready?: boolean
+  /** A task (`oneshot = true`): it runs to completion and is `starting` while it runs, never `running`. */
+  oneshot?: boolean
+  /** A task whose last run exited with code 0 (status `exited`). */
+  done?: boolean
+  /** Crontab expression (local time) that starts the server. */
+  schedule?: string
+  /** When the schedule next starts it; absent while the server is disabled. */
+  nextRun?: string
+  /** When the latest scheduled run began. */
+  lastRun?: string
+  /** File patterns, relative to `dir`, whose changes restart the server. */
+  watch?: string[]
   note?: string
   pid?: number
   startedAt?: string

@@ -219,12 +219,12 @@ func TestWaitReadyRechecksListenerAndHealth(t *testing.T) {
 	addr := h.Listener.Addr().(*net.TCPAddr)
 	p := s.procs["web"]
 	p.running.Port, p.running.Health, p.status = addr.Port, "/health", Running
-	if err := s.WaitReady(context.Background(), "web", time.Second); err == nil || !strings.Contains(err.Error(), "health /health answers 500") {
+	if err := s.WaitReady(context.Background(), "web", time.Time{}, time.Second); err == nil || !strings.Contains(err.Error(), "health /health answers 500") {
 		t.Fatalf("health error: %v", err)
 	}
 	h.Close()
 	p.running.Health = ""
-	if err := s.WaitReady(context.Background(), "web", time.Second); err == nil || !strings.Contains(err.Error(), "not listening on :") {
+	if err := s.WaitReady(context.Background(), "web", time.Time{}, time.Second); err == nil || !strings.Contains(err.Error(), "not listening on :") {
 		t.Fatalf("missing listener: %v", err)
 	}
 }
@@ -250,7 +250,7 @@ func TestStopCancelsAutomaticRestart(t *testing.T) {
 	if err := s.Start("web", StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	err := s.WaitReady(context.Background(), "web", 5*time.Second)
+	err := s.WaitReady(context.Background(), "web", time.Time{}, 5*time.Second)
 	if err == nil || !strings.Contains(err.Error(), "third error") {
 		t.Fatalf("crash detail: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestRecoverCrashStateAndLogs(t *testing.T) {
 	if err := s.Start("web", StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.WaitReady(context.Background(), "web", 5*time.Second); err == nil {
+	if err := s.WaitReady(context.Background(), "web", time.Time{}, 5*time.Second); err == nil {
 		t.Fatal("expected crash")
 	}
 	s.Shutdown()

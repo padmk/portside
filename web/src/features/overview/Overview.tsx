@@ -84,7 +84,9 @@ function GroupSection({ section, titled, collapsed, layout, density, now, cursor
   const t = useT()
   const key = section.group ?? ''
   const title = section.group ?? t('list.ungrouped')
-  const running = section.all.filter((s) => displayStatus(s) === 'running').length
+  // Tasks (oneshot) run to completion, so the count is of servers only.
+  const servers = section.all.filter((s) => !s.oneshot)
+  const running = servers.filter((s) => displayStatus(s) === 'running').length
   const busy = useBusy(`bulk:${groupKey(key)}`)
   const targets = groupTargets(section.all)
   const act = (action: BulkAction) => bulk(groupKey(key), action, { names: targets[action] })
@@ -97,7 +99,7 @@ function GroupSection({ section, titled, collapsed, layout, density, now, cursor
           <button type="button" className="group-toggle" aria-expanded={!collapsed} aria-controls={bodyId} onClick={() => toggleGroup(key)}>
             {collapsed ? <ChevronRight size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
             <h2 className="group-name">{title}</h2>
-            <span className="group-count">{t('list.groupCount', { n: section.all.length, r: running })}</span>
+            <span className="group-count">{t('list.groupCount', { n: servers.length, r: running })}</span>
           </button>
           <div className="group-actions">
             <button type="button" className="btn btn--sm" aria-label={t('list.startGroup', { name: title })} disabled={busy || targets.start.length === 0} onClick={() => act('start')}>

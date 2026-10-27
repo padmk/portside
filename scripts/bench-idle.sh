@@ -10,25 +10,30 @@
 #   - one events client with usage=0 (the menu bar app with its panel closed);
 #   - one events client showing usage (an open dashboard).
 #
+# With --watch F, the first running server watches F files (`watch =
+# ["**/*.py"]` over a tree of F Python files in its directory).
+#
 # The events clients are scripts/benchclient. Needs python3, and go unless
 # --binary is given (the benchclient is always built). macOS and Linux.
 #
-#   scripts/bench-idle.sh [--binary PATH] [--servers N] [--running M] [--window SECONDS]
+#   scripts/bench-idle.sh [--binary PATH] [--servers N] [--running M] [--window SECONDS] [--watch FILES]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-binary="" servers=21 running=5 window=60 settle=10
+binary="" servers=21 running=5 window=60 settle=10 watch=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --binary) binary="$2"; shift 2 ;;
     --servers) servers="$2"; shift 2 ;;
     --running) running="$2"; shift 2 ;;
     --window) window="$2"; shift 2 ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --watch) watch="$2"; shift 2 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-case "$servers$running$window" in *[!0-9]*) echo "--servers, --running and --window take whole numbers" >&2; exit 2 ;; esac
+case "$servers$running$window$watch" in *[!0-9]*) echo "--servers, --running, --window and --watch take whole numbers" >&2; exit 2 ;; esac
+if [ "$watch" -gt 0 ] && [ "$running" -lt 1 ]; then echo "--watch needs a running server" >&2; exit 2; fi
 if [ "$running" -gt "$servers" ] || [ "$servers" -lt 1 ] || [ "$window" -lt 1 ]; then
   echo "need 1 <= servers, running <= servers and window >= 1" >&2
   exit 2
@@ -112,6 +117,19 @@ export PORTSIDE_CONFIG="$T/portside.toml" PORTSIDE_STATE_DIR="$T/state"
     mkdir -p "$T/projects/$name"
     printf '\n[servers.%s]\ndir = "%s"\ncmd = "python3 -m http.server {PORT} --bind 127.0.0.1"\nport = %s\n' "$name" "$T/projects/$name" "${ports[$i]}"
     if [ "$i" -le "$running" ]; then printf 'group = "running"\n'; fi
+    if [ "$i" -eq 1 ] && [ "$watch" -gt 0 ]; then
+      printf 'watch = ["**/*.py"]\n'
+      # 50 files per directory, two levels deep.
+      python3 - "$T/projects/$name" "$watch" <<'PY'
+import os, sys
+root, n = sys.argv[1], int(sys.argv[2])
+for i in range(n):
+    d = os.path.join(root, "pkg%02d" % (i // 500), "mod%02d" % (i // 50 % 10))
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "f%04d.py" % i), "w") as f:
+        f.write("x = %d\n" % i)
+PY
+    fi
   done
 } > "$PORTSIDE_CONFIG"
 
@@ -172,7 +190,7 @@ fi
 containers="$(docker ps -q 2>/dev/null | wc -l | tr -d ' ' || true)"
 echo
 echo "$("$PS" version 2>/dev/null | head -n 1); $machine; $("$REAL_PS" -A | wc -l | tr -d ' ') processes; ${containers:-0} running containers"
-echo "$running of $servers servers running; window ${window} s"
+echo "$running of $servers servers running; ${watch} watched files; window ${window} s"
 echo
 printf '%-26s %11s %11s %8s %9s %11s %10s %11s\n' condition "daemon CPU" "per minute" "ps calls" "usage ps" "ps CPU" "lsof calls" "lsof CPU"
 printf '%s\n' "${rows[@]}"

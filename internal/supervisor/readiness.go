@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net"
@@ -66,6 +67,12 @@ const (
 
 // watchReady keeps readiness current while tolerating short hot reload gaps.
 func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
+	s.mu.Lock()
+	task := p.gen == gen && p.running.Oneshot
+	s.mu.Unlock()
+	if task {
+		return // a task is never ready while it runs: it is done when it exits with code 0
+	}
 	every := startingProbe
 	tick := time.NewTicker(every)
 	defer tick.Stop()
@@ -196,8 +203,11 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 // caller gives no timeout.
 const ReadyTimeout = 90 * time.Second
 
-// WaitReady checks the live listener, including servers already marked running.
-func (s *Supervisor) WaitReady(ctx context.Context, name string, timeout time.Duration) error {
+// WaitReady waits until name is ready: a server running and answering,
+// checked live also for one already marked running, or a task (oneshot)
+// done in a run that ended at or after since (see taskStateLocked). A
+// server or task that ended or could not start fails with a *waitFailure.
+func (s *Supervisor) WaitReady(ctx context.Context, name string, since time.Time, timeout time.Duration) error {
 	ch := s.Subscribe()
 	defer s.Unsubscribe(ch)
 	deadline := time.NewTimer(timeout)
@@ -212,19 +222,29 @@ func (s *Supervisor) WaitReady(ctx context.Context, name string, timeout time.Du
 		p, ok := s.procs[name]
 		var st Status
 		var note string
-		var wanted bool
+		var wanted, task bool
 		var port, gen int
 		var health string
+		var tail []string
+		var progress taskState
 		if ok {
 			st, note, wanted, port, health, gen = p.status, p.note, p.want, p.running.Port, p.running.Health, p.gen
 			if st == Crashed || st == Exited {
-				note += "\n" + strings.Join(p.logs.Tail(5, 240), "\n")
+				tail = p.logs.Tail(5, 240)
+			}
+			if task = p.cfg.Oneshot; task {
+				progress = taskStateLocked(p, since)
 			}
 		}
 		s.mu.Unlock()
 		switch {
 		case !ok:
 			return fmt.Errorf("unknown server %q", name)
+		case task && progress == taskDone:
+			return nil
+		case task && progress == taskFailed:
+			return &waitFailure{name: name, reason: cmp.Or(note, string(st)), tail: tail}
+		case task:
 		case st == Running:
 			if port == 0 {
 				return nil
@@ -248,16 +268,17 @@ func (s *Supervisor) WaitReady(ctx context.Context, name string, timeout time.Du
 			return nil
 		case st == Stopped && wanted:
 		case st == Crashed, st == Exited, st == Blocked, st == Stopped:
-			if note == "" {
-				note = string(st)
-			}
-			return fmt.Errorf("%s: %s", name, strings.TrimSpace(note))
+			return &waitFailure{name: name, reason: cmp.Or(note, string(st)), tail: tail}
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
-			if note == "" {
+			switch {
+			case note != "":
+			case task:
+				note = "still running"
+			default:
 				note = "waiting for readiness"
 			}
 			return fmt.Errorf("%s: not ready after %s: %s", name, timeout, note)
@@ -265,6 +286,22 @@ func (s *Supervisor) WaitReady(ctx context.Context, name string, timeout time.Du
 		case <-poll.C:
 		}
 	}
+}
+
+// waitFailure is why WaitReady gave up on a server that ended or could not
+// start: its note, else its status, and the last lines of its output when
+// it exited.
+type waitFailure struct {
+	name, reason string
+	tail         []string
+}
+
+func (f *waitFailure) Error() string {
+	msg := f.reason
+	if len(f.tail) > 0 {
+		msg += "\n" + strings.Join(f.tail, "\n")
+	}
+	return fmt.Sprintf("%s: %s", f.name, strings.TrimSpace(msg))
 }
 
 // ActiveAddress is the loopback endpoint used for health, links and proxying.

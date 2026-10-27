@@ -92,7 +92,7 @@ export function StateActions({ server: v, inDetail }: Props) {
     case 'starting':
       return (
         <div className="actions">
-          {progress(t('card.starting'))}
+          {progress(t(v.oneshot && v.pid ? 'card.taskRunning' : 'card.starting'))}
           {stop}
         </div>
       )

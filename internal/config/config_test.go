@@ -258,6 +258,29 @@ func TestParseReadiness(t *testing.T) {
 	}
 }
 
+// A task (oneshot = true) gets no automatic port, and settings for
+// readiness or for a server that keeps running are errors.
+func TestParseOneshot(t *testing.T) {
+	cfg, err := Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n[servers.migrate]\ncmd = \"x\"\noneshot = true\nrestart = \"on-failure\"\n[servers.seed]\ncmd = \"x\"\noneshot = true\nport = 0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"migrate", "seed"} {
+		if s, _ := cfg.Server(name); !s.Oneshot || s.Port != 0 || s.PortAuto {
+			t.Errorf("%s = %+v, want a task without a port", name, s)
+		}
+	}
+	if s, _ := cfg.Server("web"); s.Oneshot || s.Port != AutoPortBase {
+		t.Errorf("web = %+v", s)
+	}
+	for _, extra := range []string{"port = 3005", "health = \"/\"", "ready_log = \"ok\"", "ready_after = \"1s\"", "restart = \"always\""} {
+		text := "[servers.migrate]\ncmd = \"x\"\noneshot = true\n" + extra + "\n"
+		if _, err := Parse("/tmp/portside.toml", []byte(text)); err == nil {
+			t.Errorf("a task with %s was accepted", extra)
+		}
+	}
+}
+
 func TestParseTerminal(t *testing.T) {
 	cfg, err := Parse("/tmp/config.toml", []byte("terminal = 'custom-terminal --cwd={DIR}'\n"))
 	if err != nil {

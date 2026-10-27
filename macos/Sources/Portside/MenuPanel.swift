@@ -25,6 +25,7 @@ enum L {
         let rules: [(String, ([String]) -> String)] = [
             (#"^exited with code (-?\d+)$"#, { "zakończył się z kodem \($0[0])" }),
             (#"^exited on its own$"#, { _ in "zakończył się sam" }),
+            (#"^ended during the upgrade; exit code unknown$"#, { _ in "zakończone podczas aktualizacji; kod wyjścia nieznany" }),
             (#"^waiting for (.+)$"#, { "czeka na \($0[0])" }),
             (#"^port (\d+) is used by (.+) \(pid (\d+)\)$"#, { "port \($0[0]) zajmuje \($0[1]) (pid \($0[2]))" }),
             (#"^port (\d+) is already in use$"#, { "port \($0[0]) jest już zajęty" }),
@@ -89,6 +90,7 @@ enum L {
         case "crashed": return t("crashed", "awaria")
         case "blocked": return t("blocked", "zablokowany")
         case "exited": return t("exited", "zakończony")
+        case "done": return t("done", "wykonane")
         case "external": return t("external", "zewnętrzny")
         default: return t("stopped", "zatrzymany")
         }
@@ -159,6 +161,8 @@ struct Lamp: View {
                 Circle().fill(Color.red)
             case "external":
                 Circle().strokeBorder(Color.blue, lineWidth: 1.6)
+            case "done":
+                Circle().strokeBorder(Color.green, lineWidth: 1.6)
             default:
                 Circle().strokeBorder(Color.secondary.opacity(0.7), lineWidth: 1.4)
             }

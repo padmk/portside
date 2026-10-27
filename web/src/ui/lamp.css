@@ -47,6 +47,11 @@
 .lamp--exited {
   box-shadow: inset 0 0 0 2px var(--lamp);
 }
+/* A finished task: idle, in the running color. */
+.lamp--done {
+  --lamp: var(--running);
+  box-shadow: inset 0 0 0 2px var(--lamp);
+}
 .lamp--external {
   --lamp: var(--external);
   box-shadow: inset 0 0 0 2px var(--lamp);
@@ -74,7 +79,8 @@
   }
 }
 
-.status-text--running {
+.status-text--running,
+.status-text--done {
   color: var(--running-text);
 }
 .status-text--starting,

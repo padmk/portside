@@ -107,14 +107,19 @@ struct Server: Decodable, Identifiable, Hashable {
     let networkWarning: Bool?
     /// Running but no longer answering on its port or health path; the note says why.
     let unready: Bool?
+    /// A task (`oneshot = true`), which runs to completion; `done` once its last run exited with code 0.
+    let oneshot: Bool?
+    let done: Bool?
 
     var id: String { name }
 
     /// What to show: a stopped server whose port is held elsewhere is
-    /// "external", a running one that stopped answering is "unready".
+    /// "external", a running one that stopped answering is "unready", a
+    /// task whose last run succeeded is "done" (mirrors web/src/ui/Lamp.tsx).
     var displayStatus: String {
         if status == "stopped", external != nil { return "external" }
         if status == "running", unready == true { return "unready" }
+        if status == "exited", done == true { return "done" }
         return status
     }
 

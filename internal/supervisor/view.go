@@ -27,7 +27,21 @@ type View struct {
 	Status     Status `json:"status"`
 	// Unready marks a running server whose port or health check has failed
 	// for listenerLossDelay; it is not restarted, and its note says why.
-	Unready        bool       `json:"unready,omitempty"`
+	Unready bool `json:"unready,omitempty"`
+	// Oneshot marks a task, which runs to completion; it is never running,
+	// but starting while it runs. Done marks a task whose last run exited
+	// with code 0 (status exited).
+	Oneshot bool `json:"oneshot,omitempty"`
+	Done    bool `json:"done,omitempty"`
+	// Schedule is the crontab expression that starts the server; NextRun
+	// is when it next does (absent while disabled), LastRun when the
+	// latest scheduled run began. Temporary copies have none.
+	Schedule string     `json:"schedule,omitempty"`
+	NextRun  *time.Time `json:"nextRun,omitempty"`
+	LastRun  *time.Time `json:"lastRun,omitempty"`
+	// Watch holds the file patterns, relative to Dir, whose changes
+	// restart the server.
+	Watch          []string   `json:"watch,omitempty"`
 	Note           string     `json:"note,omitempty"`
 	PID            int        `json:"pid,omitempty"`
 	StartedAt      *time.Time `json:"startedAt,omitempty"`
@@ -83,8 +97,11 @@ type View struct {
 // Health is whether a server should run and whether it is ready (running
 // and still answering), the rule behind monitoring checks. A server should run when it crashed, when it
 // exited although its restart policy is always (the policy gave up), and
-// while it is wanted (started and not stopped by the user). Reason explains
-// a server that should run and is not ready: its note, else its status.
+// while it is wanted (started and not stopped by the user). A task is
+// ready once done; done, it is not expected to run, so it counts only when
+// required, while it runs or is due to run again, and when it failed.
+// Reason explains a server that should run and is not ready: its note,
+// else its status.
 type Health struct {
 	Expected bool
 	Ready    bool
@@ -100,6 +117,9 @@ func (v View) Health(required bool) Health {
 	h := Health{
 		Expected: required || v.Wanted || v.Status == Crashed || (v.Status == Exited && v.Restart == config.RestartAlways),
 		Ready:    v.Status == Running && !v.Unready,
+	}
+	if v.Oneshot {
+		h.Ready = v.Done
 	}
 	if h.Degraded() {
 		h.Reason = v.Note
@@ -159,8 +179,25 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			HasIcon:        IconPath(c.Dir, c.Icon) != "",
 			Tail:           p.logs.Tail(6, 240),
 			LAN:            c.LAN,
+			Oneshot:        c.Oneshot,
+			Done:           p.succeeded(),
 		}
 		v.ForwardedFrom = s.forwardedFromLocked(p)
+		v.Watch = c.Watch.Patterns()
+		if p.watch != nil && p.watch.over {
+			v.Note = joinNote(v.Note, watchNote(s.watchLimit))
+		}
+		if scheduledLocked(p) {
+			v.Schedule = c.Schedule.String()
+			if !p.nextRun.IsZero() && c.Enabled {
+				t := p.nextRun
+				v.NextRun = &t
+			}
+			if !p.lastRun.IsZero() {
+				t := p.lastRun
+				v.LastRun = &t
+			}
+		}
 		if p.temp != nil {
 			v.Temporary, v.Origin, v.Worktree = true, p.temp.Origin, p.temp.Worktree
 		}

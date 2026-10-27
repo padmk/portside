@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
@@ -108,6 +109,9 @@ func cmdStatus(e *env, args []string) error {
 			fmt.Fprintf(e.out, "%s\n", e.paint(dim, strings.ToUpper(plain(label))))
 		}
 		port := "  -  "
+		if s.Oneshot {
+			port = " task"
+		}
 		if s.Port > 0 {
 			port = fmt.Sprintf(":%-5d", s.Port)
 		}
@@ -116,6 +120,9 @@ func cmdStatus(e *env, args []string) error {
 			usage = fmt.Sprintf("%5.1f%%  %7s", s.CPU, humanBytes(s.Mem))
 		}
 		note := s.Note
+		if s.Done {
+			note = "" // the status says it
+		}
 		if s.External != nil && s.PID == 0 {
 			note = fmt.Sprintf("port held by %s (pid %d)", s.External.Command, s.External.PID)
 		} else if s.ForwardedFrom != "" {
@@ -126,6 +133,9 @@ func cmdStatus(e *env, args []string) error {
 		}
 		if s.Temporary {
 			note = strings.TrimSpace("temporary in " + paths.ShortenHome(s.Worktree) + " " + note)
+		}
+		if s.NextRun != nil {
+			note = strings.TrimSpace("next " + nextRunLabel(*s.NextRun, time.Now()) + " " + note)
 		}
 		note = plain(note) // before the color sequences go in
 		if s.Unready {
@@ -155,6 +165,8 @@ func (e *env) statusDot(s supervisor.View) string {
 		return e.paint(yellow, "●")
 	case s.Status == supervisor.Running:
 		return e.paint(green, "●")
+	case s.Done:
+		return e.paint(green, "○")
 	case s.Status == supervisor.Starting || s.Status == supervisor.Stopping:
 		return e.paint(yellow, "◐")
 	case s.Status == supervisor.Crashed || s.Status == supervisor.Blocked:
@@ -170,6 +182,9 @@ func (e *env) statusWord(s supervisor.View) string {
 	w := string(s.Status)
 	if s.Status == supervisor.Stopped && s.External != nil {
 		w = "external"
+	}
+	if s.Done {
+		w = "done"
 	}
 	return fmt.Sprintf("%-9s", w)
 }
@@ -252,15 +267,25 @@ func waitAndReport(e *env, c *client.Client, names []string, all bool) error {
 		if all && !s.Enabled {
 			continue
 		}
+		// The start above ran a task already: wait for that run instead of
+		// running it again.
+		body := map[string]any{"timeout": "3m"}
+		if s.Oneshot {
+			body["wait"] = true
+		}
 		var v supervisor.View
-		err := c.Do(e.ctx, http.MethodPost, "/api/servers/"+url.PathEscape(s.Name)+"/ensure", map[string]string{"timeout": "3m"}, &v)
+		err := c.Do(e.ctx, http.MethodPost, "/api/servers/"+url.PathEscape(s.Name)+"/ensure", body, &v)
 		if err != nil {
 			failed = true
 			fmt.Fprintf(e.errOut, "%s %s: %v\n", e.paint(red, "✗"), s.Name, err)
 			continue
 		}
 		e.localize(&v)
-		fmt.Fprintf(e.out, "%s %-20s %s\n", e.paint(green, "●"), v.Name, v.URL)
+		addr := v.URL
+		if v.Oneshot {
+			addr = "done"
+		}
+		fmt.Fprintf(e.out, "%s %-20s %s\n", e.paint(green, "●"), v.Name, addr)
 	}
 	if failed {
 		return silentError{1}
@@ -313,9 +338,12 @@ func cmdEnsure(e *env, args []string) error {
 	if *asJSON {
 		return printJSON(e, v)
 	}
-	if v.URL != "" {
+	switch {
+	case v.Oneshot:
+		fmt.Fprintf(e.out, "%s is done\n", v.Name)
+	case v.URL != "":
 		fmt.Fprintln(e.out, v.URL)
-	} else {
+	default:
 		fmt.Fprintf(e.out, "%s is running (no port)\n", v.Name)
 	}
 	return nil
@@ -513,4 +541,21 @@ func truncate(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n-1]) + "…"
+}
+
+// nextRunLabel says concisely when a scheduled run is due: the time today,
+// the weekday within a week, else the date (with the year when it differs).
+func nextRunLabel(next, now time.Time) string {
+	next, now = next.Local(), now.Local()
+	y, m, d := now.Date()
+	today := time.Date(y, m, d, 0, 0, 0, 0, time.Local)
+	switch {
+	case next.Before(today.AddDate(0, 0, 1)):
+		return next.Format("15:04")
+	case next.Before(today.AddDate(0, 0, 7)):
+		return next.Format("Mon 15:04")
+	case next.Year() == now.Year():
+		return next.Format("2 Jan 15:04")
+	}
+	return next.Format("2 Jan 2006 15:04")
 }

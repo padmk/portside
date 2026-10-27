@@ -148,6 +148,7 @@ func (s *Supervisor) CancelHandoff() {
 	}
 	s.closing = false
 	s.handoff = false
+	s.handoffEnd.Broadcast()
 	s.changedLocked()
 	s.mu.Unlock()
 }
@@ -201,6 +202,7 @@ func KeepOnExec(f *os.File, keep bool) (int, error) {
 func (s *Supervisor) Adopt(hs []Handoff) []string {
 	s.mu.Lock()
 	s.upgraded = true
+	s.handedOver = map[string]bool{}
 	s.mu.Unlock()
 	var adopted []string
 	for _, h := range hs {
@@ -297,13 +299,19 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		go s.watchReady(h.Name, p, gen)
 		adopted = append(adopted, h.Name)
 	}
+	s.mu.Lock()
+	for _, name := range adopted {
+		s.handedOver[name] = true
+	}
+	s.mu.Unlock()
 	return adopted
 }
 
 // exitedDuringHandoff records a handed-off server whose process exited
 // before this daemon could take it over: the daemon it replaced reaped it,
 // so its exit code is unknown and it counts as a crash. Recover restarts
-// it when its restart policy says so; otherwise on_crash reports it.
+// it when its restart policy says so; otherwise on_crash reports it. A
+// task is not a crash then (see taskEndedInHandoffLocked).
 func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -311,11 +319,16 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	if p == nil || p.pid != 0 {
 		return // no longer configured, or already running
 	}
-	log.Printf("handoff: %s exited during the upgrade", h.Name)
 	if s.handoffExited == nil {
 		s.handoffExited = map[string]bool{}
 	}
 	s.handoffExited[h.Name] = true
+	if h.Config.Oneshot {
+		s.taskEndedInHandoffLocked(p, h)
+		s.changedLocked()
+		return
+	}
+	log.Printf("handoff: %s exited during the upgrade", h.Name)
 	p.status = Crashed
 	p.note = "exited during the upgrade"
 	p.hasExit = false

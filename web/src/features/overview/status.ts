@@ -9,7 +9,7 @@ export const STATUS_GROUPS: { id: StatusGroupId; members: DisplayStatus[]; lamp:
   { id: 'starting', members: ['starting', 'stopping'], lamp: 'starting' },
   { id: 'crashed', members: ['crashed', 'blocked'], lamp: 'crashed' },
   { id: 'external', members: ['external'], lamp: 'external' },
-  { id: 'stopped', members: ['stopped', 'exited'], lamp: 'stopped' },
+  { id: 'stopped', members: ['stopped', 'exited', 'done'], lamp: 'stopped' },
 ]
 
 export const groupOf = (v: ServerView): StatusGroupId =>

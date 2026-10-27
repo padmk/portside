@@ -59,12 +59,14 @@ const (
 
 // Triggers say what began a server's round of runs, which its automatic
 // restarts continue, in PORTSIDE_TRIGGER: a start someone asked for (also
-// of a dependency), a retry after retry_after, or the daemon bringing it
-// back when it started.
+// of a dependency), a retry after retry_after, the daemon bringing it
+// back when it started, its schedule, or a change of its watched files.
 const (
-	triggerStart   = "start"
-	triggerRetry   = "retry"
-	triggerRestore = "restore"
+	triggerStart    = "start"
+	triggerRetry    = "retry"
+	triggerRestore  = "restore"
+	triggerSchedule = "schedule"
+	triggerWatch    = "watch"
 )
 
 // hookReport is what a hook command learns about a server.
@@ -82,6 +84,7 @@ type hookReport struct {
 	note     string
 	logFile  string
 	tail     []string
+	at       time.Time // when the event happened
 }
 
 // vars are the report's environment variables, which is the only way the
@@ -99,6 +102,7 @@ func (r hookReport) vars() map[string]string {
 	}
 	return map[string]string{
 		app.Env("EVENT"):          r.event,
+		app.Env("TIME"):           r.at.Format(time.RFC3339),
 		app.Env("SERVER"):         r.server,
 		app.Env("GROUP"):          r.group,
 		app.Env("TRIGGER"):        r.trigger,
@@ -140,6 +144,7 @@ func reportLocked(p *proc, event string) hookReport {
 		note:     p.note,
 		logFile:  p.logs.Path(),
 		tail:     p.logs.Tail(hookLines, 1000),
+		at:       time.Now(),
 	}
 }
 
@@ -185,6 +190,8 @@ func (s *Supervisor) reportCrashLocked(p *proc, exitCode *int, uptime time.Durat
 // startFailedLocked reports a start that failed and schedules the next try
 // when retry_after asks for one.
 func (s *Supervisor) startFailedLocked(p *proc) {
+	p.scheduleReserved = false // the scheduled run, if any, failed to start
+	p.settledAt = time.Now()
 	s.reportCrashLocked(p, nil, 0)
 	s.retryLocked(p)
 }

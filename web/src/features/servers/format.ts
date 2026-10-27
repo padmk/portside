@@ -31,6 +31,20 @@ export function formatAgo(since: string | undefined, now: number): string {
   return h < 24 ? `${h} h` : `${Math.floor(h / 24)} d`
 }
 
+/** When a scheduled run is due or began: the time today, the weekday and time within the coming week, else the date and time. */
+export function formatRunTime(at: string, now: number): string {
+  const d = new Date(at)
+  if (Number.isNaN(d.getTime())) return ''
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+  const days = (d.getTime() - today.getTime()) / 86_400_000
+  if (days >= 0 && days < 1) return time
+  if (days >= 0 && days < 7) return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+  const year = d.getFullYear() === today.getFullYear() ? undefined : 'numeric'
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year })} ${time}`
+}
+
 /** The time a chart covers, for example `2 min` or `45 s`. */
 export function formatSpan(ms: number): string {
   const s = Math.round(ms / 1000)

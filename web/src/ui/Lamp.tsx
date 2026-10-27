@@ -4,13 +4,14 @@ import type { ServerView } from '../api/types'
 /**
  * The status a server is displayed with: `external` is a stopped server whose
  * port is held by another process, `unready` a running one that stopped
- * answering on its port or health path.
+ * answering on its port or health path, `done` a task whose last run succeeded.
  */
-export type DisplayStatus = 'running' | 'unready' | 'starting' | 'stopping' | 'crashed' | 'blocked' | 'stopped' | 'exited' | 'external'
+export type DisplayStatus = 'running' | 'unready' | 'starting' | 'stopping' | 'crashed' | 'blocked' | 'stopped' | 'exited' | 'done' | 'external'
 
-export function displayStatus(v: Pick<ServerView, 'status' | 'external' | 'unready'>): DisplayStatus {
+export function displayStatus(v: Pick<ServerView, 'status' | 'external' | 'unready' | 'done'>): DisplayStatus {
   if (v.status === 'stopped' && v.external) return 'external'
   if (v.status === 'running' && v.unready) return 'unready'
+  if (v.status === 'exited' && v.done) return 'done'
   return v.status
 }
 

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -96,7 +97,7 @@ func newServer(c *client.Client, opts Options) (*mcp.Server, error) {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_servers", Description: "List managed dev servers with status, URL, port, resource usage and the containers of their compose projects. Pass dir to see only the servers of one checkout, and computer to see another computer's servers while this one is connected to it." + untrustedFields,
 		Annotations: reads}, t.list)
 	if opts.Mode.starts() {
-		mcp.AddTool(s, &mcp.Tool{Name: "ensure_server", Description: "Start a server (and its dependencies) if it is not running, wait until it accepts connections, and return its URL and whether it was reused or started. Safe to call repeatedly. Pass dir (your working directory) when working in a linked git worktree of the server's repository (not a separate clone): the server then runs from that worktree as a temporary copy on its own port." + untrustedOutput,
+		mcp.AddTool(s, &mcp.Tool{Name: "ensure_server", Description: "Start a server (and its dependencies) if it is not running, wait until it accepts connections, and return its URL and whether it was reused or started. Safe to call repeatedly. For a task (oneshot), every call runs it again, or waits for the run in progress, and succeeds once it exits with code 0. Pass dir (your working directory) when working in a linked git worktree of the server's repository (not a separate clone): the server then runs from that worktree as a temporary copy on its own port." + untrustedOutput,
 			Annotations: starts}, t.ensure)
 	}
 	if opts.Mode.interrupts() {
@@ -199,6 +200,9 @@ type Server struct {
 	Name           string  `json:"name"`
 	Group          string  `json:"group,omitempty"`
 	Status         string  `json:"status" jsonschema:"stopped, starting, running, stopping, crashed, exited or blocked"`
+	Oneshot        bool    `json:"oneshot,omitempty" jsonschema:"a task such as a migration: it runs to completion, starting while it runs, and its last run succeeded when status is exited with the note done"`
+	Schedule       string  `json:"schedule,omitempty" jsonschema:"crontab expression in local time that starts the server"`
+	NextRun        string  `json:"nextRun,omitempty" jsonschema:"when the schedule next starts it (RFC 3339)"`
 	URL            string  `json:"url,omitempty" jsonschema:"direct URL on loopback"`
 	Alias          string  `json:"alias,omitempty" jsonschema:"same server through http://<name>.localhost"`
 	Port           int     `json:"port,omitempty"`
@@ -304,7 +308,10 @@ func (t *tools) withContainers(ctx context.Context, g target, s Server) Server {
 func compact(v supervisor.View) Server {
 	s := Server{Name: v.Name, Group: v.Group, Status: string(v.Status), URL: v.URL, Alias: v.Alias, Port: v.Port,
 		Dir: v.Dir, Cmd: v.Cmd, Note: v.Note, RestartPending: v.RestartPending, ListenPorts: v.ListenPorts, Listening: v.Listening, CPU: v.CPU, MemMB: v.Mem >> 20,
-		Temporary: v.Temporary, Origin: v.Origin, Worktree: v.Worktree, Exposure: string(v.Exposure), NetworkWarning: v.NetworkWarning}
+		Temporary: v.Temporary, Origin: v.Origin, Worktree: v.Worktree, Exposure: string(v.Exposure), NetworkWarning: v.NetworkWarning, Oneshot: v.Oneshot, Schedule: v.Schedule}
+	if v.NextRun != nil {
+		s.NextRun = v.NextRun.Format(time.RFC3339)
+	}
 	if v.External != nil && v.PID == 0 {
 		s.External = fmt.Sprintf("%s (pid %d) in %s", v.External.Command, v.External.PID, v.External.Cwd)
 	} else if v.ForwardedFrom != "" {

@@ -65,7 +65,7 @@ func TestStartWhileStopping(t *testing.T) {
 	if err := s.Start("web", StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.WaitReady(context.Background(), "web", 5*time.Second); err != nil {
+	if err := s.WaitReady(context.Background(), "web", time.Time{}, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	v := s.Snapshot(19000)[0]
@@ -108,7 +108,7 @@ func TestStartWaitsForTheStoppingGroup(t *testing.T) {
 	if err := s.Start("web", StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.WaitReady(context.Background(), "web", 10*time.Second); err != nil {
+	if err := s.WaitReady(context.Background(), "web", time.Time{}, 10*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(gone); err != nil {
@@ -265,7 +265,7 @@ func TestRenamedServerWaitsForItsStoppingGroup(t *testing.T) {
 	if err := s.Start("renamed", StartOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.WaitReady(context.Background(), "renamed", 15*time.Second); err != nil {
+	if err := s.WaitReady(context.Background(), "renamed", time.Time{}, 15*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if syscall.Kill(-pgid, 0) == nil {
@@ -302,7 +302,7 @@ func TestShutdownSavesStateWithoutGroups(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.WaitReady(context.Background(), "api", 5*time.Second); err == nil {
+	if err := s.WaitReady(context.Background(), "api", time.Time{}, 5*time.Second); err == nil {
 		t.Fatal("api did not crash")
 	}
 	if st := readState(t, s); len(st.Groups) != 1 {
@@ -437,5 +437,59 @@ func exitDuringHandoff(t *testing.T, restore bool) {
 	}
 	if calls := hookCalls(t, out, 5*time.Second); len(calls) != 1 || calls[0] != "exited during the upgrade" {
 		t.Errorf("on_crash calls: %q", calls)
+	}
+}
+
+// An automatic restart still waiting for its backoff when the daemon
+// upgrades in place happens in the new daemon at its time, with the
+// restarts its round already used, also with restore = false.
+func TestPendingRestartSurvivesUpgrade(t *testing.T) {
+	old := restartDelay
+	restartDelay = time.Second
+	t.Cleanup(func() { restartDelay = old })
+	cfg := &config.Config{Shell: "sh", Port: 19000, Servers: []config.Server{{Name: "web", Cmd: "exit 3", Dir: t.TempDir(), Enabled: true, Restart: config.RestartOnFailure, Stop: time.Second}}}
+	state := t.TempDir()
+	before := New(cfg, state)
+	before.env.env, before.env.fetched = os.Environ(), time.Now()
+	if err := before.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for v := before.Snapshot(19000)[0]; !v.RestartPending; v = before.Snapshot(19000)[0] {
+		if time.Now().After(deadline) {
+			t.Fatalf("no restart pending: %+v", v)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := before.PrepareHandoff(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { before.CancelHandoff(); before.Shutdown() })
+
+	after := New(cfg, state)
+	after.env.env, after.env.fetched = os.Environ(), time.Now()
+	t.Cleanup(after.Shutdown)
+	after.Adopt(nil)
+	after.Recover(true)
+	after.mu.Lock()
+	p := after.procs["web"]
+	pending, retries, note := p.restartPending, p.retries, p.note
+	after.mu.Unlock()
+	if !pending || retries != 1 || !strings.Contains(note, "restarting in") {
+		t.Fatalf("after the upgrade: pending %v, retries %d, note %q", pending, retries, note)
+	}
+	// The restart happens and its crash continues the round.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		after.mu.Lock()
+		retries = p.retries
+		after.mu.Unlock()
+		if retries >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the pending restart did not happen: retries %d", retries)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

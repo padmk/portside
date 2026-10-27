@@ -31,9 +31,12 @@ CPU and memory are shown per server, summed over its whole process tree, with sp
 - **not responding** (an amber diamond; an orange light in the menu bar) when a running server has stopped answering on its port or `health` path for 4 seconds, with the reason. It is not restarted, and `portside check` reports it.
 - `stopping` and `stopped`.
 - `exited` when the process ended on its own with code 0.
+- **done** for a [task](configuration.md#tasks) whose last run exited with code 0 (a hollow green light). A task is marked **task** and shows `starting` (**Running...**) while it runs. Group headers count servers only, not tasks.
 - `crashed` with the exit code.
 - `blocked` when another process holds the port.
 - `external` for a stopped server whose port a program Portside did not start holds. The dashboard names that program, and you can take the port over in one click.
+
+A server with a [schedule](configuration.md#schedules) carries a chip with its next run, such as **next 09:00** (**scheduled** while it is disabled); its tooltip shows the expression and the last scheduled run. In the detail pane, a server with [`watch`](configuration.md#restart-on-file-changes) is marked **watching**, with its patterns in the tooltip.
 
 With a restart policy (`on-failure` or `always`, exponential backoff), a server waiting for its next automatic restart can be stopped like a running one.
 
