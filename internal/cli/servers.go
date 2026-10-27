@@ -105,7 +105,7 @@ func cmdStatus(e *env, args []string) error {
 			if label == "" {
 				label = "ungrouped"
 			}
-			fmt.Fprintf(e.out, "%s\n", e.paint(dim, strings.ToUpper(label)))
+			fmt.Fprintf(e.out, "%s\n", e.paint(dim, strings.ToUpper(plain(label))))
 		}
 		port := "  -  "
 		if s.Port > 0 {
@@ -127,6 +127,7 @@ func cmdStatus(e *env, args []string) error {
 		if s.Temporary {
 			note = strings.TrimSpace("temporary in " + paths.ShortenHome(s.Worktree) + " " + note)
 		}
+		note = plain(note) // before the color sequences go in
 		if s.Unready {
 			note = e.paint(yellow, note)
 		} else {
@@ -137,7 +138,7 @@ func cmdStatus(e *env, args []string) error {
 			note = strings.TrimSpace(e.paint(yellow, "may be reachable from the network") + " " + note)
 		}
 		fmt.Fprintf(e.out, "  %s %-*s  %-9s %s  %-16s %s\n",
-			e.statusDot(s), nameW, s.Name, e.statusWord(s), port, usage, note)
+			e.statusDot(s), nameW, plain(s.Name), e.statusWord(s), port, usage, note)
 	}
 	if exposed > 0 {
 		fmt.Fprintf(e.out, "\n%s\n", e.paint(dim, "May be reachable from the network: unless a firewall blocks it, other devices on the network\ncan connect. Bind the server to 127.0.0.1, or set lan = true in its config if that is intended."))

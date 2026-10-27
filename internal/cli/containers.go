@@ -76,7 +76,7 @@ func cmdContainers(e *env, args []string) error {
 		if server == "" {
 			server = "-"
 		}
-		fmt.Fprintf(e.out, "  %s %-*s  %-*s  %s\n", dot, nameW, c.Name, serverW, server, c.Status)
+		fmt.Fprintf(e.out, "  %s %-*s  %-*s  %s\n", dot, nameW, plain(c.Name), serverW, plain(server), plain(c.Status))
 	}
 	return nil
 }

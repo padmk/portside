@@ -228,8 +228,11 @@ func (s *Server) originAllowed(r *http.Request) bool {
 	if s.devOrigins[origin] {
 		return true
 	}
+	// One serialized origin, as browsers send it: scheme and host only, so a
+	// value with a user, path, query or fragment is no origin at all.
 	u, err := url.Parse(origin)
-	if err != nil || u.Scheme != "http" || !s.allowedHost(hostport.Host(u.Host)) {
+	if err != nil || len(r.Header.Values("Origin")) != 1 || u.Scheme != "http" || u.User != nil ||
+		u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || !s.allowedHost(hostport.Host(u.Host)) {
 		return false
 	}
 	// The page's own origin, also on another port than the daemon's, as

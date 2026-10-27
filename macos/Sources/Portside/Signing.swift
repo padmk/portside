@@ -133,7 +133,7 @@ actor DaemonHandshake {
         req.timeoutInterval = 5
         req.cachePolicy = .reloadIgnoringLocalCacheData
         guard let challenge = RequestSigner.challenge(&req) else { throw DaemonError.unverified }
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await DaemonSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
               let epoch = RequestSigner.provenReply(http, body: data, token: token, challenge: challenge) else {
             epochs[base] = nil
@@ -141,5 +141,19 @@ actor DaemonHandshake {
         }
         epochs[base] = epoch
         return epoch
+    }
+}
+
+/// The session for requests to the daemon. It never follows a redirect: the
+/// redirect is the reply to check, and following it would send the request,
+/// signed and with its body, to wherever an unproven listener points.
+enum DaemonSession {
+    static let shared = URLSession(configuration: .default, delegate: NoRedirects(), delegateQueue: nil)
+
+    private final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest) async -> URLRequest? {
+            nil
+        }
     }
 }

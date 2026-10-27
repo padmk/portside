@@ -55,6 +55,10 @@ func TestOriginAllowedSameOriginOnForwardedPort(t *testing.T) {
 		{testDashboardHost + ":17878", "http://evil.example:17878", false},
 		{"evil.example:17878", "http://evil.example:17878", false},
 		{testDashboardHost + ":17878", "https://" + testDashboardHost + ":17878", false},
+		// Not a serialized origin: a path, a user or a query.
+		{testDashboardHost + ":7999", "http://" + testDashboardHost + ":7999/path", false},
+		{testDashboardHost + ":7999", "http://x@" + testDashboardHost + ":7999", false},
+		{testDashboardHost + ":7999", "http://" + testDashboardHost + ":7999?x", false},
 	} {
 		r := httptest.NewRequest(http.MethodPost, "http://"+c.host+"/api/servers/web/start", nil)
 		r.Header.Set("Origin", c.origin)

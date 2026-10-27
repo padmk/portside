@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -221,5 +223,90 @@ func TestClientExplainsOlderDaemon(t *testing.T) {
 				t.Errorf("error = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestLocalURLKeepsThisComputersHost checks that a URL from the connected
+// computer opens on this computer: at the forwarded port on localhost, or
+// through this daemon's proxy, whatever host the other computer named.
+func TestLocalURLKeepsThisComputersHost(t *testing.T) {
+	cn := &Connection{LocalPort: 7878}
+	cn.Peer.Label = "devbox"
+	cn.Mirrors = append(cn.Mirrors, struct {
+		Port  int    `json:"port"`
+		Local int    `json:"local"`
+		State string `json:"state"`
+	}{Port: 5432, Local: 15432, State: "mirrored"})
+	for _, c := range []struct{ server, raw, want string }{
+		{"db", "https://example.org:5432/admin?x=1", "https://localhost:15432/admin?x=1"},
+		{"web", "http://evil.example:3000/", "http://web.devbox.localhost:7878/"},
+		{"web", "http://user:pw@localhost:3000/#frag", "http://web.devbox.localhost:7878/"},
+		{"web", "javascript:alert(1)", ""},
+		{"Bad Name", "http://localhost:3000/", ""},
+	} {
+		if got := cn.LocalURL(c.server, c.raw); got != c.want {
+			t.Errorf("LocalURL(%q, %q) = %q, want %q", c.server, c.raw, got, c.want)
+		}
+	}
+}
+
+// TestClientDoesNotFollowRedirects checks that a redirect from what answers
+// on the daemon's port is returned, not followed with the signed request.
+func TestClientDoesNotFollowRedirects(t *testing.T) {
+	hit := false
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit = true }))
+	defer sink.Close()
+	f := &fakeDaemon{epoch: signing.NewEpoch()}
+	c, token := testClient(t, f)
+	f.key = token
+	if h, err := c.Ping(context.Background()); err != nil || !h.Verified {
+		t.Fatalf("handshake: %+v %v", h, err)
+	}
+	imposter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, sink.URL+"/capture", http.StatusTemporaryRedirect)
+	}))
+	defer imposter.Close()
+	c.Base = imposter.URL
+	_ = c.Do(context.Background(), http.MethodPut, "/api/config", map[string]string{"value": "x"}, nil)
+	if hit {
+		t.Error("the client followed a redirect with its request")
+	}
+}
+
+// TestWebSocketDoesNotFollowRedirects checks the same for WebSocket dials,
+// such as `logs -f`: what answers passes the handshake on to the daemon, so
+// it is proven, and redirects the dial.
+func TestWebSocketDoesNotFollowRedirects(t *testing.T) {
+	hit := make(chan struct{}, 1)
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit <- struct{}{} }))
+	defer sink.Close()
+	f := &fakeDaemon{epoch: signing.NewEpoch()}
+	c, token := testClient(t, f)
+	f.key = token
+	real, err := url.Parse(c.Base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(real)
+	imposter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/health" {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		http.Redirect(w, r, sink.URL+"/capture", http.StatusTemporaryRedirect)
+	}))
+	defer imposter.Close()
+	c.Base = imposter.URL
+	c.Port = imposter.Listener.Addr().(*net.TCPAddr).Port
+	if h, err := c.Ping(context.Background()); err != nil || !h.Verified {
+		t.Fatalf("handshake through the imposter: %+v %v", h, err)
+	}
+	if ws, err := c.DialWebSocket(context.Background(), "/api/servers/web/terminal"); err == nil {
+		ws.CloseNow()
+	}
+	select {
+	case <-hit:
+		t.Error("the WebSocket dial followed a redirect")
+	default:
 	}
 }

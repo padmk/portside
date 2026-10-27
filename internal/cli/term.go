@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"unicode"
 
 	"github.com/coder/websocket"
 	"golang.org/x/term"
@@ -40,6 +41,19 @@ func confirm(e *env, question string) bool {
 	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	a := strings.ToLower(strings.TrimSpace(answer))
 	return a == "y" || a == "yes"
+}
+
+// plain makes text from the daemon, a program or another computer safe to
+// print in a table: control and format characters, which could move the
+// cursor, clear the terminal or reorder the line, become U+FFFD. JSON output
+// keeps the text as it is.
+func plain(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return '\uFFFD'
+		}
+		return r
+	}, s)
 }
 
 func (e *env) paint(code, s string) string {

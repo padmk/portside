@@ -270,7 +270,7 @@ struct APIClient {
             // A cached reply carries the proof for an earlier challenge.
             req.cachePolicy = .reloadIgnoringLocalCacheData
             guard let challenge = RequestSigner.sign(&req, token: token, epoch: epoch) else { throw DaemonError.unverified }
-            let (data, resp) = try await URLSession.shared.data(for: req)
+            let (data, resp) = try await DaemonSession.shared.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw DaemonError.failed("No reply from the daemon") }
             let proven = RequestSigner.provenReply(http, body: data, token: token, challenge: challenge) != nil
             if http.statusCode == 401, !proven {

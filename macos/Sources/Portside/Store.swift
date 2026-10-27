@@ -292,7 +292,7 @@ final class Store {
             let epoch = try await DaemonHandshake.shared.epoch(base: base, token: token)
             var req = URLRequest(url: comps.url!)
             guard let challenge = RequestSigner.sign(&req, token: token, epoch: epoch) else { throw DaemonError.unverified }
-            let ws = URLSession.shared.webSocketTask(with: req)
+            let ws = DaemonSession.shared.webSocketTask(with: req)
             ws.maximumMessageSize = 32 << 20
             task = ws
             takesUsage = false

@@ -23,6 +23,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/padmk/portside/internal/app"
+	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/service"
 	"github.com/padmk/portside/internal/signing"
@@ -88,20 +89,34 @@ func (cn *Connection) Is(name string) bool {
 // LocalURL returns how this computer opens a URL of the connected
 // computer's server: at the local port its port is forwarded to, else
 // through this daemon's proxy at <server>.<computer>.localhost.
+//
+// The other computer supplies the URL, so only its scheme (http or https),
+// port, path and query are used; the host is always this computer's, and a
+// server name that is not a valid host label gets no URL.
 func (cn *Connection) LocalURL(server, raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return raw
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
 	}
+	u.User, u.Fragment = nil, ""
 	port, _ := strconv.Atoi(u.Port())
+	if port == 0 {
+		port = map[string]int{"http": 80, "https": 443}[u.Scheme]
+	}
 	for _, m := range cn.Mirrors {
 		if m.Port == port && m.State == "mirrored" {
-			if m.Local > 0 && m.Local != port {
-				u.Host = net.JoinHostPort(u.Hostname(), strconv.Itoa(m.Local))
+			local := port
+			if m.Local > 0 {
+				local = m.Local
 			}
+			u.Host = net.JoinHostPort("localhost", strconv.Itoa(local))
 			return u.String()
 		}
 	}
+	if config.ValidName(server) != nil {
+		return ""
+	}
+	u.Scheme = "http"
 	u.Host = server + "." + cn.Peer.Label + ".localhost:" + strconv.Itoa(cn.LocalPort)
 	return u.String()
 }
@@ -257,7 +272,7 @@ func (c *Client) DialWebSocket(ctx context.Context, p string) (*websocket.Conn, 
 		}
 		h := http.Header{}
 		challenge := c.signed(h, http.MethodGet, u.RequestURI(), nil, epoch)
-		ws, resp, err := websocket.Dial(ctx, raw, &websocket.DialOptions{HTTPHeader: h})
+		ws, resp, err := websocket.Dial(ctx, raw, &websocket.DialOptions{HTTPClient: c.http, HTTPHeader: h})
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusUnauthorized && !retried && c.renewed(ctx, epoch) {
 				continue
@@ -293,9 +308,12 @@ func New(port int) *Client { return NewAt("127.0.0.1", port) }
 // host, such as "::1" for a check of the daemon's IPv6 listener.
 func NewAt(host string, port int) *Client {
 	return &Client{
-		Port:   port,
-		Base:   "http://" + net.JoinHostPort(host, strconv.Itoa(port)),
-		http:   &http.Client{Timeout: 0},
+		Port: port,
+		Base: "http://" + net.JoinHostPort(host, strconv.Itoa(port)),
+		// A redirect is the reply to check, never followed: following it
+		// would send the request, signed and with its body, to wherever an
+		// unproven listener points before its reply is checked.
+		http:   &http.Client{Timeout: 0, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		proved: &proved{},
 	}
 }
