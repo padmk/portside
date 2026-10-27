@@ -601,17 +601,20 @@ func TestReplaceIfUnchangedInvalidText(t *testing.T) {
 	wantRejected(t, path, fixture, err)
 }
 
-func TestCheckRevision(t *testing.T) {
+func TestUpdateServerIfUnchanged(t *testing.T) {
 	path := newConfig(t, fixture)
 	rev := Revision([]byte(fixture))
-	if err := CheckRevision(path, rev); err != nil {
-		t.Fatalf("unchanged file: %v", err)
-	}
 	if err := SetEnabled(path, "web", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckRevision(path, rev); !errors.Is(err, ErrConflict) {
-		t.Errorf("changed file: err = %v, want ErrConflict", err)
+	changed, _ := os.ReadFile(path)
+	err := UpdateServerIfUnchanged(path, "web", Spec{Name: "web", Cmd: "x"}, rev)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed file: err = %v, want ErrConflict", err)
+	}
+	wantRejected(t, path, string(changed), err)
+	if err := UpdateServerIfUnchanged(path, "web", Spec{Name: "web", Cmd: "x"}, Revision(changed)); err != nil {
+		t.Fatalf("unchanged file: %v", err)
 	}
 }
 

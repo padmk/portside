@@ -278,6 +278,13 @@ func (s *Supervisor) Recover(restore bool) {
 	upgrade := restore && s.upgraded
 	restore = restore && s.cfg.Restore
 	s.mu.Unlock()
+	// After an upgrade the start goes on with the request the previous
+	// daemon was serving, so a task that ended during it (with an unknown
+	// result) fails the server waiting for it instead of running again.
+	var since time.Time
+	if upgrade {
+		since = st.Saved
+	}
 	if restore || upgrade {
 		for _, name := range st.Running {
 			// A server that exited during the upgrade was handled above, by
@@ -297,7 +304,7 @@ func (s *Supervisor) Recover(restore bool) {
 			}
 			s.mu.Unlock()
 			if enabled {
-				_ = s.Start(name, StartOptions{trigger: trigger})
+				_ = s.Start(name, StartOptions{trigger: trigger, Since: since})
 			}
 		}
 	}

@@ -174,6 +174,34 @@ func TestStartsShareOneTaskRun(t *testing.T) {
 	}
 }
 
+// A restart of a done task runs it again: the stop before the start is not
+// a run of the request.
+func TestRestartRunsTheTaskAgain(t *testing.T) {
+	s, files := taskSupervisor(t, `echo run >> "$RUNS"`)
+	runs := func() int {
+		data, _ := os.ReadFile(filepath.Join(files, "runs"))
+		return strings.Count(string(data), "run")
+	}
+	for want := 1; want <= 2; want++ {
+		since := time.Now() // as the restart route passes
+		var err error
+		if want == 1 {
+			err = s.Start("migrate", StartOptions{Since: since})
+		} else {
+			err = s.Restart("migrate", StartOptions{Since: since})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.WaitReady(context.Background(), "migrate", since, 10*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if n := runs(); n != want {
+			t.Fatalf("the task ran %d times, want %d", n, want)
+		}
+	}
+}
+
 // A stopped run does not satisfy a server waiting for the task.
 func TestStoppedTaskFailsItsWaiters(t *testing.T) {
 	s, _ := taskSupervisor(t, `sleep 60`)
@@ -194,15 +222,16 @@ func TestStoppedTaskFailsItsWaiters(t *testing.T) {
 
 // A task whose process exits while the daemon upgrades in place has an
 // unknown exit code: it is neither done nor crashed, so it is not reported,
-// restarted or retried, also when restore brings servers back.
+// restarted or retried, also when restore brings servers back, and a server
+// that was waiting for it fails without running it again.
 func TestTaskEndedDuringHandoff(t *testing.T) {
-	s, _ := taskSupervisor(t, `sleep 60`)
+	s, files := taskSupervisor(t, `echo run >> "$RUNS"; sleep 60`)
 	out := filepath.Join(t.TempDir(), "calls")
 	p := s.procs["migrate"]
 	p.cfg.Restart, p.cfg.RetryAfter = config.RestartOnFailure, time.Second
 	p.cfg.OnCrash = fmt.Sprintf(`printf '%%s\n' "$%s" >> %s`, app.Env("NOTE"), out)
 	s.cfg.Restore = true
-	s.previous = persisted{Running: []string{"migrate"}}
+	s.previous = persisted{Running: []string{"migrate", "api"}, Saved: time.Now()}
 	master, tty, err := pty.Open()
 	if err != nil {
 		t.Fatal(err)
@@ -230,5 +259,11 @@ func TestTaskEndedDuringHandoff(t *testing.T) {
 	}
 	if err := s.WaitReady(context.Background(), "migrate", time.Time{}, time.Second); err == nil {
 		t.Error("a task that ended during the upgrade counted as done")
+	}
+	if v := viewOf(s, "api"); v.Status != Crashed || v.Note != "dependency migrate failed: "+noteEndedInHandoff {
+		t.Errorf("api = %+v", v)
+	}
+	if _, err := os.Stat(filepath.Join(files, "runs")); err == nil {
+		t.Error("the task ran again after the upgrade")
 	}
 }

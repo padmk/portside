@@ -206,11 +206,12 @@ func (t *tools) checkContainer(ctx context.Context, g target, ref string) error 
 	return fmt.Errorf("no container %q", ref)
 }
 
-// listener reports whether a listener is in scope: it belongs to a server
-// in scope or to a container one of them owns (by name among containers,
-// through owns), or its process works in the scope.
+// listener reports whether a listener is in scope: its process belongs to
+// a server in scope (managed: another process on a server's port only bears
+// its name), or it is a container's that one of them owns (by name among
+// containers, through owns), or its process works in the scope.
 func (s scope) listener(in map[string]bool, containers []docker.Container, l server.ListenerView) bool {
-	if in[l.Server] {
+	if l.Managed && in[l.Server] {
 		return true
 	}
 	if l.Container != nil && slices.ContainsFunc(containers, func(c docker.Container) bool { return c.Name == l.Container.Name && s.owns(in, c) }) {

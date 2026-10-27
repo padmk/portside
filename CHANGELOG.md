@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2
+
+- **Fixed, tasks:** `portside restart` of a task (alone, with other servers, from the dashboard or `restart_server`) runs it again instead of leaving it stopped. After an upgrade in place, a server that was waiting for a task whose process ended during the upgrade fails with the task's note instead of running the task a second time.
+- **Fixed:** a server whose process exits while the daemon upgrades in place continues its round of automatic restarts instead of starting a new one, so `on_crash` reports it after the same number of restarts as without the upgrade. A start no longer races with a config reload over the server's dependencies.
+- **Fixed, dashboard:** saving a server's form refuses with a conflict when the config file was changed at the same moment from the CLI or an editor, instead of overwriting that change.
+- **Fixed, MCP:** with `--dir`, `list_ports` no longer shows another program that took the port of a stopped server in scope.
+
 ## 0.10.1
 
 - **`watch`:** a server with many watched files is scanned less often instead of costing more, about 2 % of one core at most for all servers together, and a large tree slows only its own server; a change among 20,000 files takes a few seconds to notice ([Periodic checks](docs/how-it-works.md#periodic-checks)). `**` also skips `venv`.

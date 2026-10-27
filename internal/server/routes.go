@@ -458,6 +458,9 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 		// Stop everything first, then start in dependency order, so a
 		// dependent never comes up against a dependency about to go down.
 		parallel(s.sup.Stop)
+		// Taken after the stops, which settle tasks: a stop is not a run
+		// of this request.
+		opt.Since = time.Now()
 		idx := map[string]int{}
 		for i, n := range names {
 			idx[n] = i

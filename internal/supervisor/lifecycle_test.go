@@ -384,8 +384,9 @@ func TestRecoverEndsOrphanedGroup(t *testing.T) {
 
 // A server whose process exits while the daemon re-executes counts as a
 // crash in the new daemon: its restart policy restarts it whatever restore
-// says, or its on_crash command reports it and it stays down, also when
-// restore brings back the servers that were running.
+// says, as one more restart of its round, or its on_crash command reports
+// it and it stays down, also when restore brings back the servers that were
+// running.
 func TestExitDuringHandoff(t *testing.T) {
 	for _, restore := range []bool{false, true} {
 		t.Run(fmt.Sprintf("restore=%v", restore), func(t *testing.T) { exitDuringHandoff(t, restore) })
@@ -419,7 +420,7 @@ func exitDuringHandoff(t *testing.T, restore bool) {
 		master.Close()
 		// A process that has exited: its pid has no such start time.
 		hs = append(hs, Handoff{Name: name, PID: os.Getpid(), PIDStart: "Mon Jan 2 15:04:05 2006", PTY: fd,
-			Config: s.procs[name].cfg, Status: Running, Want: true, StartedAt: time.Now().Add(-time.Minute)})
+			Config: s.procs[name].cfg, Status: Running, Want: true, Retries: 3, StartedAt: time.Now().Add(-10 * time.Second)})
 	}
 	if got := s.Adopt(hs); len(got) != 0 {
 		t.Fatalf("adopted %v", got)
@@ -431,6 +432,13 @@ func exitDuringHandoff(t *testing.T, restore bool) {
 	}
 	if v := views["web"]; v.PID == 0 || !v.Wanted {
 		t.Errorf("web was not restarted: %+v", v)
+	}
+	// The restart is one more of the round the previous daemon began.
+	s.mu.Lock()
+	retries := s.procs["web"].retries
+	s.mu.Unlock()
+	if retries != 4 {
+		t.Errorf("web has used %d restarts, want 4", retries)
 	}
 	if v := views["api"]; v.PID != 0 || v.Wanted || v.Status != Crashed {
 		t.Errorf("api: %+v", v)

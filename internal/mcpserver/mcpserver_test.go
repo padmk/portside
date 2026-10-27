@@ -313,12 +313,14 @@ func scoped(t *testing.T) (f *fakeDaemon, port int, scopeDir string) {
 			}},
 		},
 		listeners: []server.ListenerView{
-			{Listener: ports.Listener{Port: 3000, PID: 10, Command: "node"}, Server: "web"},
-			{Listener: ports.Listener{Port: 4000, PID: 11, Command: "node"}, Server: "api"},
+			{Listener: ports.Listener{Port: 3000, PID: 10, Command: "node"}, Server: "web", Managed: true},
+			{Listener: ports.Listener{Port: 4000, PID: 11, Command: "node"}, Server: "api", Managed: true},
 			{Listener: ports.Listener{Port: 5000, PID: 12, Command: "vite", Cwd: filepath.Join(realWeb, "src")}},
 			{Listener: ports.Listener{Port: 6000, PID: 13, Command: "vite", Cwd: api}},
 			// api's process working in web's directory.
-			{Listener: ports.Listener{Port: 7000, PID: 14, Command: "node", Cwd: realWeb}, Server: "api"},
+			{Listener: ports.Listener{Port: 7000, PID: 14, Command: "node", Cwd: realWeb}, Server: "api", Managed: true},
+			// Another process on the port of web, which is stopped.
+			{Listener: ports.Listener{Port: 3001, PID: 15, Command: "node", Cwd: api}, Server: "web"},
 		},
 	}
 	return f, startFake(t, state, f), scopeDir

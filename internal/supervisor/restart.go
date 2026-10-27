@@ -10,6 +10,11 @@ func (s *Supervisor) Restart(name string, opt StartOptions) error {
 	if err := s.Stop(name); err != nil {
 		return err
 	}
+	// The stop settles a task after a request time taken before it, which
+	// would make the start count the stop as this request's run.
+	if !opt.Since.IsZero() {
+		opt.Since = time.Now()
+	}
 	return s.Start(name, opt)
 }
 

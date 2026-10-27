@@ -65,12 +65,7 @@ func (s *Server) updateServer(w http.ResponseWriter, r *http.Request) {
 	spec := body.Spec
 	s.normalizeSpec(&spec)
 	s.edit(w, r, func() error {
-		if body.Revision != "" {
-			if err := config.CheckRevision(s.opt.ConfigPath, body.Revision); err != nil {
-				return err
-			}
-		}
-		return config.UpdateServer(s.opt.ConfigPath, r.PathValue("name"), spec)
+		return config.UpdateServerIfUnchanged(s.opt.ConfigPath, r.PathValue("name"), spec, body.Revision)
 	}, directoryWarnings(s.sup.Config().Root, spec.Dir), r.PathValue("name"), spec.Name)
 }
 

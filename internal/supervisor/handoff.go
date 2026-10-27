@@ -334,9 +334,14 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	p.hasExit = false
 	p.exitedAt = time.Now()
 	p.retries = h.Retries
+	if p.exitedAt.Sub(h.StartedAt) > time.Minute {
+		p.retries = 0 // as backoffLocked: a long run ends the round
+	}
 	p.want = h.Want
 	fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  exited during the upgrade ──\x1b[0m\r\n", p.exitedAt.Format("15:04:05"))
 	if p.want && p.cfg.Restart != config.RestartNo && p.retries < maxRetries {
+		// Recover restarts it as one more restart of the round.
+		p.retries++
 		s.handoffRestarts = append(s.handoffRestarts, h.Name)
 	} else {
 		s.reportCrashLocked(p, nil, p.exitedAt.Sub(h.StartedAt))

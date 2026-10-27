@@ -320,13 +320,18 @@ func readLines(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return splitLines(data), nil
+}
+
+// splitLines splits the file's text into lines for an edit.
+func splitLines(data []byte) []string {
 	// writeValidated ends the text with one newline; blank lines before it
 	// stay.
 	text := strings.TrimSuffix(string(data), "\n")
 	if strings.TrimSpace(text) == "" {
-		return nil, nil
+		return nil
 	}
-	return strings.Split(text, "\n"), nil
+	return strings.Split(text, "\n")
 }
 
 // writeValidated parses the new text first so that a bad edit never reaches disk.
@@ -371,16 +376,25 @@ func lock(path string) (func(), error) {
 
 // edit runs fn on the current lines under the lock and writes the result.
 func edit(path string, fn func(d *doc) ([]string, error)) error {
+	return editIfUnchanged(path, "", fn)
+}
+
+// editIfUnchanged is edit that first returns ErrConflict, under the same
+// lock, when the file no longer has revision rev ("" skips the check).
+func editIfUnchanged(path, rev string, fn func(d *doc) ([]string, error)) error {
 	unlock, err := lock(path)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	lines, err := readLines(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	out, err := fn(newDoc(lines))
+	if rev != "" && rev != Revision(data) {
+		return ErrConflict
+	}
+	out, err := fn(newDoc(splitLines(data)))
 	if err != nil {
 		return err
 	}
@@ -456,19 +470,6 @@ func ReplaceIfUnchanged(path string, text []byte, rev string) error {
 	return writeFile(path, text)
 }
 
-// CheckRevision returns ErrConflict when the file no longer has revision rev,
-// for an edit made from a form that showed that revision.
-func CheckRevision(path, rev string) error {
-	cur, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if rev != Revision(cur) {
-		return ErrConflict
-	}
-	return nil
-}
-
 // AddServer appends a new server table.
 func AddServer(path string, s Spec) error {
 	if err := ValidName(s.Name); err != nil {
@@ -489,12 +490,19 @@ func AddServer(path string, s Spec) error {
 // UpdateServer patches changed fields of name with s (which may carry a new name).
 // Comment lines directly above the table are kept unless s.Comment is set.
 func UpdateServer(path, name string, s Spec) error {
+	return UpdateServerIfUnchanged(path, name, s, "")
+}
+
+// UpdateServerIfUnchanged is UpdateServer for an edit made from a form that
+// showed revision rev of the file: it returns ErrConflict when the file has
+// changed since ("" skips the check).
+func UpdateServerIfUnchanged(path, name string, s Spec, rev string) error {
 	if s.Name != name || name != app.ID {
 		if err := ValidName(s.Name); err != nil {
 			return err
 		}
 	}
-	return edit(path, func(d *doc) ([]string, error) {
+	return editIfUnchanged(path, rev, func(d *doc) ([]string, error) {
 		start, _, _, ok := d.block(name)
 		if !ok {
 			return nil, fmt.Errorf("server %q not found in %s", name, path)

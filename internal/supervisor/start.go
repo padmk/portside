@@ -43,7 +43,6 @@ func (s *Supervisor) Start(name string, opt StartOptions) error {
 // start is Start with opt.trigger as given.
 func (s *Supervisor) start(name string, opt StartOptions) error {
 	s.mu.Lock()
-	cfg := s.cfg
 	p, ok := s.procs[name]
 	if !ok {
 		s.mu.Unlock()
@@ -53,8 +52,11 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		s.mu.Unlock()
 		return errors.New("the daemon is shutting down")
 	}
-	// An explicit start gets a fresh automatic-restart budget.
-	p.retries = 0
+	// An explicit start gets a fresh automatic-restart budget; an automatic
+	// restart (no trigger) goes on with its round's.
+	if opt.trigger != "" {
+		p.retries = 0
+	}
 	if p.pid != 0 {
 		// A server that is stopping starts again once it has exited (see
 		// wait), unless a later Stop withdraws the request. The request is
@@ -73,14 +75,17 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		state := taskStateLocked(p, opt.Since)
 		done = state == taskDone || state == taskFailed
 	}
-	s.mu.Unlock()
 	if pending || done {
+		s.mu.Unlock()
 		return nil // a start (e.g. waiting for dependencies) is already under way
 	}
-
 	// Dependencies come from the definition, so a temporary server shares
-	// its origin's dependencies.
-	return s.launch(name, cfg.WithDeps(p.cfg.DependsOn), opt, s.reserve(name))
+	// its origin's dependencies. They are read under the lock that reserves
+	// the start, so a config reload cannot mix two versions.
+	deps := s.cfg.WithDeps(p.cfg.DependsOn)
+	token := s.reserveLocked(p)
+	s.mu.Unlock()
+	return s.launch(name, deps, opt, token)
 }
 
 // launch starts deps in order and then name, while token is the latest
@@ -169,18 +174,6 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 	}
 	p.retries = 0
 	return dependency{task: p.cfg.Oneshot, token: s.reserveLocked(p)}
-}
-
-// reserve marks a server as wanted and returns a token that a later launch
-// must still hold; Stop invalidates it.
-func (s *Supervisor) reserve(name string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p := s.procs[name]
-	if p == nil {
-		return 0
-	}
-	return s.reserveLocked(p)
 }
 
 // reserveStartLocked records a start of p, which is down, for launch with
