@@ -69,6 +69,22 @@ ready_log = "^Slow ready$"
 cmd = "echo boom >&2; exit 2"
 port = 0
 restart = "on-failure"
+
+# Stops answering after 4 s and answers again 10 s later.
+[servers.flaky]
+cmd = "python3 -m http.server {PORT} --bind 127.0.0.1 & p=\$!; sleep 4; kill \$p; sleep 10; exec python3 -m http.server {PORT} --bind 127.0.0.1"
+unready_after = "2s"
+on_unready = 'echo "\$PORTSIDE_EVENT" >> $work/events'
+on_recover = 'echo "\$PORTSIDE_EVENT \$PORTSIDE_RECOVERED_FROM" >> $work/events'
+
+# Its start fails (no directory), so retry_after starts it again.
+[servers.retrying]
+cmd = "true"
+dir = "$work/missing"
+port = 0
+restart = "on-failure"
+retry_after = "3s"
+on_crash = 'echo "\$PORTSIDE_TRIGGER \$PORTSIDE_STREAK" >> $work/retries'
 EOF
 
 step "service install"
@@ -76,7 +92,7 @@ portside service install | tee "$work/install"
 grep -q "starts at boot" "$work/install" || fail "service install did not say it starts at boot"
 wait_for 10 state_is active || fail "service not active: $(active_state)"
 portside doctor > "$work/doctor" || true
-grep -q "on_crash reports crashes of 4 of 4 servers" "$work/doctor" || { cat "$work/doctor"; fail "doctor did not count the crash commands"; }
+grep -q "on_crash reports crashes of 6 of 6 servers" "$work/doctor" || { cat "$work/doctor"; fail "doctor did not count the crash commands"; }
 
 step "servers, restarts and on_crash"
 portside up web worker failing > /dev/null
@@ -99,6 +115,14 @@ portside check > /dev/null || fail "check failed with every server that should r
 step "daemon logs from the journal"
 portside daemon logs -n 50 > "$work/logs"
 grep -q "on_crash for failing ran" "$work/logs" || { cat "$work/logs"; fail "daemon logs does not show the journal"; }
+
+step "on_unready, on_recover and retry_after"
+portside up flaky retrying > /dev/null 2>&1 || true
+wait_for 30 grep -q "^recovered unready$" "$work/events" || fail "on_unready and on_recover for flaky: $(cat "$work/events" 2>/dev/null)"
+[ "$(head -1 "$work/events")" = unready ] && [ "$(wc -l < "$work/events")" = 2 ] || fail "flaky events: $(cat "$work/events")"
+wait_for 20 grep -q "^retry 2$" "$work/retries" || fail "retry_after for retrying: $(cat "$work/retries" 2>/dev/null)"
+[ "$(head -1 "$work/retries")" = "start 1" ] || fail "first report for retrying: $(cat "$work/retries")"
+portside down flaky retrying > /dev/null
 
 step "in-place upgrade, with a server still waiting for its ready_log line"
 portside up slow > /dev/null

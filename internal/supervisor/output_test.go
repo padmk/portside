@@ -106,9 +106,15 @@ func TestHandoffRefusedWhenAWaitingTerminalCannotPause(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	go p.logs.Locked(func() { close(held); <-release })
 	<-held
-	time.Sleep(50 * time.Millisecond)
+	// The process writes every 10 ms; give a busy machine time to have the
+	// reader blocked on the log, and release the log in any case, so a
+	// reader that paused anyway fails the test instead of hanging it.
+	time.Sleep(500 * time.Millisecond)
+	timer := time.AfterFunc(5*time.Second, func() { close(release) })
 	hs, err := s.PrepareHandoff()
-	close(release)
+	if timer.Stop() {
+		close(release)
+	}
 	if err == nil || !strings.Contains(err.Error(), "web") {
 		t.Fatalf("handoff = %v, %v; want it refused naming web", hs, err)
 	}
