@@ -51,7 +51,7 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         webView.navigationDelegate = self
         webView.uiDelegate = self
         let bridge = AppBridge(owner: self)
-        for name in [AppBridge.loginItemMessage, AppBridge.proposalMessage] {
+        for name in [AppBridge.loginItemMessage, AppBridge.proposalMessage, AppBridge.appIconMessage] {
             config.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: name)
         }
         updateBridge()
@@ -277,13 +277,13 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
     }
 
     /// The app's state the dashboard reads at document start: whether the app
-    /// opens at login, and whether the user has chosen (kept by the app, since
-    /// the dashboard's origin changes with each cold start of the daemon). The
-    /// dashboard shows its switch only when this exists.
+    /// opens at login, whether the user has chosen (kept by the app, since
+    /// the dashboard's origin changes with each cold start of the daemon), and
+    /// the Dock icon. The dashboard shows its controls only when this exists.
     fileprivate func updateBridge() {
         let content = webView.configuration.userContentController
         content.removeAllUserScripts()
-        let source = "window.\(AppBridge.global) = Object.freeze({ loginItem: \(LoginItem.isEnabled), loginItemDecided: \(LoginItem.decided) })"
+        let source = "window.\(AppBridge.global) = Object.freeze({ loginItem: \(LoginItem.isEnabled), loginItemDecided: \(LoginItem.decided), appIcon: \(jsString(AppIconStyle.current.rawValue)) })"
         content.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     }
 
@@ -300,16 +300,17 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
     }
 }
 
-/// The one capability the app gives the dashboard: turning launch at login on
-/// or off. The page posts `true` or `false` to the `loginItem` handler (the
-/// user flipped its switch) or to `loginItemProposal` (the user went on with
-/// the page's proposal, which applies only while no choice has been made, so
-/// a page loaded before a change in the menu never undoes it), and gets the
-/// resulting state back, or an error.
+/// What the app lets the dashboard change: launch at login and the Dock icon.
+/// The page posts `true` or `false` to the `loginItem` handler (the user
+/// flipped its switch) or to `loginItemProposal` (the user went on with the
+/// page's proposal, which applies only while no choice has been made, so a
+/// page loaded before a change in the menu never undoes it), or an icon style
+/// to `appIcon`, and gets the resulting state back, or an error.
 @MainActor
 private final class AppBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let loginItemMessage = "loginItem"
     static let proposalMessage = "loginItemProposal"
+    static let appIconMessage = "appIcon"
     /// The global the user script sets.
     static let global = "appBridge"
 
@@ -322,6 +323,14 @@ private final class AppBridge: NSObject, WKScriptMessageHandlerWithReply {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
                                replyHandler: @escaping @MainActor (Any?, String?) -> Void) {
         guard let owner, owner.fromDashboard(message) else { return replyHandler(nil, "not allowed") }
+        if message.name == Self.appIconMessage {
+            guard let name = message.body as? String, let style = AppIconStyle(rawValue: name) else {
+                return replyHandler(nil, "expected an icon style")
+            }
+            AppIconStyle.current = style
+            owner.updateBridge()
+            return replyHandler(AppIconStyle.current.rawValue, nil)
+        }
         // Only a JavaScript boolean: numbers arrive as NSNumber too.
         guard let body = message.body as? NSNumber, CFGetTypeID(body) == CFBooleanGetTypeID() else {
             return replyHandler(nil, "expected true or false")

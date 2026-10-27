@@ -1,12 +1,13 @@
 /**
- * What the macOS app's dashboard window offers the page: its launch-at-login setting. The window
- * sets `window.appBridge` at document start and handles the `loginItem` message; a browser has
- * neither, so `loginItem` is null there.
+ * What the macOS app's dashboard window offers the page: its launch-at-login setting and its Dock
+ * icon. The window sets `window.appBridge` at document start and handles the `loginItem`,
+ * `loginItemProposal` and `appIcon` messages; a browser has neither, so `loginItem` and `appIcon`
+ * are null there.
  */
 declare global {
   interface Window {
-    appBridge?: { loginItem?: unknown; loginItemDecided?: unknown }
-    webkit?: { messageHandlers?: Record<'loginItem' | 'loginItemProposal', { postMessage(body: boolean): Promise<unknown> } | undefined> }
+    appBridge?: { loginItem?: unknown; loginItemDecided?: unknown; appIcon?: unknown }
+    webkit?: { messageHandlers?: Partial<Record<'loginItem' | 'loginItemProposal' | 'appIcon', { postMessage(body: unknown): Promise<unknown> }>> }
   }
 }
 
@@ -33,7 +34,7 @@ function read(): LoginItem | null {
   // The page's copy, kept current after each change, so a later visit to the page shows it.
   let enabled = bridge.loginItem
   let decided = bridge.loginItemDecided === true
-  const send = async (handler: { postMessage(body: boolean): Promise<unknown> }, on: boolean) => {
+  const send = async (handler: { postMessage(body: unknown): Promise<unknown> }, on: boolean) => {
     const reply = await handler.postMessage(on)
     if (typeof reply !== 'boolean') throw new Error('unexpected reply from the app')
     enabled = reply
@@ -49,3 +50,32 @@ function read(): LoginItem | null {
 }
 
 export const loginItem = read()
+
+export const APP_ICONS = ['light', 'dark'] as const
+export type AppIconStyle = (typeof APP_ICONS)[number]
+
+const isIcon = (v: unknown): v is AppIconStyle => APP_ICONS.includes(v as AppIconStyle)
+
+interface AppIcon {
+  /** The Dock icon the app shows, as last reported by the app. */
+  current(): AppIconStyle
+  /** Switches the Dock icon and resolves with the one shown. */
+  set(style: AppIconStyle): Promise<AppIconStyle>
+}
+
+function readIcon(): AppIcon | null {
+  const handler = window.webkit?.messageHandlers?.appIcon
+  let current = window.appBridge?.appIcon
+  if (!isIcon(current) || !handler) return null
+  return {
+    current: () => current as AppIconStyle,
+    set: async (style) => {
+      const reply = await handler.postMessage(style)
+      if (!isIcon(reply)) throw new Error('unexpected reply from the app')
+      current = reply
+      return reply
+    },
+  }
+}
+
+export const appIcon = readIcon()

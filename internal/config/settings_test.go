@@ -39,7 +39,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("read settings = %+v", s)
 	}
 	want := Settings{
-		Root: "/srv", Path: []string{"~/bin", "/opt/x"}, Env: map[string]string{"KEEP": "b", "NEW": "c"},
+		Root: "/srv", Port: 7990, Path: []string{"~/bin", "/opt/x"}, Env: map[string]string{"KEEP": "b", "NEW": "c"},
 		Restore: true, Notify: false, StopTimeout: "30s", Shell: "zsh", DockerStart: "colima start",
 		OnCrash: "~/bin/report", OnUnready: "~/bin/report unready", OnRecover: "~/bin/ok",
 		UnreadyAfter: "2m", RetryAfter: "5m", MemoryLimit: "2GB", LoginEnv: false, Umask: "0007",

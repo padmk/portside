@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.2
+
+- **Settings, reorganized:** a larger window whose sections fit without scrolling in the app's window, each a few groups of rows (label and explanation on the left, control on the right): General (startup, projects folder, editor, terminal, language), Appearance (mode, a one-row palette, layout and, in the macOS app, the app icon), Servers, Events, Environment, Coding agents and Advanced. **Save** stays in the footer on every section and says when there are unsaved changes, and closing with unsaved changes asks first.
+- **Settings, new:** the dashboard's `port` can be set (empty lets the daemon choose; it applies after a daemon restart), and Advanced has the config file (edit it in the dashboard or open it in your editor), the server logs folder and **Computers** ([Settings and the server form](docs/dashboard.md#settings-and-the-server-form)).
+
 ## 0.11.1
 
 - **Every setting in the dashboard:** Settings has sections (General, Servers, Environment, Events, Docker, Coding agents) that edit the config file's top-level keys, from the projects folder, `restore` and `notify` to `path`, `env`, `login_env`, `umask`, the hook commands and `docker_start`, with one **Save**, the daemon's errors, defaults as placeholders and the daemon's version in the footer. Only `port` stays in the file. A server's form has **It's a task (runs once)** and an **Advanced** section with every other server key: `ready_log`, `ready_after`, `stop_timeout`, `retry_after`, `memory_limit`, `enabled`, `schedule`, `watch`, the hook commands, `unready_after`, `wrap`, `umask`, `lan`, `open`, `icon` and `projects`. Saves change only the keys you edited and keep your comments; a value set back to its default is removed ([Settings and the server form](docs/dashboard.md#settings-and-the-server-form)).

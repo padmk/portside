@@ -248,6 +248,8 @@ export interface Spec {
 /** The config file's top-level settings as written; '' is unset. */
 export interface Settings {
   root: string
+  /** 0 leaves the port to the daemon. */
+  port: number
   path: string[] | null
   env: Record<string, string> | null
   restore: boolean

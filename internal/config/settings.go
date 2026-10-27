@@ -14,10 +14,12 @@ import (
 )
 
 // Settings are the top-level keys the dashboard edits, as written in the
-// file: durations and sizes keep their text, and "" means unset. port,
-// share, editor and terminal have their own controls.
+// file: durations and sizes keep their text, "" means unset and a Port of 0
+// leaves the port to the daemon. share, editor and terminal have their own
+// controls.
 type Settings struct {
 	Root         string            `json:"root"`
+	Port         int               `json:"port"`
 	Path         []string          `json:"path"`
 	Env          map[string]string `json:"env"`
 	Restore      bool              `json:"restore"`
@@ -37,7 +39,7 @@ type Settings struct {
 
 // settingsOrder lists the keys of Settings in the file's spelling.
 var settingsOrder = []string{
-	"root", "path", "env", "restore", "notify", "stop_timeout", "shell", "docker_start",
+	"root", "port", "path", "env", "restore", "notify", "stop_timeout", "shell", "docker_start",
 	"on_crash", "on_unready", "on_recover", "unready_after", "retry_after", "memory_limit",
 	"login_env", "umask",
 }
@@ -59,7 +61,7 @@ func DefaultSettings(path string) Settings {
 func settingsOf(raw rawConfig) Settings {
 	orTrue := func(b *bool) bool { return b == nil || *b }
 	s := Settings{
-		Root: raw.Root, Path: raw.Path, Env: raw.Env, Restore: orTrue(raw.Restore), Notify: orTrue(raw.Notify),
+		Root: raw.Root, Port: raw.Port, Path: raw.Path, Env: raw.Env, Restore: orTrue(raw.Restore), Notify: orTrue(raw.Notify),
 		StopTimeout: durationText(raw.StopTimeout), Shell: raw.Shell, DockerStart: raw.DockerStart,
 		OnCrash: raw.OnCrash, OnUnready: raw.OnUnready, OnRecover: raw.OnRecover,
 		UnreadyAfter: durationText(raw.UnreadyAft), RetryAfter: durationText(raw.RetryAfter),
@@ -100,6 +102,9 @@ func settingLiterals(s, def Settings) map[string]string {
 		}
 	}
 	str("root", s.Root, def.Root)
+	if s.Port != def.Port {
+		out["port"] = strconv.Itoa(s.Port)
+	}
 	if len(s.Path) > 0 {
 		out["path"] = quoteList(s.Path)
 	}

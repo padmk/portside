@@ -191,7 +191,10 @@ struct MenuPanel: View {
         .frame(width: 360)
         // An opaque background keeps text readable over any wallpaper or window.
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear { launchAtLogin = LoginItem.isEnabled }
+        .onAppear {
+            launchAtLogin = LoginItem.isEnabled
+            iconStyle = AppIconStyle.current
+        }
     }
 
     // MARK: header

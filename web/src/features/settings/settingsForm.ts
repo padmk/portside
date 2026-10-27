@@ -7,13 +7,22 @@ import { envMap, envRows, type EnvRow } from '../../ui/EnvEditor'
 import { listOf, listText } from '../../ui/listText'
 import { saveConfig } from '../servers/actions'
 
-/** The top-level settings as the inputs edit them: PATH folders one per line, env as rows. */
-export type SettingsForm = Omit<Settings, 'path' | 'env'> & { path: string; env: EnvRow[] }
+/** The top-level settings as the inputs edit them: the port as text ('' when unset), PATH folders one per line, env as rows. */
+export type SettingsForm = Omit<Settings, 'port' | 'path' | 'env'> & { port: string; path: string; env: EnvRow[] }
 
-const formOf = (s: Settings): SettingsForm => ({ ...s, path: listText(s.path), env: envRows(s.env) })
+const formOf = (s: Settings): SettingsForm => ({ ...s, port: s.port ? String(s.port) : '', path: listText(s.path), env: envRows(s.env) })
+
+/** The port entered: 0 when empty, null when it is not a port number. */
+const portOf = (text: string): number | null => {
+  const v = text.trim()
+  if (!v) return 0
+  const n = /^\d+$/.test(v) ? Number(v) : NaN
+  return n >= 1 && n <= 65535 ? n : null
+}
 
 const valuesOf = (f: SettingsForm): Settings => ({
   root: f.root.trim(),
+  port: portOf(f.port) ?? 0,
   path: listOf(f.path),
   env: envMap(f.env) ?? null,
   restore: f.restore,
@@ -31,7 +40,9 @@ const valuesOf = (f: SettingsForm): Settings => ({
   umask: f.umask.trim(),
 })
 
-const same = (a: SettingsForm, b: SettingsForm) => JSON.stringify(valuesOf(a)) === JSON.stringify(valuesOf(b))
+// The port's text counts, so a value that is not a port is a change Save then refuses.
+const key = (f: SettingsForm) => JSON.stringify({ ...valuesOf(f), port: f.port.trim() })
+const same = (a: SettingsForm, b: SettingsForm) => key(a) === key(b)
 
 export type SettingsFormState = ReturnType<typeof useSettingsForm>
 
@@ -72,6 +83,10 @@ export function useSettingsForm() {
 
   const save = async () => {
     if (!view || !form) return
+    if (portOf(form.port) === null) {
+      setError(t('settings.portInvalid'))
+      return
+    }
     setSaving(true)
     setError('')
     setWarnings([])

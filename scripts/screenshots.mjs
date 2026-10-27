@@ -71,7 +71,7 @@ const containersTab = async (name) => {
   await sleep(3000)
 }
 
-// The Settings dialog (opened with the g s shortcut), scrolled to the editor and terminal pickers.
+// The Settings dialog (opened with the g s shortcut) on its General section.
 const settingsDialog = async () => {
   await open()
   await evaluate(`for (const key of ['g', 's']) document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))`)
