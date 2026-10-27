@@ -320,8 +320,10 @@ func readLines(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	text := strings.TrimRight(string(data), "\n")
-	if text == "" {
+	// writeValidated ends the text with one newline; blank lines before it
+	// stay.
+	text := strings.TrimSuffix(string(data), "\n")
+	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
 	return strings.Split(text, "\n"), nil
@@ -631,25 +633,13 @@ func RemoveServer(path, name string) error {
 // SetKey sets one key inside a server table to a TOML literal, keeping every
 // other line (and comment) of the table untouched.
 func SetKey(path, name, k, literal string) error {
-	keyRe := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(k) + `\s*=`)
 	return edit(path, func(d *doc) ([]string, error) {
-		_, head, end, ok := d.block(name)
-		if !ok {
+		if _, _, _, ok := d.block(name); !ok {
 			return nil, fmt.Errorf("server %q not found in %s", name, path)
 		}
-		lines := d.lines
-		at := end
-		for i := head + 1; i < end; i++ {
-			if d.isTable(i) {
-				at = i // keys go before any sub-table
-				break
-			}
-			if !d.cont[i] && keyRe.MatchString(lines[i]) {
-				lines[i] = k + " = " + literal
-				return lines, nil
-			}
-		}
-		return append(append(append([]string{}, lines[:at]...), k+" = "+literal), lines[at:]...), nil
+		// patchValue keeps a comment on the line and the key's spelling, and
+		// puts a new key before any sub-table.
+		return patchValue(d.lines, []string{"servers", name, k}, literal), nil
 	})
 }
 

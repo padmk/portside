@@ -424,7 +424,7 @@ func TestSetKeyBeforeSubTable(t *testing.T) {
 	if web.Port != 3100 || web.Env["port"] != "keep" || web.Env["A"] != "1" {
 		t.Errorf("web = %+v", web)
 	}
-	if got := readConfig(t, path); !strings.Contains(got, "port = 3100\n[servers.web.env]") {
+	if got := readConfig(t, path); !strings.Contains(got, "port = 3100\n\n[servers.web.env]") {
 		t.Errorf("key was not placed before the sub-table:\n%s", got)
 	}
 }
@@ -752,5 +752,50 @@ func TestProjectMappingEdits(t *testing.T) {
 	}
 	if !strings.Contains(before, "# web comment") || !strings.Contains(before, fixRest) {
 		t.Fatal("mapping edit lost neighboring comments")
+	}
+}
+
+// Toggling enabled keeps a comment on its line.
+func TestSetEnabledKeepsComment(t *testing.T) {
+	path := newConfig(t, "[servers.web]\ncmd = \"x\"\nenabled = true # paused for now\n")
+	if err := SetEnabled(path, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.web]\ncmd = \"x\"\nenabled = false # paused for now\n")
+}
+
+// An edit keeps the blank lines that end the file.
+func TestEditKeepsTrailingBlankLines(t *testing.T) {
+	path := newConfig(t, "[servers.web]\ncmd = \"old\"\n\n\n")
+	if err := SetKey(path, "web", "cmd", `"new"`); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.web]\ncmd = \"new\"\n\n\n")
+}
+
+// Keys that differ only in case set the same field, so a config with both
+// is refused instead of loading one of them at random.
+func TestCaseDuplicateKeysRefused(t *testing.T) {
+	path := newConfig(t, "[servers.web]\nCmd = \"a\"\ncmd = \"b\"\n")
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "same setting") {
+		t.Fatalf("Load = %v, want a refusal", err)
+	}
+	// Environment variables keep their case.
+	path = newConfig(t, "[servers.web]\ncmd = \"a\"\n[servers.web.env]\nPath = \"1\"\nPATH = \"2\"\n")
+	if _, err := Load(path); err != nil {
+		t.Fatalf("env keys differing in case: %v", err)
+	}
+}
+
+// A server key written in another case is edited in place, keeping its
+// spelling, instead of getting a second key that the config would refuse.
+func TestSetKeyMatchesKeyCase(t *testing.T) {
+	path := newConfig(t, "[servers.web]\ncmd = \"x\"\nEnabled = true # note\n")
+	if err := SetEnabled(path, "web", false); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, path, "[servers.web]\ncmd = \"x\"\nEnabled = false # note\n")
+	if web, _ := mustLoad(t, path).Server("web"); web.Enabled {
+		t.Error("web is still enabled")
 	}
 }

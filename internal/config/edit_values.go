@@ -99,9 +99,20 @@ func hasEnvEntries(lines []string, name string) bool {
 	return false
 }
 
+// samePath reports whether an assignment's key path is the edited one. A
+// server's own keys match in any case, as the decoder reads them (Cmd sets
+// cmd), so the edit changes the key that is there; keys below them, such as
+// env entries, keep their case.
+func samePath(have, want []string) bool {
+	if len(have) == 3 && len(want) == 3 && have[0] == "servers" && want[0] == "servers" && have[1] == want[1] {
+		return strings.EqualFold(have[2], want[2])
+	}
+	return reflect.DeepEqual(have, want)
+}
+
 func patchValue(lines []string, path []string, literal string) []string {
 	for _, a := range assignments(lines) {
-		if !reflect.DeepEqual(a.path, path) {
+		if !samePath(a.path, path) {
 			continue
 		}
 		var repl []string

@@ -275,11 +275,33 @@ func dashboardPort(port int) (int, error) {
 	return port, nil
 }
 
+// caseDuplicates refuses two settings whose keys differ only in case, such
+// as cmd and Cmd in one server's table: the decoder sets the same field from
+// both, so which one wins is not defined. Keys of maps such as env keep
+// their case and may differ in it.
+func caseDuplicates(meta toml.MetaData) error {
+	seen := map[string]string{}
+	for _, k := range meta.Keys() {
+		if len(k) != 1 && (len(k) != 3 || k[0] != "servers") {
+			continue
+		}
+		id := strings.Join(k[:len(k)-1], "\x00") + "\x00" + strings.ToLower(k[len(k)-1])
+		if prev, ok := seen[id]; ok {
+			return fmt.Errorf("%s and %s are the same setting; keep one", prev, k)
+		}
+		seen[id] = k.String()
+	}
+	return nil
+}
+
 // parse is Parse with automatic ports that also skip the ports avoid reports.
 func parse(path string, data []byte, avoid func(port int) bool) (*Config, error) {
 	var raw rawConfig
 	meta, err := toml.Decode(string(data), &raw)
 	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := caseDuplicates(meta); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg := &Config{
