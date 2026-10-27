@@ -42,6 +42,8 @@ type exitState struct {
 	Streak        int       `json:"streak,omitempty"`
 	Incident      string    `json:"incident,omitempty"`
 	IncidentSince time.Time `json:"incidentSince,omitzero"`
+	// RetryAt is when a pending retry after retry_after starts the server.
+	RetryAt time.Time `json:"retryAt,omitzero"`
 }
 
 type pidStamp struct {
@@ -101,6 +103,11 @@ func (s *Supervisor) stateLocked() persisted {
 		st.Servers[name] = exitState{
 			Status: p.status, Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt,
 			Trigger: p.trigger, Streak: p.streak, Incident: p.incident, IncidentSince: p.incidentSince,
+		}
+		if p.restartPending && !p.retryAt.IsZero() {
+			e := st.Servers[name]
+			e.RetryAt = p.retryAt
+			st.Servers[name] = e
 		}
 		if p.want {
 			st.Running = append(st.Running, name)
@@ -167,18 +174,12 @@ func (s *Supervisor) Recover(restore bool) {
 		}
 	}
 	for name, last := range st.Servers {
-		// Also for adopted servers; one that exited during the upgrade has
-		// been reported anew.
-		if p := s.procs[name]; p != nil && p.streak == 0 && p.incident == "" {
-			p.streak, p.incident, p.incidentSince = last.Streak, last.Incident, last.IncidentSince
-		}
-		if p := s.procs[name]; p != nil && p.trigger == "" {
-			p.trigger = last.Trigger
-		}
 		if p := s.procs[name]; p != nil && p.pid == 0 && !gone[name] {
 			p.exitCode, p.hasExit, p.exitedAt = last.Code, last.HasExit, last.At
 			if last.Status == Crashed || last.Status == Exited || last.Status == Blocked {
-				p.status, p.note = last.Status, last.Note
+				// A restart it announced is scheduled again below, or not at all.
+				p.status = last.Status
+				p.note, _, _ = strings.Cut(last.Note, restartingNote)
 			}
 		}
 	}
@@ -209,6 +210,20 @@ func (s *Supervisor) Recover(restore bool) {
 		}
 	}
 	s.mu.Lock()
+	// A pending retry goes on with the time it had left, after an upgrade
+	// in place, or after a crash when restore brings servers back.
+	if restore && (s.upgraded || s.cfg.Restore) {
+		for name, last := range st.Servers {
+			p := s.procs[name]
+			if last.RetryAt.IsZero() || p == nil || p.pid != 0 || gone[name] || started[name] || !p.cfg.Enabled || p.removed || !p.cfg.RetriesAfterGivingUp() {
+				continue
+			}
+			started[name] = true
+			p.want = true
+			s.scheduleRetryLocked(p, time.Now(), last.RetryAt)
+			s.changedLocked()
+		}
+	}
 	restore = restore && s.cfg.Restore
 	s.mu.Unlock()
 	if restore {
@@ -232,6 +247,18 @@ func (s *Supervisor) Recover(restore bool) {
 	s.mu.Unlock()
 	for _, name := range removed {
 		go func() { _ = s.Stop(name) }()
+	}
+}
+
+// restoreHistoryLocked brings back what the hooks knew about each server
+// before this daemon started: the trigger of its round of runs, its crash
+// streak and the problem a hook reported, so reports from an upgrade or a
+// restart on continue them.
+func (s *Supervisor) restoreHistoryLocked(saved map[string]exitState) {
+	for name, last := range saved {
+		if p := s.procs[name]; p != nil {
+			p.trigger, p.streak, p.incident, p.incidentSince = last.Trigger, last.Streak, last.Incident, last.IncidentSince
+		}
 	}
 }
 

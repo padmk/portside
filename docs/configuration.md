@@ -119,7 +119,7 @@ Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 | `stop_timeout` | How long to wait after `Ctrl-C` before `SIGTERM` (`SIGKILL` follows 3 s later); the top-level `stop_timeout` by default. |
 | `on_crash`, `on_unready`, `on_recover` | Commands for this server instead of the top-level ones; `""` runs none for it ([Hook commands](#hook-commands)). |
 | `unready_after` | This server's wait before `on_unready`, instead of the top-level one. |
-| `retry_after` | This server's wait before it is started again after giving up, instead of the top-level one; `"0s"` turns retries off for it. Each retry gets another 5 restarts, until the server runs or you stop it. Without `on-failure` or `always` it has no effect (a warning). |
+| `retry_after` | This server's wait before it is started again after giving up, instead of the top-level one; `"0s"` turns retries off for it. Each retry gets another 5 restarts, until the server runs or you stop it; a pending retry keeps its time across a daemon upgrade in place. Without `on-failure` or `always` it has no effect (a warning). |
 | `umask` | This server's file mode creation mask, instead of the top-level one ([File permissions](#file-permissions)). |
 | `enabled` | `false` leaves the server out of `--all` and restore; it can still be started by name or group. |
 | `icon` | Icon for the dashboard, relative to `dir` or absolute; by default a project favicon is detected. |

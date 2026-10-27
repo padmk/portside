@@ -143,7 +143,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			PID:            p.pid,
 			Listening:      p.listening,
 			RestartPending: p.restartPending,
-			Retrying:       p.restartPending && p.retrying,
+			Retrying:       p.restartPending && !p.retryAt.IsZero(),
 			ListenPorts:    append([]int(nil), p.listenPorts...),
 			External:       p.external,
 			Stale:          p.stale(s.cfg, base, volatile),

@@ -199,6 +199,9 @@ func KeepOnExec(f *os.File, keep bool) (int, error) {
 // process group and restores it as after a crash. It returns the names it
 // adopted.
 func (s *Supervisor) Adopt(hs []Handoff) []string {
+	s.mu.Lock()
+	s.upgraded = true
+	s.mu.Unlock()
 	var adopted []string
 	for _, h := range hs {
 		f, err := inheritTerminal(h)

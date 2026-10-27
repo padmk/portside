@@ -200,21 +200,25 @@ func (s *Supervisor) unreadyLocked(p *proc, now time.Time) {
 	r.uptime = now.Sub(p.startedAt)
 	if s.runHookLocked("on_unready", p.cfg.OnUnready, r) {
 		openIncidentLocked(p, eventUnready, p.missingSince)
+		s.saveLocked()
 	}
 }
 
 // readyLocked notes that p is ready: its crash streak ends, and a problem a
 // hook reported is over, which on_recover reports.
 func (s *Supervisor) readyLocked(p *proc, now time.Time) {
-	p.streak = 0
-	if p.incident == "" {
+	if p.streak == 0 && p.incident == "" {
 		return
 	}
-	r := reportLocked(p, eventRecovered)
-	r.uptime = now.Sub(p.startedAt)
-	r.from, r.downtime = p.incident, now.Sub(p.incidentSince)
-	p.incident, p.incidentSince = "", time.Time{}
-	s.runHookLocked("on_recover", p.cfg.OnRecover, r)
+	p.streak = 0
+	if p.incident != "" {
+		r := reportLocked(p, eventRecovered)
+		r.uptime = now.Sub(p.startedAt)
+		r.from, r.downtime = p.incident, now.Sub(p.incidentSince)
+		p.incident, p.incidentSince = "", time.Time{}
+		s.runHookLocked("on_recover", p.cfg.OnRecover, r)
+	}
+	s.saveLocked()
 }
 
 // runHook runs the command of hook key with sh in the home directory and

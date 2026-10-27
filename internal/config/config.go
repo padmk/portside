@@ -132,6 +132,12 @@ type Server struct {
 	Umask string
 }
 
+// RetriesAfterGivingUp reports whether s is started again after its
+// automatic restarts gave up or its start failed.
+func (s Server) RetriesAfterGivingUp() bool {
+	return s.RetryAfter > 0 && s.Restart != RestartNo
+}
+
 // DefaultUnreadyAfter is how long a running server must go without
 // answering before OnUnready runs, unless unready_after says otherwise.
 const DefaultUnreadyAfter = time.Minute

@@ -60,7 +60,7 @@ type proc struct {
 	launch         *launchInputs // what runningEnv was built from; nil when unknown
 	detected       *string       // tool detection for cfg as last sampled; nil before the first sample
 	restartPending bool
-	retrying       bool // the pending restart is a retry after retry_after
+	retryAt        time.Time // when the pending restart is a retry after retry_after, its time
 	listenPorts    []int
 	listenHost     string
 	missingSince   time.Time
@@ -173,6 +173,9 @@ type Supervisor struct {
 	// Recover reads both.
 	handoffExited   map[string]bool
 	handoffRestarts []string
+	// upgraded says this daemon took over from an upgrade in place, which
+	// keeps pending retries whatever restore says.
+	upgraded bool
 }
 
 // AddDesktopClient registers a client that notifies the user itself and
@@ -204,6 +207,7 @@ func New(cfg *config.Config, stateDir string) *Supervisor {
 	s.applyLocked(cfg)
 	s.previous = s.load()
 	s.restoreTemporaryLocked(s.previous.Temporary)
+	s.restoreHistoryLocked(s.previous.Servers)
 	return s
 }
 
@@ -356,6 +360,16 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 			cols:   defaultCols,
 			rows:   defaultRows,
 		}
+	}
+	cancelled := false
+	for _, p := range s.procs {
+		if p.restartPending && !p.retryAt.IsZero() && !p.cfg.RetriesAfterGivingUp() {
+			cancelRetryLocked(p)
+			cancelled = true
+		}
+	}
+	if cancelled {
+		s.saveLocked()
 	}
 	var removed []string
 	for name, p := range s.procs {
@@ -821,7 +835,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			restartIn = s.backoffLocked(p, uptime)
 		}
 	}
-	p.restartPending, p.retrying = restartIn > 0, false
+	p.restartPending, p.retryAt = restartIn > 0, time.Time{}
 	if p.status == Crashed || p.status == Exited {
 		// Down for good: a crash nothing restarts, or restart = "always"
 		// gave up on a server meant to keep running.
@@ -872,16 +886,34 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		return
 	}
 	if restartIn > 0 {
-		time.AfterFunc(restartIn, func() {
-			s.mu.Lock()
-			ok := p.gen == gen && p.startSeq == token && p.restartPending && p.want && !p.alive() && !s.closing
-			name := p.cfg.Name
-			s.mu.Unlock()
-			if ok {
-				_ = s.startOne(name, StartOptions{}, token)
+		s.afterLocked(restartIn, func() func() {
+			if p.gen != gen || p.startSeq != token || !p.restartPending || !p.want || p.alive() || s.closing {
+				return nil
 			}
+			name := p.cfg.Name
+			return func() { _ = s.startOne(name, StartOptions{}, token) }
 		})
 	}
+}
+
+// afterLocked calls f under the lock after d, then runs what f returns once
+// the lock is released. While an upgrade in place is under way, f waits for
+// it to replace this process or fail, so a failed upgrade keeps a pending
+// restart.
+func (s *Supervisor) afterLocked(d time.Duration, f func() func()) {
+	time.AfterFunc(d, func() {
+		s.mu.Lock()
+		if s.closing && s.handoff {
+			s.mu.Unlock()
+			s.afterLocked(time.Second, f)
+			return
+		}
+		next := f()
+		s.mu.Unlock()
+		if next != nil {
+			next()
+		}
+	})
 }
 
 // isClosed reports whether ch has been closed.
@@ -899,28 +931,42 @@ func isClosed(ch chan struct{}) bool {
 // would keep it running; it reports whether a retry is due. A start or stop
 // meanwhile cancels it.
 func (s *Supervisor) retryLocked(p *proc) bool {
-	after := p.cfg.RetryAfter
-	if after <= 0 || p.cfg.Restart == config.RestartNo || !p.want || p.removed || s.closing {
+	if !p.cfg.RetriesAfterGivingUp() || !p.want || p.removed || s.closing {
 		return false
 	}
-	p.restartPending, p.retrying = true, true
-	p.note += restartingNote + after.String()
-	token := p.startSeq
-	time.AfterFunc(after, func() {
-		s.mu.Lock()
-		name := p.cfg.Name
-		ok := s.procs[name] == p && p.startSeq == token && p.restartPending && p.want && p.pid == 0 && !p.alive() && !p.removed && !s.closing
-		var deps []string
-		if ok {
-			p.retries = 0
-			deps = s.cfg.WithDeps(p.cfg.DependsOn)
-		}
-		s.mu.Unlock()
-		if ok {
-			_ = s.launch(name, deps, StartOptions{trigger: triggerRetry}, token)
-		}
-	})
+	now := time.Now()
+	s.scheduleRetryLocked(p, now, now.Add(p.cfg.RetryAfter))
 	return true
+}
+
+// scheduleRetryLocked starts p again at the time at, with a fresh round of
+// automatic restarts. A start or stop meanwhile cancels it, and so does a
+// config that no longer asks for retries.
+func (s *Supervisor) scheduleRetryLocked(p *proc, now, at time.Time) {
+	p.restartPending, p.retryAt = true, at
+	left := max(at.Sub(now), 0)
+	if left > time.Second {
+		left = left.Round(time.Second)
+	}
+	p.note, _, _ = strings.Cut(p.note, restartingNote)
+	p.note += restartingNote + left.String()
+	token := p.startSeq
+	s.afterLocked(left, func() func() {
+		name := p.cfg.Name
+		if s.procs[name] != p || p.startSeq != token || !p.restartPending || !p.retryAt.Equal(at) || !p.want || p.pid != 0 || p.alive() || p.removed || s.closing {
+			return nil
+		}
+		p.retries = 0
+		deps := s.cfg.WithDeps(p.cfg.DependsOn)
+		return func() { _ = s.launch(name, deps, StartOptions{trigger: triggerRetry}, token) }
+	})
+}
+
+// cancelRetryLocked drops p's pending retry, leaving it down.
+func cancelRetryLocked(p *proc) {
+	p.restartPending, p.retryAt = false, time.Time{}
+	p.note, _, _ = strings.Cut(p.note, restartingNote)
+	p.want = false
 }
 
 // restartingNote starts the part of a note that announces an automatic restart.
