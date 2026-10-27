@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **`watch`:** a server with many watched files is scanned less often instead of costing more, about 2 % of one core at most for all servers together, and a large tree slows only its own server; a change among 20,000 files takes a few seconds to notice ([Periodic checks](docs/how-it-works.md#periodic-checks)). `**` also skips `venv`.
-- **`portside check`** counts a task as healthy while it runs, so a long scheduled task no longer fails a monitor's check; a task you name must still be done.
+- **`portside check`** counts a task as healthy while its process runs (not while it waits for its dependencies), so a long scheduled task no longer fails a monitor's check; a task you name must still be done.
 - **Fixed:** a stop asked for while the daemon upgrades in place (about a second) is refused with a message to try again, instead of being lost or counted as a crash by the new daemon. Two servers that need the same task, started at once, no longer run it twice.
 
 ## 0.10.0
