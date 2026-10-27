@@ -69,17 +69,25 @@ func (s scope) servers(views []supervisor.View) map[string]bool {
 	return in
 }
 
-// owns reports whether a container belongs to a server in scope.
-func owns(in map[string]bool, c docker.Container) bool {
-	return slices.ContainsFunc(c.Servers(), func(n string) bool { return in[n] })
+// owns reports whether a container belongs to a server in scope (in) by
+// an assignment the scope can trust: the server's configured `projects`, or
+// a Compose working directory inside the scope.
+func (s scope) owns(in map[string]bool, c docker.Container) bool {
+	return server.TrustedOwner(c, func(n string) bool { return in[n] }, s.holds)
 }
 
-// visible narrows a container's view to the servers in scope.
+// visible narrows a container's view to the servers in scope, so the names
+// of servers outside it are not shown.
 func visible(in map[string]bool, c Container) Container {
 	keep := func(names []string) []string {
 		return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return !in[n] })
 	}
-	c.Shared, c.IssueFor = keep(c.Shared), keep(c.IssueFor)
+	names := keep(append([]string{c.Server}, c.Shared...))
+	c.Server, c.Shared = "", nil
+	if len(names) > 0 {
+		c.Server, c.Shared = names[0], names[1:]
+	}
+	c.IssueFor = keep(c.IssueFor)
 	return c
 }
 
@@ -186,7 +194,7 @@ func (t *tools) checkContainer(ctx context.Context, g target, ref string) error 
 	}
 	in := t.scope.servers(st.Servers)
 	for _, c := range st.Docker.Containers {
-		if (c.ID == ref || c.Name == ref) && owns(in, c) {
+		if (c.ID == ref || c.Name == ref) && t.scope.owns(in, c) {
 			return nil
 		}
 	}
@@ -194,9 +202,13 @@ func (t *tools) checkContainer(ctx context.Context, g target, ref string) error 
 }
 
 // listener reports whether a listener is in scope: it belongs to a server
-// or a container of one in scope, or its process works in the scope.
-func (s scope) listener(in map[string]bool, l server.ListenerView) bool {
-	if in[l.Server] || (l.Container != nil && in[l.Container.Server]) {
+// in scope or to a container one of them owns (by name among containers,
+// through owns), or its process works in the scope.
+func (s scope) listener(in map[string]bool, containers []docker.Container, l server.ListenerView) bool {
+	if in[l.Server] {
+		return true
+	}
+	if l.Container != nil && slices.ContainsFunc(containers, func(c docker.Container) bool { return c.Name == l.Container.Name && s.owns(in, c) }) {
 		return true
 	}
 	return s.holds(l.Cwd)

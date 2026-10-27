@@ -88,6 +88,9 @@ type Container struct {
 	Server string `json:"server,omitempty"`
 	// SharedWith are the other servers that use this container.
 	SharedWith []string `json:"sharedWith,omitempty"`
+	// OwnedBy is the rule that gave the container its servers; the HTTP
+	// layer fills it in with Server.
+	OwnedBy Ownership `json:"ownedBy,omitempty"`
 	// IssueFor are the servers this container needs attention for; the
 	// HTTP layer decides.
 	IssueFor []string `json:"issueFor,omitempty"`
@@ -96,6 +99,21 @@ type Container struct {
 	configFiles []string
 	envFiles    []string
 }
+
+// Ownership names the rule that attached a container to its servers.
+type Ownership string
+
+const (
+	// OwnedByProject: its Compose project (or local CLI project ID) is in
+	// the servers' configured `projects`.
+	OwnedByProject Ownership = "project"
+	// OwnedByDir: its Compose working directory is the servers' directory
+	// or lies under it.
+	OwnedByDir Ownership = "directory"
+	// OwnedByLocalProject: a local CLI project ID read from the project's
+	// own files, which the project can set to any value.
+	OwnedByLocalProject Ownership = "localProject"
+)
 
 // Servers are the servers that use the container: its owner first.
 func (c *Container) Servers() []string {

@@ -14,8 +14,12 @@ import (
 	"github.com/padmk/portside/internal/docker"
 )
 
-// attachContainers chooses the closest project directory, keeping servers
-// sharing that directory together. Explicit project names take precedence.
+// attachContainers chooses the owners of each container by the first rule
+// that matches: explicit project names (a Compose project or local CLI
+// project ID in a server's `projects`), then the closest Compose working
+// directory, keeping servers sharing that directory together, then a local
+// CLI project ID read from the servers' own project files. It records the
+// rule in OwnedBy.
 func attachContainers(containers []docker.Container, servers []config.Server) {
 	byDir := map[string][]string{}
 	composeDir := map[string]bool{}
@@ -42,9 +46,11 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 	}
 	for i := range containers {
 		c := &containers[i]
-		c.Server, c.SharedWith = "", nil
+		c.Server, c.SharedWith, c.OwnedBy = "", nil, ""
+		by := docker.OwnedByProject
 		names := closestFirst(byProject[c.Project], dirOf, c.WorkingDir)
 		if len(names) == 0 && c.WorkingDir != "" {
+			by = docker.OwnedByDir
 			dir := canonicalDir(c.WorkingDir)
 			for {
 				if len(byDir[dir]) > 0 {
@@ -59,12 +65,37 @@ func attachContainers(containers []docker.Container, servers []config.Server) {
 			}
 		}
 		if len(names) == 0 && c.LocalProject != "" {
-			names = closestFirst(byLocalProject[c.LocalProject], dirOf, c.WorkingDir)
+			// A local project ID named in the config belongs to the
+			// servers naming it, never to one whose project files claim it.
+			by = docker.OwnedByProject
+			names = closestFirst(byProject[c.LocalProject], dirOf, c.WorkingDir)
+			if len(names) == 0 {
+				by = docker.OwnedByLocalProject
+				names = closestFirst(byLocalProject[c.LocalProject], dirOf, c.WorkingDir)
+			}
 		}
 		if len(names) > 0 {
-			c.Server, c.SharedWith = names[0], slices.Clone(names[1:])
+			c.Server, c.SharedWith, c.OwnedBy = names[0], slices.Clone(names[1:]), by
 		}
 	}
+}
+
+// TrustedOwner reports whether c belongs to a server that in accepts by a
+// rule the projects' own files cannot forge: its project is in the
+// server's configured `projects`, or its Compose working directory is one
+// that holds accepts. A local CLI project ID read from a project file never
+// counts, since any project can claim another's ID.
+func TrustedOwner(c docker.Container, in func(server string) bool, holds func(dir string) bool) bool {
+	if !slices.ContainsFunc(c.Servers(), in) {
+		return false
+	}
+	switch c.OwnedBy {
+	case docker.OwnedByProject:
+		return true
+	case docker.OwnedByDir:
+		return c.WorkingDir != "" && holds(c.WorkingDir)
+	}
+	return false
 }
 
 // publishedBy reports whether a running container publishing port belongs

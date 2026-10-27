@@ -50,9 +50,9 @@ An event stream keeps the list current, and a stats stream per running container
 
 A container belongs to a server by the first rule that matches:
 
-1. Its Compose project is in the server's [`projects`](configuration.md#server-keys).
+1. Its Compose project, or its Supabase CLI project ID, is in the server's [`projects`](configuration.md#server-keys).
 2. Its Compose working directory (`com.docker.compose.project.working_dir`) is the server's directory or lies under it; the closest such directory wins.
-3. Its Supabase CLI project matches `project_id` in `supabase/config.toml` in the server's directory or an ancestor, up to the repository root.
+3. Its Supabase CLI project matches `project_id` in `supabase/config.toml` in the server's directory or an ancestor, up to the repository root. Since any project can name any ID there, an MCP server limited with `--dir` does not follow this rule ([Coding agents](coding-agents.md#modes-and-project-scope)).
 
 Servers matching equally share the container. In rule 2 that is every server with the same directory, led by the one running `docker compose`, then config order. In rules 1 and 3, the servers whose directory holds the container's working directory come first, the deepest first, so a temporary [worktree server](coding-agents.md#worktrees) owns the containers started from its worktree, also one nested in the original checkout.
 

@@ -120,6 +120,50 @@ func TestLocalProjectOwner(t *testing.T) {
 	}
 }
 
+// A project file claiming another project's local CLI project ID shares
+// that project's stack on the dashboard, but never gives the trusted
+// ownership a scoped session follows; an ID named in a server's `projects`
+// belongs to that server alone.
+func TestLocalProjectClaims(t *testing.T) {
+	root := t.TempDir()
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	for _, dir := range []string{a, b} {
+		for _, sub := range []string{".git", "supabase"} {
+			if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "supabase", "config.toml"), []byte(`project_id = "b"`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all := func(string) bool { return true }
+	onlyA := func(n string) bool { return n == "a" }
+
+	containers := []docker.Container{{Name: "supabase_db_b", LocalProject: "b"}}
+	attachContainers(containers, []config.Server{{Name: "a", Dir: a}, {Name: "b", Dir: b}})
+	c := containers[0]
+	if !slices.Equal(c.Servers(), []string{"a", "b"}) || c.OwnedBy != docker.OwnedByLocalProject {
+		t.Fatalf("claimed by both project files: %v by %q", c.Servers(), c.OwnedBy)
+	}
+	if TrustedOwner(c, onlyA, all) {
+		t.Error("a project file's ID gave trusted ownership")
+	}
+
+	attachContainers(containers, []config.Server{{Name: "a", Dir: a}, {Name: "b", Dir: b, Projects: []string{"b"}}})
+	c = containers[0]
+	if !slices.Equal(c.Servers(), []string{"b"}) || c.OwnedBy != docker.OwnedByProject || TrustedOwner(c, onlyA, all) || !TrustedOwner(c, func(n string) bool { return n == "b" }, all) {
+		t.Errorf("configured project: %v by %q", c.Servers(), c.OwnedBy)
+	}
+
+	containers = []docker.Container{{Name: "a-db", WorkingDir: a}}
+	attachContainers(containers, []config.Server{{Name: "a", Dir: a}})
+	c = containers[0]
+	if c.OwnedBy != docker.OwnedByDir || !TrustedOwner(c, onlyA, func(d string) bool { return d == a }) || TrustedOwner(c, onlyA, func(string) bool { return false }) {
+		t.Errorf("working directory: %v by %q", c.Servers(), c.OwnedBy)
+	}
+}
+
 type containerTestHost struct{ endpoint string }
 
 func (h containerTestHost) Environ() []string    { return []string{"DOCKER_HOST=" + h.endpoint} }
