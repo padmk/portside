@@ -235,7 +235,8 @@ func (s *Supervisor) Recover(restore bool) {
 			}
 			s.mu.Lock()
 			p, ok := s.procs[name]
-			enabled := ok && p.cfg.Enabled && !p.removed
+			// A restart or retry already pending keeps its time.
+			enabled := ok && p.cfg.Enabled && !p.removed && !p.restartPending
 			s.mu.Unlock()
 			if enabled {
 				_ = s.Start(name, StartOptions{trigger: triggerRestore})

@@ -361,16 +361,6 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 			rows:   defaultRows,
 		}
 	}
-	cancelled := false
-	for _, p := range s.procs {
-		if p.restartPending && !p.retryAt.IsZero() && !p.cfg.RetriesAfterGivingUp() {
-			cancelRetryLocked(p)
-			cancelled = true
-		}
-	}
-	if cancelled {
-		s.saveLocked()
-	}
 	var removed []string
 	for name, p := range s.procs {
 		if keep[name] || (p.temp != nil && !p.removed && s.updateTemporaryLocked(p)) {
@@ -383,6 +373,17 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 			p.logs.Close()
 			delete(s.procs, name)
 		}
+	}
+	// After temporary copies took their origin's new settings.
+	cancelled := false
+	for _, p := range s.procs {
+		if p.restartPending && !p.retryAt.IsZero() && !p.cfg.RetriesAfterGivingUp() {
+			cancelRetryLocked(p)
+			cancelled = true
+		}
+	}
+	if cancelled {
+		s.saveLocked()
 	}
 	s.reorderLocked()
 	return removed
@@ -931,7 +932,9 @@ func isClosed(ch chan struct{}) bool {
 // would keep it running; it reports whether a retry is due. A start or stop
 // meanwhile cancels it.
 func (s *Supervisor) retryLocked(p *proc) bool {
-	if !p.cfg.RetriesAfterGivingUp() || !p.want || p.removed || s.closing {
+	// During an upgrade in place the retry waits for it to end (afterLocked):
+	// a failed upgrade must keep it.
+	if !p.cfg.RetriesAfterGivingUp() || !p.want || p.removed || (s.closing && !s.handoff) {
 		return false
 	}
 	now := time.Now()
