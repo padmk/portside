@@ -335,7 +335,9 @@ func TestServerUmask(t *testing.T) {
 // login_env = false gives servers the daemon's own environment, not the
 // login shell's.
 func TestOwnEnvironment(t *testing.T) {
-	s := lifecycleSupervisor(t, `printf '%s' "$ONLY_IN_LOGIN_SHELL" > seen; sleep 60`, config.RestartNo)
+	// Written in one rename, so the test never reads a file the shell has
+	// created but printf not yet written.
+	s := lifecycleSupervisor(t, `printf '%s' "$ONLY_IN_LOGIN_SHELL" > seen.tmp && mv seen.tmp seen; sleep 60`, config.RestartNo)
 	s.env.mu.Lock()
 	s.env.env = append(os.Environ(), "ONLY_IN_LOGIN_SHELL=yes")
 	s.env.mu.Unlock()
