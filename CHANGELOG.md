@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 - **Hook commands:** `on_unready` runs when a running server has not answered on its port or `health` path for `unready_after` (a minute unless set), and `on_recover` when a server that `on_crash` or `on_unready` reported is ready again, with `PORTSIDE_RECOVERED_FROM` and `PORTSIDE_DOWNTIME`. Like `on_crash`, both are set at the top level or per server, and one script can tell the events apart by `PORTSIDE_EVENT`.
 - **Crash command:** `PORTSIDE_STREAK` counts the crashes for good in a row without the server being ready in between, so a monitor that starts failed servers again can report each problem once, and `PORTSIDE_TRIGGER` says what began the run (`start` or `restore`). The streak and an open problem survive daemon restarts and upgrades.
