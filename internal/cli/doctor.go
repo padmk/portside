@@ -160,7 +160,7 @@ func cmdDoctor(e *env, args []string) error {
 		}
 		doctorCrashReports(cfg, pid, ok, warn)
 	}
-	doctorShell(e, ok, warn)
+	doctorShell(e, cfg != nil && cfg.OwnEnv, ok, warn)
 	doctorAgents(e, *fix, ok, warn, bad)
 	if problems == 0 {
 		fmt.Fprintln(e.out, "\nEverything looks good.")
@@ -173,14 +173,12 @@ func cmdDoctor(e *env, args []string) error {
 // Linux whether desktop notifications can be shown at all, by the daemon
 // with pid when it runs.
 func doctorCrashReports(cfg *config.Config, pid int, ok, warn func(string, ...any)) {
-	hooked := 0
-	for _, s := range cfg.Servers {
-		if s.OnCrash != "" {
-			hooked++
-		}
-	}
+	hooked := countServers(cfg, func(s config.Server) bool { return s.OnCrash != "" })
 	if hooked > 0 {
 		ok("on_crash reports crashes of %d of %d servers", hooked, len(cfg.Servers))
+	}
+	if unready := countServers(cfg, func(s config.Server) bool { return s.OnUnready != "" }); unready > 0 {
+		ok("on_unready reports servers that stop answering, for %d of %d servers", unready, len(cfg.Servers))
 	}
 	if runtime.GOOS != "linux" || !cfg.Notify || hooked == len(cfg.Servers) {
 		return
@@ -196,9 +194,25 @@ func doctorCrashReports(cfg *config.Config, pid int, ok, warn func(string, ...an
 	}
 }
 
+// countServers counts the servers in cfg that match.
+func countServers(cfg *config.Config, match func(config.Server) bool) int {
+	n := 0
+	for _, s := range cfg.Servers {
+		if match(s) {
+			n++
+		}
+	}
+	return n
+}
+
 // doctorShell reports how servers get their environment: which shell was
-// read, whether directly or through bash or zsh, and the PATH it gave.
-func doctorShell(e *env, ok, warn func(string, ...any)) {
+// read, whether directly or through bash or zsh, and the PATH it gave; with
+// login_env = false (own), the daemon's own environment.
+func doctorShell(e *env, own bool, ok, warn func(string, ...any)) {
+	if own {
+		ok("servers get the daemon's own environment (login_env = false), with path and env from the config")
+		return
+	}
 	r, _ := supervisor.ReadLoginShell()
 	sh := paths.ShortenHome(r.Shell)
 	switch {

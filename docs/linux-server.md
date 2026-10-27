@@ -15,14 +15,18 @@ portside doctor                     # check the setup
 
 Portside needs `ps` and either `lsof` or `ss` (iproute2, installed on most distributions); `portside daemon logs` uses `tail` or, under systemd, `journalctl`. Desktop notifications need `notify-send` and a desktop session; without one, use `on_crash` instead (below). Docker or Podman is optional too; for rootless Docker, set a Docker context or `DOCKER_HOST` in your login shell ([Containers](containers.md)). How the service runs without a login session is in [How it works](how-it-works.md#on-linux).
 
-After an update, run `portside daemon restart` with the new binary: it upgrades the daemon in place and servers keep running ([Upgrades in place](how-it-works.md#upgrades-in-place)).
+## Restarting the daemon
+
+Restart the daemon with `portside daemon restart`, also after an update: it replaces the daemon in place, and servers keep running and keep their output ([Upgrades in place](how-it-works.md#upgrades-in-place)). `systemctl --user restart portside` instead stops the daemon and every server with it, then starts them again (`restore`), so they are down for a moment; use it only when the daemon does not answer. `systemctl --user stop portside` stops every server too, and they come back at its next start.
 
 ## Servers that stay up
 
 Give each server a restart policy, `health` when it serves HTTP, and `ready_log` when it only becomes ready after it prints something:
 
 ```toml
-on_crash = "~/bin/report-crash"     # see below
+on_crash = "~/bin/report"           # see below
+on_unready = "~/bin/report"
+on_recover = "~/bin/report"
 
 [servers.api]
 dir = "apps/api"
@@ -41,9 +45,19 @@ restart = "always"
 
 A crashed server is started again with backoff, up to 5 restarts in a row ([Server keys](configuration.md#server-keys) has the delays), and running servers come back after a reboot (`restore`, on by default). systemd restarts the daemon itself if it crashes, so do not also run these apps as systemd units of their own.
 
-## Crash reports
+## A predictable environment
 
-Desktop notifications need a desktop. On a server, set `on_crash`: it runs your command once a server has crashed for good, with the server, exit code, note and last log lines in `PORTSIDE_*` variables ([Crash command](configuration.md#crash-command)). When the command itself fails, `portside daemon logs` says so.
+Servers get the environment of your login shell, so a change to your rc files reaches them at their next start. For an environment that only the config decides, set `login_env = false`: servers then get the systemd service's environment plus `path` and `env` ([Environment](configuration.md#environment)). Files servers create get the service's umask, `0022`, readable by other accounts on the server; set `umask = "0007"` or `"0077"` to keep them to you ([File permissions](configuration.md#file-permissions)).
+
+```toml
+login_env = false
+umask = "0007"
+path = ["~/.local/bin"]             # where uv and other tools are
+```
+
+## Crash and health reports
+
+Desktop notifications need a desktop. On a server, set `on_crash`, `on_unready` and `on_recover`: they run your command once a server has crashed for good, when a running one has not answered for a minute (`unready_after`), and when either is ready again, with the details in `PORTSIDE_*` variables ([Hook commands](configuration.md#hook-commands)). A timer that starts failed servers again gets one `crashed` report per failure; `PORTSIDE_STREAK` counts them, so report only the first. When a command itself fails, `portside daemon logs` says so.
 
 A crash of the daemon itself is systemd's to report: `systemctl --user status portside`. While systemd runs the daemon, its output is in the user journal, which `portside daemon logs` reads then.
 

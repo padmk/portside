@@ -36,6 +36,12 @@ type exitState struct {
 	Code    int       `json:"exitCode"`
 	HasExit bool      `json:"hasExit"`
 	At      time.Time `json:"exitedAt"`
+	// What hooks have reported, so a restart or an upgrade neither repeats
+	// nor forgets it.
+	Trigger       string    `json:"trigger,omitempty"`
+	Streak        int       `json:"streak,omitempty"`
+	Incident      string    `json:"incident,omitempty"`
+	IncidentSince time.Time `json:"incidentSince,omitzero"`
 }
 
 type pidStamp struct {
@@ -92,7 +98,10 @@ func (s *Supervisor) stateLocked() persisted {
 		if p == nil {
 			continue
 		}
-		st.Servers[name] = exitState{Status: p.status, Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt}
+		st.Servers[name] = exitState{
+			Status: p.status, Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt,
+			Trigger: p.trigger, Streak: p.streak, Incident: p.incident, IncidentSince: p.incidentSince,
+		}
 		if p.want {
 			st.Running = append(st.Running, name)
 		}
@@ -158,6 +167,14 @@ func (s *Supervisor) Recover(restore bool) {
 		}
 	}
 	for name, last := range st.Servers {
+		// Also for adopted servers; one that exited during the upgrade has
+		// been reported anew.
+		if p := s.procs[name]; p != nil && p.streak == 0 && p.incident == "" {
+			p.streak, p.incident, p.incidentSince = last.Streak, last.Incident, last.IncidentSince
+		}
+		if p := s.procs[name]; p != nil && p.trigger == "" {
+			p.trigger = last.Trigger
+		}
 		if p := s.procs[name]; p != nil && p.pid == 0 && !gone[name] {
 			p.exitCode, p.hasExit, p.exitedAt = last.Code, last.HasExit, last.At
 			if last.Status == Crashed || last.Status == Exited || last.Status == Blocked {
@@ -188,7 +205,7 @@ func (s *Supervisor) Recover(restore bool) {
 	if restore {
 		for _, name := range exited {
 			started[name] = true
-			_ = s.Start(name, StartOptions{})
+			_ = s.start(name, StartOptions{}) // the round its restarts belong to goes on
 		}
 	}
 	s.mu.Lock()
@@ -206,7 +223,7 @@ func (s *Supervisor) Recover(restore bool) {
 			enabled := ok && p.cfg.Enabled && !p.removed
 			s.mu.Unlock()
 			if enabled {
-				_ = s.Start(name, StartOptions{})
+				_ = s.Start(name, StartOptions{trigger: triggerRestore})
 			}
 		}
 	}

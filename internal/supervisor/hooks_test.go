@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -145,9 +146,9 @@ func TestCrashHookBackgroundProcessHoldsOutput(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("perl not found")
 	}
-	old := crashHookTimeout
-	crashHookTimeout = 500 * time.Millisecond
-	t.Cleanup(func() { crashHookTimeout = old })
+	old := hookTimeout
+	hookTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { hookTimeout = old })
 	for _, tail := range []string{"exit 0", "sleep 10"} {
 		pidFile := filepath.Join(t.TempDir(), "pid")
 		// The background process leaves the command's process group and
@@ -162,13 +163,174 @@ func TestCrashHookBackgroundProcessHoldsOutput(t *testing.T) {
 		})
 		finished := make(chan struct{})
 		go func() {
-			runCrashHook(command, os.Environ(), "web")
+			runHook("on_crash", command, os.Environ(), "web")
 			close(finished)
 		}()
 		select {
 		case <-finished:
 		case <-time.After(10 * time.Second):
 			t.Fatalf("%s: the crash command never finished", tail)
+		}
+	}
+}
+
+// eventHook sets command key of server web to append the event, trigger,
+// streak and what it recovered from to the returned file.
+func eventHook(t *testing.T, s *Supervisor, set func(p *proc, command string)) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "events")
+	command := fmt.Sprintf(`printf '%%s|%%s|%%s|%%s\n' "$%s" "$%s" "$%s" "$%s" >> %s`,
+		app.Env("EVENT"), app.Env("TRIGGER"), app.Env("STREAK"), app.Env("RECOVERED_FROM"), out)
+	s.mu.Lock()
+	set(s.procs["web"], command)
+	s.mu.Unlock()
+	return out
+}
+
+// waitCalls waits up to d for n calls in out and returns all of them.
+func waitCalls(t *testing.T, out string, n int, d time.Duration) []string {
+	t.Helper()
+	var calls []string
+	for deadline := time.Now().Add(d); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if data, err := os.ReadFile(out); err == nil {
+			if calls = strings.Split(strings.TrimSpace(string(data)), "\n"); len(calls) >= n {
+				return calls
+			}
+		}
+	}
+	t.Fatalf("calls = %q, want %d", calls, n)
+	return nil
+}
+
+// Failed starts in a row count up until the server is ready, which
+// on_recover reports, and a crash after that starts a new streak.
+func TestCrashStreakAndRecovery(t *testing.T) {
+	s := lifecycleSupervisor(t, "exit 3", config.RestartNo)
+	out := eventHook(t, s, func(p *proc, c string) {
+		p.cfg.OnCrash, p.cfg.OnRecover, p.cfg.ReadyAfter = c, c, 100*time.Millisecond
+	})
+	for range 2 {
+		if err := s.Start("web", StartOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(700 * time.Millisecond)
+	}
+	s.mu.Lock()
+	s.procs["web"].cfg.Cmd = "sleep 60"
+	s.mu.Unlock()
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitCalls(t, out, 3, 5*time.Second)
+	if err := s.Stop("web"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.procs["web"].cfg.Cmd = "exit 3"
+	s.mu.Unlock()
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	calls := waitCalls(t, out, 4, 5*time.Second)
+	want := []string{"crashed|start|1|", "crashed|start|2|", "recovered|start||crashed", "crashed|start|1|"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("calls = %q, want %q", calls, want)
+	}
+}
+
+// A running server that stops answering is reported once after
+// unready_after, and its recovery once.
+func TestUnreadyAndRecoveryReportedOnce(t *testing.T) {
+	s := lifecycleSupervisor(t, "sleep 60", config.RestartNo)
+	if err := s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	out := eventHook(t, s, func(p *proc, c string) {
+		p.cfg.OnUnready, p.cfg.OnRecover, p.cfg.UnreadyAfter = c, c, 30*time.Second
+	})
+	s.mu.Lock()
+	p := s.procs["web"]
+	p.status = Running
+	lost := time.Now()
+	for _, at := range []time.Duration{0, 29 * time.Second, 30 * time.Second, time.Minute} {
+		s.updateReadinessLocked(p, false, "", "health /healthz answers 503", nil, false, lost.Add(at))
+	}
+	s.mu.Unlock()
+	waitCalls(t, out, 1, 5*time.Second)
+	s.mu.Lock()
+	s.updateReadinessLocked(p, true, "127.0.0.1", "", nil, false, lost.Add(2*time.Minute))
+	s.updateReadinessLocked(p, true, "127.0.0.1", "", nil, false, lost.Add(3*time.Minute))
+	s.mu.Unlock()
+	calls := hookCalls(t, out, 5*time.Second)
+	if want := []string{"unready|start||", "recovered|start||unready"}; !slices.Equal(calls, want) {
+		t.Fatalf("calls = %q, want %q", calls, want)
+	}
+}
+
+// umask sets the mode of files the server creates; without it the server
+// keeps the daemon's.
+func TestServerUmask(t *testing.T) {
+	s := lifecycleSupervisor(t, "touch made; sleep 60", config.RestartNo)
+	for _, tc := range []struct {
+		umask string
+		mode  os.FileMode
+	}{{"0077", 0o600}, {"027", 0o640}} {
+		s.mu.Lock()
+		p := s.procs["web"]
+		p.cfg.Umask = tc.umask
+		file := filepath.Join(p.cfg.Dir, "made")
+		s.mu.Unlock()
+		_ = os.Remove(file)
+		if err := s.Start("web", StartOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		var st os.FileInfo
+		var err error
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if st, err = os.Stat(file); err == nil {
+				break
+			}
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != tc.mode {
+			t.Fatalf("umask %s: mode %v, want %v", tc.umask, st.Mode().Perm(), tc.mode)
+		}
+		if err := s.Stop("web"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// login_env = false gives servers the daemon's own environment, not the
+// login shell's.
+func TestOwnEnvironment(t *testing.T) {
+	s := lifecycleSupervisor(t, `printf '%s' "$ONLY_IN_LOGIN_SHELL" > seen; sleep 60`, config.RestartNo)
+	s.env.mu.Lock()
+	s.env.env = append(os.Environ(), "ONLY_IN_LOGIN_SHELL=yes")
+	s.env.mu.Unlock()
+	file := filepath.Join(s.procs["web"].cfg.Dir, "seen")
+	for _, own := range []bool{false, true} {
+		cfg := *s.cfg
+		cfg.OwnEnv = own
+		s.Apply(&cfg)
+		_ = os.Remove(file)
+		if err := s.Start("web", StartOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		var data []byte
+		var err error
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if data, err = os.ReadFile(file); err == nil {
+				break
+			}
+		}
+		if want := map[bool]string{false: "yes", true: ""}[own]; err != nil || string(data) != want {
+			t.Fatalf("own %v: server saw %q (%v), want %q", own, data, err, want)
+		}
+		if err := s.Stop("web"); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

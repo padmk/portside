@@ -133,3 +133,12 @@ func launchEnv(base []string, sv config.Server, prepend []string, global map[str
 	}
 	return mergeEnv(base, over)
 }
+
+// umaskScript sets the server's umask (checked at load to be octal digits)
+// in its shell, before anything else runs; "" keeps the daemon's.
+func umaskScript(umask string) string {
+	if umask == "" {
+		return ""
+	}
+	return "umask " + umask + "\n"
+}

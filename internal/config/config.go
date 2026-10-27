@@ -116,7 +116,23 @@ type Server struct {
 	// ReadyAfter is how long the process must have run before it counts as
 	// running; 0 means the default (immediately with a port, 1.5 s without).
 	ReadyAfter time.Duration
+	// OnUnready runs once a running server has not answered for
+	// UnreadyAfter (0 means DefaultUnreadyAfter), and OnRecover once a server that OnCrash or OnUnready
+	// reported is ready again; like OnCrash, the server's own or the
+	// top-level one, "" for none.
+	OnUnready    string
+	OnRecover    string
+	UnreadyAfter time.Duration
+	// Umask, when set, is the file mode creation mask the command runs
+	// with, as octal digits such as "0007"; "" keeps the daemon's.
+	Umask string
 }
+
+// DefaultUnreadyAfter is how long a running server must go without
+// answering before OnUnready runs, unless unready_after says otherwise.
+const DefaultUnreadyAfter = time.Minute
+
+var umaskRe = regexp.MustCompile(`^0?[0-7]{3}$`)
 
 // IsComposeCommand reports whether a server's command runs a compose stack.
 func IsComposeCommand(cmd string) bool {
@@ -154,7 +170,10 @@ type Config struct {
 	// means the engine behind the active Docker context is detected.
 	DockerStart string
 	// Share lets the owner's other devices on Tailscale connect to this daemon.
-	Share   bool
+	Share bool
+	// OwnEnv gives servers the daemon's own environment instead of the
+	// account's login-shell environment (login_env = false).
+	OwnEnv  bool
 	Servers []Server
 	// Warnings are non-fatal problems such as duplicate ports.
 	Warnings []string
@@ -226,6 +245,10 @@ type rawServer struct {
 	OnCrash     *string           `toml:"on_crash"`
 	ReadyLog    string            `toml:"ready_log"`
 	ReadyAfter  *Duration         `toml:"ready_after"`
+	OnUnready   *string           `toml:"on_unready"`
+	OnRecover   *string           `toml:"on_recover"`
+	UnreadyAft  *Duration         `toml:"unready_after"`
+	Umask       *string           `toml:"umask"`
 }
 
 type rawConfig struct {
@@ -242,6 +265,11 @@ type rawConfig struct {
 	DockerStart string               `toml:"docker_start"`
 	Share       bool                 `toml:"share"`
 	OnCrash     string               `toml:"on_crash"`
+	OnUnready   string               `toml:"on_unready"`
+	OnRecover   string               `toml:"on_recover"`
+	UnreadyAft  *Duration            `toml:"unready_after"`
+	Umask       string               `toml:"umask"`
+	LoginEnv    *bool                `toml:"login_env"`
 	Servers     map[string]rawServer `toml:"servers"`
 }
 
@@ -317,6 +345,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		StopTimeout: 10 * time.Second,
 		DockerStart: strings.TrimSpace(raw.DockerStart),
 		Share:       raw.Share,
+		OwnEnv:      raw.LoginEnv != nil && !*raw.LoginEnv,
 	}
 	if cfg.Root == "" {
 		cfg.Root = filepath.Dir(path)
@@ -336,6 +365,14 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 	}
 	for _, p := range raw.Path {
 		cfg.PathPrepend = append(cfg.PathPrepend, paths.ExpandHome(p))
+	}
+	unreadyAfter, err := positive("unready_after", raw.UnreadyAft, DefaultUnreadyAfter)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	umask, err := checkUmask(raw.Umask)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		var keys []string
@@ -386,10 +423,18 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 			Stop:      cfg.StopTimeout,
 			Enabled:   r.Enabled == nil || *r.Enabled,
 			LAN:       r.LAN,
-			OnCrash:   strings.TrimSpace(raw.OnCrash),
+			OnCrash:   orGlobal(r.OnCrash, raw.OnCrash),
+			OnUnready: orGlobal(r.OnUnready, raw.OnUnready),
+			OnRecover: orGlobal(r.OnRecover, raw.OnRecover),
 		}
-		if r.OnCrash != nil {
-			s.OnCrash = strings.TrimSpace(*r.OnCrash)
+		if s.UnreadyAfter, err = positive("unready_after", r.UnreadyAft, unreadyAfter); err != nil {
+			return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
+		}
+		s.Umask = umask
+		if r.Umask != nil {
+			if s.Umask, err = checkUmask(*r.Umask); err != nil {
+				return nil, fmt.Errorf("%s: [servers.%s]: %w", path, name, err)
+			}
 		}
 		if r.ReadyLog != "" {
 			if _, err := regexp.Compile(r.ReadyLog); err != nil {
@@ -475,6 +520,44 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// orGlobal is a server's hook command: its own when set, even to "", else
+// the top-level one.
+func orGlobal(own *string, global string) string {
+	if own != nil {
+		return strings.TrimSpace(*own)
+	}
+	return strings.TrimSpace(global)
+}
+
+// nonNegative returns a duration setting, def when it is not set.
+func nonNegative(key string, d *Duration, def time.Duration) (time.Duration, error) {
+	if d == nil {
+		return def, nil
+	}
+	if d.Duration < 0 {
+		return 0, fmt.Errorf("%s must not be negative", key)
+	}
+	return d.Duration, nil
+}
+
+// positive returns a duration setting that must be above zero, def when it
+// is not set.
+func positive(key string, d *Duration, def time.Duration) (time.Duration, error) {
+	if d != nil && d.Duration <= 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
+	}
+	return nonNegative(key, d, def)
+}
+
+// checkUmask accepts "" or three or four octal digits, such as "0007".
+func checkUmask(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if v != "" && !umaskRe.MatchString(v) {
+		return "", fmt.Errorf("umask must be octal digits such as \"0007\", not %q", v)
+	}
+	return v, nil
 }
 
 func checkDeps(cfg *Config) error {

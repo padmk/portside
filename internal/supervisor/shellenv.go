@@ -35,6 +35,16 @@ type shellEnv struct {
 	probing  bool // the second read runs; volatile keys are not known yet
 	fetched  time.Time
 	read     ShellRead
+	// own gives servers the daemon's own environment instead
+	// (login_env = false).
+	own bool
+}
+
+// setOwn chooses between the daemon's own environment and the login shell's.
+func (s *shellEnv) setOwn(own bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.own = own
 }
 
 const envMarker = "__ENV_BEGIN__"
@@ -45,6 +55,9 @@ const envMarker = "__ENV_BEGIN__"
 func (s *shellEnv) cached() ([]string, map[string]bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.own {
+		return os.Environ(), nil
+	}
 	if s.probing {
 		return nil, nil
 	}
@@ -54,6 +67,9 @@ func (s *shellEnv) cached() ([]string, map[string]bool) {
 func (s *shellEnv) get() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.own {
+		return os.Environ()
+	}
 	if s.env != nil && time.Since(s.fetched) < shellEnvTTL {
 		return s.env
 	}

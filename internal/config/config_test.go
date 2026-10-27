@@ -193,6 +193,52 @@ on_crash = ""
 	}
 }
 
+// Server settings for unattended machines: the top level sets defaults
+// that a server's own keys replace, and login_env is top-level only.
+func TestParseServerOperations(t *testing.T) {
+	text := `login_env = false
+umask = "0007"
+on_unready = "page-me"
+on_recover = "all-clear"
+unready_after = "2m"
+[servers.web]
+cmd = "x"
+restart = "on-failure"
+[servers.api]
+cmd = "x"
+restart = "always"
+umask = "077"
+on_unready = ""
+unready_after = "30s"
+`
+	cfg, err := Parse("/tmp/portside.toml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OwnEnv || len(cfg.Warnings) != 0 {
+		t.Fatalf("OwnEnv %v, warnings %v", cfg.OwnEnv, cfg.Warnings)
+	}
+	web, _ := cfg.Server("web")
+	api, _ := cfg.Server("api")
+	if web.Umask != "0007" || web.OnUnready != "page-me" || web.OnRecover != "all-clear" || web.UnreadyAfter != 2*time.Minute {
+		t.Errorf("web inherits: %+v", web)
+	}
+	if api.Umask != "077" || api.OnUnready != "" || api.OnRecover != "all-clear" || api.UnreadyAfter != 30*time.Second {
+		t.Errorf("api overrides: %+v", api)
+	}
+	if cfg, err := Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n")); err != nil || cfg.OwnEnv || cfg.Servers[0].UnreadyAfter != DefaultUnreadyAfter || cfg.Servers[0].Umask != "" {
+		t.Errorf("defaults: %+v, %v", cfg, err)
+	}
+	for _, bad := range []string{`umask = "7"`, `umask = "0008"`, `umask = "u=rwx"`, `unready_after = "0s"`} {
+		if _, err := Parse("/tmp/portside.toml", []byte(bad+"\n[servers.web]\ncmd = \"x\"\n")); err == nil {
+			t.Errorf("%s loaded", bad)
+		}
+		if _, err := Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n"+bad+"\n")); err == nil {
+			t.Errorf("server %s loaded", bad)
+		}
+	}
+}
+
 func TestParseReadiness(t *testing.T) {
 	cfg, err := Parse("/tmp/portside.toml", []byte("[servers.worker]\ncmd = \"x\"\nport = 0\nready_log = \"Worker ready\"\nready_after = \"10s\"\n"))
 	if err != nil {

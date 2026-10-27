@@ -41,7 +41,11 @@ root = "~/dev"                      # base for relative dirs
 # terminal = "Terminal"             # app (macOS) or command for "Open in Terminal"
 # docker_start = "colima start"     # how "Start Docker" starts the engine; detected by default
 # share = false                     # let your other devices on Tailscale connect (see other-computers.md)
-# on_crash = "~/bin/report-crash"   # run when a server crashes for good (see Crash command)
+# on_crash = "~/bin/report"         # run when a server crashes for good (see Hook commands)
+# on_unready = "~/bin/report"       # run when a running server stops answering
+# on_recover = "~/bin/report"       # run when a server reported by either is ready again
+# login_env = true                  # false: servers get the daemon's own environment
+# umask = "0007"                    # mode mask for files servers create; the daemon's by default
 
 [servers.shop-web]
 dir = "shop/apps/web"
@@ -80,7 +84,7 @@ stop_timeout = "30s"
 | --- | --- |
 | `root` | Base for relative server `dir`s. A relative `root` is relative to the config file's folder, which is also the default. |
 | `port` | The daemon's port for the dashboard, API and `*.localhost` proxy. Without it, 7878 or a fallback ([The daemon's port](#the-daemons-port)). No server may use it. |
-| `path` | Folders put in front of `PATH` for every server, the crash command and the tools Portside runs for you ([Environment](#environment)). |
+| `path` | Folders put in front of `PATH` for every server, the hook commands and the tools Portside runs for you ([Environment](#environment)). |
 | `env` | Environment variables for every server; a server's own `env` wins. `{PORT}` works in values. |
 | `restore` | `true` (default) starts the servers that were running when the daemon stopped, such as after a reboot. |
 | `notify` | `true` (default) shows desktop notifications for crashes, container problems, and devices pairing or connecting ([Other computers](other-computers.md)). |
@@ -89,7 +93,11 @@ stop_timeout = "30s"
 | `editor`, `terminal` | What **Open in editor** and **Open in Terminal** use ([Editor, terminal, shell and Docker](#editor-terminal-shell-and-docker)). |
 | `docker_start` | Command **Start Docker** runs; without it, the engine behind the active Docker context is started. |
 | `share` | `true` lets your other devices on Tailscale connect ([Other computers](other-computers.md)). Default `false`. |
-| `on_crash` | Command run when a server crashes for good ([Crash command](#crash-command)). |
+| `on_crash` | Command run when a server crashes for good ([Hook commands](#hook-commands)). |
+| `on_unready`, `on_recover` | Commands run when a running server stops answering, and when a server one of the hooks reported is ready again ([Hook commands](#hook-commands)). |
+| `unready_after` | How long a running server must go without answering before `on_unready` runs, `"1m"` unless set. |
+| `login_env` | `true` (default) gives servers the environment of your login shell, `false` the daemon's own ([Environment](#environment)). |
+| `umask` | File mode creation mask for every server, such as `"0007"`; without it servers get the daemon's ([File permissions](#file-permissions)). |
 
 Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 
@@ -108,7 +116,9 @@ Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 | `ready_after` | How long the process must run before it counts as running, such as `"10s"`; without it, a server with a port counts as soon as the port answers, and one without a port after 1.5 s. |
 | `env` | Extra environment variables. `{PORT}` works in values. The dashboard hides secret-looking values until revealed. |
 | `stop_timeout` | How long to wait after `Ctrl-C` before `SIGTERM` (`SIGKILL` follows 3 s later); the top-level `stop_timeout` by default. |
-| `on_crash` | Command run when this server crashes for good, instead of the top-level `on_crash`; `""` runs none for it ([Crash command](#crash-command)). |
+| `on_crash`, `on_unready`, `on_recover` | Commands for this server instead of the top-level ones; `""` runs none for it ([Hook commands](#hook-commands)). |
+| `unready_after` | This server's wait before `on_unready`, instead of the top-level one. |
+| `umask` | This server's file mode creation mask, instead of the top-level one ([File permissions](#file-permissions)). |
 | `enabled` | `false` leaves the server out of `--all` and restore; it can still be started by name or group. |
 | `icon` | Icon for the dashboard, relative to `dir` or absolute; by default a project favicon is detected. |
 | `open` | Path appended to the URL when opening the server, such as `/admin`. |
@@ -118,18 +128,23 @@ Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 
 Server names are lowercase letters, digits and dashes (at most 63 characters, not starting or ending with a dash), because they double as `<name>.localhost` hostnames. `portside` and names of the form `d-` followed by 24 hexadecimal digits are reserved for the dashboard; an existing entry named `portside` loads with a warning. Renaming a running server in the dashboard keeps its process and output.
 
-## Crash command
+## Hook commands
 
-`on_crash` runs a command when a server has crashed and will not be restarted automatically:
+Three commands report what happens to servers, also when desktop notifications are off or the app is open, so a server without a desktop can report to your monitoring:
 
-- with `restart = "no"`, at the first crash;
-- with `on-failure` or `always`, after the last automatic restart, and with `always` also for a server that keeps exiting with code 0;
-- when the server cannot start, for example because its directory is missing, another program holds its port or a dependency failed.
+- `on_crash` runs when a server has crashed and will not be restarted automatically:
+  - with `restart = "no"`, at the first crash;
+  - with `on-failure` or `always`, after the last automatic restart, and with `always` also for a server that keeps exiting with code 0;
+  - when the server cannot start, for example because its directory is missing, another program holds its port or a dependency failed.
+- `on_unready` runs when a running server has not answered on its port or `health` path for `unready_after` (a minute unless set), once until it answers again. The dashboard shows such a server as [not responding](dashboard.md#server-states) after 4 seconds; the longer wait keeps a hot reload or a short stall from being reported.
+- `on_recover` runs when a server that `on_crash` or `on_unready` reported is ready again: restarted by you, an agent or your monitoring, or answering again.
 
-It runs once per crash, also when desktop notifications are off or the app is open, so a server without a desktop can report crashes to your monitoring. A server's own `on_crash` replaces the top-level one:
+Each runs once per event. Set at the top level, a command applies to every server; a server's own replaces it, and `""` turns it off for that server. One script can handle all three by `PORTSIDE_EVENT`:
 
 ```toml
-on_crash = "~/bin/report-crash"     # every server
+on_crash = "~/bin/report"           # every server
+on_unready = "~/bin/report"
+on_recover = "~/bin/report"
 
 [servers.worker]
 cmd = "pnpm worker"
@@ -139,30 +154,39 @@ on_crash = ""                       # except this one
 
 ```sh
 #!/bin/sh
-# ~/bin/report-crash: post the crash to a Slack or Mattermost webhook ({"text": ...};
+# ~/bin/report: post the event to a Slack or Mattermost webhook ({"text": ...};
 # Discord takes {"content": ...}). jq builds the JSON, so quotes in the note are safe;
 # --retry rides out a short outage of the webhook. The URL holds a secret, so it
 # stays in a curl config file only you can read (chmod 600) with one line,
 # url = "https://hooks.example.com/...", out of the config and of the process list.
-jq -n --arg text "$PORTSIDE_SERVER on $(hostname): $PORTSIDE_NOTE" '{text: $text}' |
+
+# A server that keeps failing, also when a timer starts it again, is reported once.
+[ "$PORTSIDE_EVENT" = crashed ] && [ "$PORTSIDE_STREAK" -gt 1 ] && exit 0
+jq -n --arg text "$PORTSIDE_SERVER on $(hostname): $PORTSIDE_EVENT, $PORTSIDE_NOTE" '{text: $text}' |
   curl -fsS --retry 3 --retry-all-errors -H 'Content-Type: application/json' --data-binary @- \
-    -K ~/.config/report-crash/curlrc
+    -K ~/.config/report/curlrc
 ```
 
-The command runs with `sh -c` in your home directory. Its environment is what servers get from your login shell, `path` and the top-level `env` (without the server's own `env`), plus these variables; the crash details never appear in its command line:
+The command runs with `sh -c` in your home directory. Its environment is the servers' base environment (your login shell's, or the daemon's own with `login_env = false`), `path` and the top-level `env` (without the server's own `env`), plus these variables; the details never appear in its command line:
 
 | Variable | Value |
 | --- | --- |
-| `PORTSIDE_EVENT` | `crashed` |
+| `PORTSIDE_EVENT` | `crashed`, `unready` or `recovered`. |
 | `PORTSIDE_SERVER`, `PORTSIDE_GROUP` | The server's name and group (empty without one). |
-| `PORTSIDE_EXIT_CODE` | The exit code; empty when the server could not start. |
-| `PORTSIDE_UPTIME` | Seconds the last run lasted. |
-| `PORTSIDE_RESTARTS` | Automatic restarts before it gave up, `0` with `restart = "no"`. |
-| `PORTSIDE_NOTE` | The note `portside status` shows, such as `exited with code 2; gave up after 5 restarts`. |
+| `PORTSIDE_TRIGGER` | What began the server's current round of runs, which its automatic restarts continue: `start` (by you, a tool, an agent, or a server that depends on it) or `restore` (the daemon brought it back when it started). |
+| `PORTSIDE_STREAK` | For `crashed`: how many times in a row the server has crashed for good without being ready in between, `1` for the first. Empty for other events. |
+| `PORTSIDE_EXIT_CODE` | For `crashed`: the exit code, empty when the server could not start. Empty for other events. |
+| `PORTSIDE_UPTIME` | Seconds the last run lasted, or the current run has lasted so far. |
+| `PORTSIDE_RESTARTS` | Automatic restarts in the current round; for `crashed`, before it gave up (`0` with `restart = "no"`). |
+| `PORTSIDE_RECOVERED_FROM` | For `recovered`: the last problem reported, `crashed` or `unready`. |
+| `PORTSIDE_DOWNTIME` | For `recovered`: seconds since that problem began (the first crash reported, or when the server stopped answering). |
+| `PORTSIDE_NOTE` | The note `portside status` shows, such as `exited with code 2; gave up after 5 restarts` or `health /healthz answers 503`. |
 | `PORTSIDE_LOG_TAIL` | The last 20 non-empty lines of the log (at most 8 KiB, without colors), with the start and exit lines Portside writes there. Output can hold secrets, so treat it as you treat the logs. |
 | `PORTSIDE_LOG_FILE` | The server's full log file. |
 
-The daemon does not wait for the command and runs at most four at once. One still running after 30 seconds is stopped, and a background process it leaves holding its output does not keep it running; either result is in the daemon log (`portside daemon logs`). Delivery is best effort: a failed command is not retried, and a report is lost when the daemon stops while it runs, so let your monitoring also check the daemon itself ([Linux server](linux-server.md#reading-state-from-scripts)). `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but no notification can be shown (no `notify-send`, or a daemon without a display), because a crash would then notify no one.
+The streak and a problem not yet recovered from are kept in the state directory, so restarting or upgrading the daemon neither repeats nor forgets them.
+
+The daemon does not wait for the commands and runs at most four at once. One still running after 30 seconds is stopped, and a background process it leaves holding its output does not keep it running; either result is in the daemon log (`portside daemon logs`). Delivery is best effort: a failed command is not retried, and a report is lost when the daemon stops while it runs, so let your monitoring also check the daemon itself ([Linux server](linux-server.md#reading-state-from-scripts)). `portside doctor` shows how many servers have `on_crash` and `on_unready`, and on Linux warns when `notify` is on but no notification can be shown (no `notify-send`, or a daemon without a display), because a crash would then notify no one.
 
 ## Editor, terminal, shell and Docker
 
@@ -185,13 +209,19 @@ launchd and systemd often start the daemon with a bare environment, so it reads 
 
 `portside doctor` shows which shell was read, how, and the resulting `PATH`.
 
+`login_env = false` skips the login shell: servers get the daemon's own environment, which on Linux is what the systemd user service sets, the same however your rc files change. Put what servers need there in `path` and `env`; tools that only your rc files put on `PATH` (such as nvm or fnm) are then not found.
+
 A server's environment is that login-shell environment, with `path` in front of `PATH`, then the top-level `env` and the server's `env`. Portside adds `PORT` (unless the port is `0`), `FORCE_COLOR=1`, `TERM=xterm-256color` and `COLORTERM=truecolor`; commands detected as Compose stacks also get `COMPOSE_MENU=false`, which keeps interactive Compose menus out of their logs.
 
-Running servers are marked stale until restarted when the login-shell environment, the top-level `env`, `path`, `shell`, a server's `env` or `wrap`, or the tool a server would start under (such as a new `.envrc`) changes. Values that differ on every shell start do not count:
+Running servers are marked stale until restarted when the login-shell environment (or `login_env`), the top-level `env`, `path`, `shell`, a server's `env`, `wrap` or `umask`, or the tool a server would start under (such as a new `.envrc`) changes. Values that differ on every shell start do not count:
 
 - variables that changed between the first two reads;
 - per-session variables of terminals and tools, such as `FNM_*`, `ATUIN_*`, `__MISE_*`, `KITTY_*`, `TERM_SESSION_ID` or a temporary `SSH_AUTH_SOCK`;
 - fnm's per-shell `PATH` entries.
+
+### File permissions
+
+Files a server creates get the daemon's umask, which launchd and systemd set to `0022` unless told otherwise, so other accounts on the machine can read them. On a machine shared with other accounts, set `umask = "0007"` (your group may read and write) or `"0077"` (only you) at the top level or for a server. Portside runs `umask` in the server's shell before its command, so the `shell` must support it, as sh, bash, zsh and fish do. Files Portside writes itself are readable only by your account whatever this says ([Security](security.md#trust)).
 
 ## Version managers
 

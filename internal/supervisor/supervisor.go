@@ -82,26 +82,33 @@ type proc struct {
 	// ending is closed once the latest Stop or Shutdown has ended the whole
 	// process group, which can outlive the leader; nil before the first
 	// (see Supervisor.endings).
-	ending    chan struct{}
-	want      bool // the user wants this server running
-	startSeq  int  // bumped by every Start and Stop; a launch proceeds only with the latest
-	retries   int
-	gen       int // increments on every start; stale goroutines compare it
-	done      chan struct{}
-	copied    chan struct{} // closed when all PTY output has been read
-	reader    *outputReader // copies the terminal into logs
-	logs      *LogBuffer
-	hist      history
-	cpu       float64
-	mem       int64
-	listening bool
-	exposure  ports.Exposure // where the live listeners can be reached from; "" until read
-	kind      string         // the tool the live command starts, read with a network exposure (discover.CommandKind)
-	external  *ports.Listener
-	cols      uint16
-	rows      uint16
-	removed   bool
-	temp      *temporary // set for a temporary copy of a configured server
+	ending   chan struct{}
+	want     bool // the user wants this server running
+	startSeq int  // bumped by every Start and Stop; a launch proceeds only with the latest
+	retries  int
+	trigger  string // what began the latest round of runs and automatic restarts (triggerStart and others)
+	// streak counts crash reports in a row without the server ready in
+	// between; incident is the event of a problem a hook reported that has
+	// not ended (see readyLocked), and incidentSince when that began.
+	streak        int
+	incident      string
+	incidentSince time.Time
+	gen           int // increments on every start; stale goroutines compare it
+	done          chan struct{}
+	copied        chan struct{} // closed when all PTY output has been read
+	reader        *outputReader // copies the terminal into logs
+	logs          *LogBuffer
+	hist          history
+	cpu           float64
+	mem           int64
+	listening     bool
+	exposure      ports.Exposure // where the live listeners can be reached from; "" until read
+	kind          string         // the tool the live command starts, read with a network exposure (discover.CommandKind)
+	external      *ports.Listener
+	cols          uint16
+	rows          uint16
+	removed       bool
+	temp          *temporary // set for a temporary copy of a configured server
 }
 
 // Supervisor owns all managed processes.
@@ -326,6 +333,7 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 
 func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	s.cfg = cfg
+	s.env.setOwn(cfg.OwnEnv)
 	keep := map[string]bool{}
 	for _, sv := range cfg.Servers {
 		keep[sv.Name] = true
@@ -374,7 +382,7 @@ func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool
 		return false
 	}
 	a, b := p.running, p.cfg
-	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || a.Wrap != b.Wrap || p.runningShell != cfg.Shell {
+	if a.Cmd != b.Cmd || a.Dir != b.Dir || a.Port != b.Port || a.Health != b.Health || a.Wrap != b.Wrap || a.Umask != b.Umask || p.runningShell != cfg.Shell {
 		return true
 	}
 	if l := p.launch; l != nil {
@@ -401,11 +409,22 @@ func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool
 type StartOptions struct {
 	// Takeover stops a foreign process holding the port before starting.
 	Takeover bool
+	// trigger is what asks for the start; "" (an automatic restart) keeps
+	// the one that began the round.
+	trigger string
 }
 
 // Start launches a server and, first, every server it depends on. It returns
 // once the launch has been initiated; readiness is reported through status.
 func (s *Supervisor) Start(name string, opt StartOptions) error {
+	if opt.trigger == "" {
+		opt.trigger = triggerStart
+	}
+	return s.start(name, opt)
+}
+
+// start is Start with opt.trigger as given.
+func (s *Supervisor) start(name string, opt StartOptions) error {
 	s.mu.Lock()
 	cfg := s.cfg
 	p, ok := s.procs[name]
@@ -449,6 +468,9 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 	if p := s.procs[name]; p != nil && p.pid == 0 && p.startSeq == token {
 		p.status = Starting
 		p.note = "waiting for " + strings.Join(deps, ", ")
+		if opt.trigger != "" {
+			p.trigger = opt.trigger
+		}
 		s.changedLocked()
 	}
 	s.mu.Unlock()
@@ -459,7 +481,7 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 			if !s.current(name, token) {
 				return
 			}
-			if err := s.startOne(d, StartOptions{}, s.reserve(d)); err != nil {
+			if err := s.startOne(d, StartOptions{trigger: triggerStart}, s.reserve(d)); err != nil {
 				s.failStart(name, token, fmt.Sprintf("dependency %s failed: %v", d, err))
 				return
 			}
@@ -509,12 +531,12 @@ func (s *Supervisor) failStart(name string, token int, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if p, ok := s.procs[name]; ok && p.pid == 0 && p.startSeq == token && p.want {
-		reported := p.status == Crashed || p.status == Blocked // startOne itself failed and reported it
+		if p.status == Crashed || p.status == Blocked {
+			return // startOne itself failed and reported it
+		}
 		p.status = Crashed
 		p.note = msg
-		if !reported {
-			s.reportCrashLocked(p, nil, 0)
-		}
+		s.reportCrashLocked(p, nil, 0)
 		s.saveLocked()
 		s.changedLocked()
 	}
@@ -537,6 +559,9 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		return nil
 	}
 	p.restartPending = false
+	if opt.trigger != "" {
+		p.trigger = opt.trigger
+	}
 	if ending := s.endingLocked(name); ending != nil {
 		// The leader has exited, but a Stop is still ending the rest of its
 		// group (also one of a server of this name removed and added again),
@@ -623,7 +648,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	shellPath := lookPath(shell, lookupEnv(env, "PATH"))
 	script := strings.ReplaceAll(sv.Cmd, "{PORT}", strconv.Itoa(sv.Port))
 	tool, choice := projectTools(sv, env, shellPath, keptKeys(sv, globalEnv))
-	argv := append(slices.Clone(tool.prefix), shellPath, "-c", tool.script+script)
+	argv := append(slices.Clone(tool.prefix), shellPath, "-c", umaskScript(sv.Umask)+tool.script+script)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = sv.Dir
 	cmd.Env = mergeEnv(env, tool.env)
@@ -839,7 +864,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		return
 	}
 	if again {
-		_ = s.launch(name, deps, StartOptions{}, token)
+		_ = s.launch(name, deps, StartOptions{trigger: triggerStart}, token)
 		return
 	}
 	if restartIn > 0 {

@@ -160,6 +160,7 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 			p.status, p.readyAt = Running, now
 			s.requestExposureLocked()
 		}
+		s.readyLocked(p, now)
 	} else {
 		if inspect {
 			p.listenPorts = listenPorts
@@ -174,6 +175,7 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 					p.note = fmt.Sprintf("not listening on :%d", p.running.Port)
 				}
 			}
+			s.unreadyLocked(p, now)
 		} else if now.Sub(p.startedAt) >= readinessNoteDelay {
 			p.note = reason
 			if len(p.listenPorts) > 0 && strings.HasPrefix(reason, "waiting for port ") {

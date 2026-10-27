@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Hook commands:** `on_unready` runs when a running server has not answered on its port or `health` path for `unready_after` (a minute unless set), and `on_recover` when a server that `on_crash` or `on_unready` reported is ready again, with `PORTSIDE_RECOVERED_FROM` and `PORTSIDE_DOWNTIME`. Like `on_crash`, both are set at the top level or per server, and one script can tell the events apart by `PORTSIDE_EVENT`.
+- **Crash command:** `PORTSIDE_STREAK` counts the crashes for good in a row without the server being ready in between, so a monitor that starts failed servers again can report each problem once, and `PORTSIDE_TRIGGER` says what began the run (`start` or `restore`). The streak and an open problem survive daemon restarts and upgrades.
+- **`umask`** (top level or per server) sets the mode mask for the files a server creates, such as `"0007"`; without it servers keep the daemon's, which launchd and systemd set to `0022`, readable by other accounts.
+- **`login_env = false`** gives servers the daemon's own environment plus `path` and `env` instead of the login shell's, for servers whose environment the config alone should decide. `portside doctor` says which one servers get.
+- **Docs:** the Linux server guide explains that `systemctl --user restart portside` stops every server, while `portside daemon restart` keeps them running.
+
 ## 0.8.0
 
 - **MCP `--dir` scope:** a container counts as a scoped server's only through the server's `projects` in the config or a Compose working directory inside the scope, so a project's `supabase/config.toml` naming another project's ID no longer exposes that project's containers; a Supabase CLI project ID listed in a server's `projects` belongs to that server alone, also on the dashboard. Containers and `list_ports` no longer name a server outside the scope, and `ensure_server` refuses a `dir` outside it.
