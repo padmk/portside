@@ -17,7 +17,7 @@ import (
 )
 
 // Temporary servers run a configured server's command in another checkout
-// (a git worktree or clone of the same repository). They are kept in state
+// (a registered git worktree of the same repository). They are kept in state
 // only, never written to the config file, and named <origin>--<worktree>.
 
 // temporary describes a temporary server; it is persisted in the state file.
@@ -37,12 +37,34 @@ const TemporarySeparator = "--"
 // that no longer exists.
 const PruneInterval = 10 * time.Second
 
-// checkout is a git working tree: its top directory and the git directory
-// shared by every worktree of the repository.
-type checkout struct{ top, common string }
+// checkout is a git working tree: its top directory, its own git
+// directory and the git directory shared by every worktree of the
+// repository.
+type checkout struct{ top, gitDir, common string }
+
+// registered reports whether the checkout is one of the repository's own
+// worktrees: the main one, whose git directory is the shared one in its top
+// directory, or a linked one, whose git directory is an entry in
+// <common>/worktrees whose gitdir file points back to the checkout. A
+// directory whose hand-written .git file merely points into the repository
+// is neither.
+func (c checkout) registered() bool {
+	if c.gitDir == c.common {
+		return realDir(filepath.Dir(c.common)) == c.top
+	}
+	if filepath.Dir(c.gitDir) != filepath.Join(c.common, "worktrees") {
+		return false
+	}
+	back, err := os.ReadFile(filepath.Join(c.gitDir, "gitdir"))
+	if err != nil {
+		return false
+	}
+	link := filepath.Clean(strings.TrimSpace(string(back)))
+	return filepath.Base(link) == ".git" && realDir(filepath.Dir(link)) == c.top
+}
 
 func gitCheckout(git, dir string) (checkout, error) {
-	cmd := exec.Command(git, "-C", dir, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+	cmd := exec.Command(git, "-C", dir, "rev-parse", "--path-format=absolute", "--show-toplevel", "--absolute-git-dir", "--git-common-dir")
 	// Repository variables of the daemon's own environment must not
 	// redirect the lookup.
 	for _, kv := range os.Environ() {
@@ -59,10 +81,10 @@ func gitCheckout(git, dir string) (checkout, error) {
 		return checkout{}, err
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) != 2 {
+	if len(lines) != 3 {
 		return checkout{}, fmt.Errorf("unexpected git output for %s", dir)
 	}
-	return checkout{top: realDir(lines[0]), common: realDir(lines[1])}, nil
+	return checkout{top: realDir(lines[0]), gitDir: realDir(lines[1]), common: realDir(lines[2])}, nil
 }
 
 // realDir resolves symlinks (on macOS /tmp is /private/tmp), so paths from
@@ -170,7 +192,7 @@ func (s *Supervisor) ForCheckout(name, dir string) (string, error) {
 	if want.top == orig.top {
 		return name, nil
 	}
-	if want.common != orig.common {
+	if want.common != orig.common || !want.registered() {
 		return "", fmt.Errorf("%s is not a worktree of the repository %s runs from (%s); only its linked git worktrees can run a copy", paths.ShortenHome(want.top), name, paths.ShortenHome(orig.top))
 	}
 	rel := "."

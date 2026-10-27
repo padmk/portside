@@ -153,6 +153,29 @@ func TestForCheckoutRejectsOtherRepository(t *testing.T) {
 	}
 }
 
+// A directory whose own .git file points into the repository, at its git
+// directory or at another worktree's entry, is not a registered worktree
+// and runs no copy; the main checkout of a server in a linked worktree does.
+func TestForCheckoutRequiresRegisteredWorktree(t *testing.T) {
+	main, wt := repoWithWorktree(t)
+	s := New(worktreeConfig(main), t.TempDir())
+	for _, target := range []string{filepath.Join(main, ".git"), filepath.Join(main, ".git", "worktrees", filepath.Base(wt))} {
+		fake := realDir(t.TempDir())
+		if err := os.WriteFile(filepath.Join(fake, ".git"), []byte("gitdir: "+target+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if name, err := s.ForCheckout("web", fake); err == nil || !strings.Contains(err.Error(), "not a worktree of the repository") {
+			t.Errorf(".git pointing at %s: %q, %v", target, name, err)
+		}
+	}
+
+	cfg := worktreeConfig(wt)
+	s = New(cfg, t.TempDir())
+	if name, err := s.ForCheckout("web", main); err != nil || name == "web" {
+		t.Errorf("main checkout of a server in a linked worktree: %q, %v", name, err)
+	}
+}
+
 func TestTemporaryServersPersistAndGo(t *testing.T) {
 	main, wt := repoWithWorktree(t)
 	cfg := worktreeConfig(main)
