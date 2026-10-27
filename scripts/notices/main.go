@@ -304,8 +304,8 @@ func repoURL(raw json.RawMessage) string {
 	}
 	s = strings.TrimPrefix(s, "git+")
 	s = strings.TrimSuffix(s, ".git")
-	if strings.HasPrefix(s, "git://") {
-		s = "https://" + strings.TrimPrefix(s, "git://")
+	if after, ok := strings.CutPrefix(s, "git://"); ok {
+		s = "https://" + after
 	}
 	if strings.HasPrefix(s, "github:") || !strings.Contains(s, ":") && strings.Count(s, "/") == 1 {
 		s = "https://github.com/" + strings.TrimPrefix(s, "github:")
@@ -350,7 +350,7 @@ func licensed(name, version, id, source, dir string) (entry, error) {
 
 // accepted are the licenses detect recognizes, which a declared license
 // must also be.
-var accepted = []string{"Apache-2.0", "MPL-2.0", "OFL-1.1", "MIT", "ISC", "BSD-3-Clause", "BSD-2-Clause"}
+var accepted = []string{"Apache-2.0", "MPL-2.0", "OFL-1.1", "MIT", "MIT-0", "ISC", "BSD-3-Clause", "BSD-2-Clause"}
 
 // acceptedLicense reports whether id is an accepted license, or a choice
 // (A OR B) offering one. Terms that add conditions (AND, WITH, nested
@@ -360,7 +360,7 @@ func acceptedLicense(id string) bool {
 	if strings.ContainsAny(id, "()") || strings.Contains(id, " AND ") || strings.Contains(id, " WITH ") {
 		return false
 	}
-	for _, part := range strings.Split(id, " OR ") {
+	for part := range strings.SplitSeq(id, " OR ") {
 		if slices.Contains(accepted, strings.TrimSpace(part)) {
 			return true
 		}
@@ -388,6 +388,8 @@ func detect(text string) string {
 		return "MPL-2.0"
 	case has("SIL OPEN FONT LICENSE Version 1.1"):
 		return "OFL-1.1"
+	case has("Permission is hereby granted, free of charge") && !has("shall be included in all copies"):
+		return "MIT-0" // MIT without its attribution condition
 	case has("Permission is hereby granted, free of charge"):
 		return "MIT"
 	case has("Permission to use, copy, modify, and/or distribute") || has("Permission to use, copy, modify, and distribute this software for any purpose with or without fee"):
