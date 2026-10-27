@@ -3,7 +3,7 @@ import type { ServerView } from '../api/types'
 import type { Key } from '../i18n'
 import { closeServer, onContainersPage, openContainers, selectServer } from '../state/route'
 import { closeDialog, openAddServer, openDialog, showTerminal } from '../state/ui'
-import { isPaletteKey, paletteKey } from '../ui/keys'
+import { isPaletteKey, isSettingsKey, paletteKey, settingsMod } from '../ui/keys'
 import { restartServer, toggleServer } from '../features/servers/actions'
 import { hasProcess, isUp } from '../features/servers/format'
 import {
@@ -51,6 +51,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: ['g', 'd'], label: 'shortcuts.containers', chord: true },
       { keys: ['g', 'c'], label: 'shortcuts.config', chord: true },
       { keys: ['g', 's'], label: 'shortcuts.settings', chord: true },
+      { keys: [settingsMod, ','], label: 'shortcuts.settings' },
       { keys: ['g', 'a'], label: 'shortcuts.add', chord: true },
       { keys: ['?'], label: 'shortcuts.help' },
     ],
@@ -89,6 +90,11 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
         e.preventDefault()
         if (document.querySelector('dialog[open].palette')) closeDialog()
         else if (!document.querySelector('dialog[open]')) openDialog({ kind: 'palette' })
+        return
+      }
+      if (isSettingsKey(e)) {
+        e.preventDefault()
+        openDialog({ kind: 'settings' })
         return
       }
       if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return

@@ -36,13 +36,14 @@ export function takeTerminalLink(): boolean {
   return true
 }
 
-const AGENTS = '#settings/agents'
-
-/** `#settings/agents` (used by the menu bar app's Connect Coding Agents) opens Settings on the coding agents. */
-export function takeAgentsLink(): boolean {
-  if (location.hash !== AGENTS) return false
-  history.replaceState(null, '', location.pathname + location.search)
-  return true
+/**
+ * `#settings` (the menu bar app's Settings item) opens Settings, and `#settings/agents` (its Connect
+ * Coding Agents) opens it on the coding agents; null for any other hash.
+ */
+export function takeSettingsLink(): { section?: 'agents' } | null {
+  const link = location.hash === '#settings' ? {} : location.hash === '#settings/agents' ? { section: 'agents' as const } : null
+  if (link) history.replaceState(null, '', location.pathname + location.search)
+  return link
 }
 
 export function useSelectedName(): string | null {

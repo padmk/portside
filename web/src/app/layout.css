@@ -254,6 +254,17 @@
   color: var(--text-2);
   font-size: var(--fs-sm);
 }
+.empty-cli .cli-line + p {
+  margin-top: 8px;
+}
+.empty-login {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
 .empty-agents {
   display: grid;
   gap: 8px;

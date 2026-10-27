@@ -22,7 +22,7 @@ interface Form {
   env: { k: string; v: string }[]
 }
 
-const blank: Form = { name: '', dir: '', cmd: '', port: '', group: '', dependsOn: [], restart: 'no', health: '', env: [] }
+const blank: Form = { name: '', dir: '', cmd: '', port: '', group: '', dependsOn: [], restart: 'on-failure', health: '', env: [] }
 
 const fromSpec = (s: Spec): Form => ({
   name: s.name,
@@ -31,7 +31,7 @@ const fromSpec = (s: Spec): Form => ({
   port: s.port === undefined ? '' : String(s.port),
   group: s.group ?? '',
   dependsOn: s.dependsOn ?? [],
-  restart: s.restart || 'no',
+  restart: s.restart || 'on-failure',
   health: s.health ?? '',
   env: Object.entries(s.env ?? {}).map(([k, v]) => ({ k, v })),
 })
@@ -117,7 +117,7 @@ export function ManualForm({ state, edit, formId }: Props) {
       port: form.port === '' ? undefined : Number(form.port),
       group: form.group.trim() || undefined,
       dependsOn: form.dependsOn.length ? form.dependsOn : undefined,
-      restart: form.restart === 'no' ? undefined : form.restart,
+      restart: form.restart,
       health: form.health.trim() || undefined,
       env: Object.keys(env).length ? env : undefined,
     }

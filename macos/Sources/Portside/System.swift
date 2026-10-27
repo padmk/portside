@@ -12,7 +12,12 @@ enum LoginItem {
         return on
     }
 
+    /// Whether the user has turned it on or off, from the menu or the dashboard;
+    /// until then the dashboard's getting-started page proposes it.
+    static var decided: Bool { UserDefaults.standard.bool(forKey: "loginItemDecided") }
+
     static func set(_ on: Bool, onError: (String) -> Void) {
+        UserDefaults.standard.set(true, forKey: "loginItemDecided")
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
         } catch {

@@ -38,6 +38,15 @@ export function isPaletteKey(e: KeyboardEvent) {
   return e.code === 'Space' && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey
 }
 
+/** The modifier of the platform's Settings shortcut: ⌘, on macOS, Ctrl+, elsewhere. */
+export const settingsMod = isMac ? '⌘' : 'Ctrl'
+
+/** Whether e opens Settings. */
+export function isSettingsKey(e: KeyboardEvent) {
+  if (e.key !== ',' || e.altKey || e.shiftKey) return false
+  return isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+}
+
 /**
  * Arrow-key handling for a tab of a tablist: Left and Right select and focus
  * the neighbouring tab, wrapping around; the tab buttons have the id

@@ -20,7 +20,7 @@ import { bulk } from '../features/servers/actions'
 import { canStop } from '../features/servers/format'
 import { useT } from '../i18n'
 import { useLive, type Connection } from '../state/live'
-import { closeServer, takeAgentsLink, takeTerminalLink, useContainersPage, useSelectedName } from '../state/route'
+import { closeServer, takeSettingsLink, takeTerminalLink, useContainersPage, useSelectedName } from '../state/route'
 import { closeDialog, getUi, openDialog, showTerminal, useUi } from '../state/ui'
 import { Toasts } from '../ui/Toasts'
 import { brand } from '../brand'
@@ -62,7 +62,8 @@ export function App() {
   useEffect(() => {
     const check = () => {
       if (takeTerminalLink()) showTerminal()
-      if (takeAgentsLink()) openDialog({ kind: 'settings', section: 'agents' })
+      const settings = takeSettingsLink()
+      if (settings) openDialog({ kind: 'settings', ...settings })
     }
     check()
     window.addEventListener('hashchange', check)

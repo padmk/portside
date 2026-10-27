@@ -80,6 +80,16 @@ const (
 	WrapNone = "none"
 )
 
+// DefaultRestart is the restart policy of a server that sets none: a server
+// comes back after a crash, while a task's failed run, such as a migration
+// that may not be safe to repeat, is reported at once.
+func DefaultRestart(oneshot bool) string {
+	if oneshot {
+		return RestartNo
+	}
+	return RestartOnFailure
+}
+
 // Server is one managed dev server with defaults applied and paths resolved.
 type Server struct {
 	Name      string
@@ -531,7 +541,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		}
 		switch s.Restart {
 		case "":
-			s.Restart = RestartNo
+			s.Restart = DefaultRestart(r.Oneshot)
 		case RestartNo, RestartOnFailure, RestartAlways:
 		default:
 			return nil, fmt.Errorf("%s: [servers.%s]: restart must be no, on-failure or always", path, name)

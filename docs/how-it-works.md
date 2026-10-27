@@ -95,7 +95,7 @@ The macOS app (`macos/`, Swift) bundles the same binary in `Portside.app/Content
 
 While the dashboard shows another computer, the panel says so with **Disconnect**. Opening a server from the panel or a notification, or **Connect Coding Agents**, asks to disconnect first, since both are about this computer. A server whose port carries the other computer's forwarded server is labeled as such, and **Start** takes the port back.
 
-**Settings** in its menu holds **Launch at Login** (registers the app as a login item), **App Icon**, **Install Command Line Tool** and **Connect Coding Agents** ([Coding agents](coding-agents.md#setup)).
+**Settings** in its menu holds **Launch at Login** (registers the app as a login item), **App Icon**, **Install Command Line Tool** and **Connect Coding Agents** ([Coding agents](coding-agents.md#setup)). The dashboard's getting-started page offers **Launch at Login** too: the window gives the page the setting and whether you have chosen it before (in the menu or the page, kept by the app) at load, and two message handlers that accept only `true` or `false` from the dashboard's own page: `loginItem` for its switch, and `loginItemProposal` for going on with the page's proposal, which the app applies only while you have not chosen yet, so a page loaded before a change in the menu never undoes it. **Settings…** (`⌘,`) in the app menu opens the dashboard's Settings.
 
 ## Stopping on purpose
 

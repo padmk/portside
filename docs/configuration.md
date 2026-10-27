@@ -60,7 +60,7 @@ cmd = "uv run uvicorn api.main:app --reload --port {PORT}"
 port = 3002
 group = "shop"
 health = "/healthz"
-restart = "on-failure"
+restart = "always"                  # also after a clean exit; servers default to "on-failure"
 
 [servers.shop-worker]
 dir = "shop"
@@ -112,7 +112,7 @@ Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 | `port` | Port the server listens on. Omit it to assign the lowest free port from 3001 in file order (not for a [task](#tasks), which has no port) (skipping the daemon's port, ports of temporary worktree servers, AirPlay's 5000 and 7000 and browser-blocked ports), written into the file when the daemon loads it. `0` means no port: such a server counts as running 1.5 s after it starts (see `ready_log` and `ready_after`). Two servers with the same port, or a reserved one, load with a warning. |
 | `group` | Name for starting and stopping related servers together. |
 | `depends_on` | Servers that must be running (and ready) before this one starts, and [tasks](#tasks) that must have finished with code 0. Unknown names and cycles are errors. |
-| `restart` | `no` (default), `on-failure` (after a non-zero exit) or `always` (after any exit). Restarts wait 1 s, then 2, 4, 8 and 16 s; after 5 restarts in a row the server stays `crashed`, or starts again after `retry_after`. A run longer than a minute starts the count again. A restart or retry still waiting when the daemon upgrades in place happens at its time in the new daemon, with the count kept. |
+| `restart` | `on-failure` (after a non-zero exit; the default for servers), `always` (after any exit) or `no` (the default for tasks, so a failed run such as a migration is reported at once instead of repeated). Restarts wait 1 s, then 2, 4, 8 and 16 s; after 5 restarts in a row the server stays `crashed`, or starts again after `retry_after`. A run longer than a minute starts the count again. A restart or retry still waiting when the daemon upgrades in place happens at its time in the new daemon, with the count kept. |
 | `health` | HTTP path that must answer with a success or a redirect (status 200 to 399, redirects not followed) before the server counts as running. A running server that stops answering is shown as [not responding](dashboard.md#server-states); it is not restarted. |
 | `ready_log` | Regular expression that a whole line of the server's output (ended by a newline) must match before it counts as running, in addition to its port and `health`; for example `ready_log = "Worker ready"` for a worker without a port. Until then it stays `starting`, and so do servers that `depends_on` it. An invalid expression is an error. |
 | `ready_after` | How long the process must run before it counts as running, such as `"10s"`; without it, a server with a port counts as soon as the port answers, and one without a port after 1.5 s. |

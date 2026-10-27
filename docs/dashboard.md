@@ -10,7 +10,9 @@ A crash arrives as a notification with **Restart** and **Show Logs** once the re
 
 The layout follows the number of servers: one server fills the screen with its output and charts, a few get large cards with a live log preview, and long lists switch to compact rows. `c` and `l` choose cards or the list yourself. Click a server for a full-size terminal, with every server one click away in a side rail. Group headers start, restart (in dependency order) and stop a whole group.
 
-Everything else (ports, config, adding servers) is in the menu and the command palette: `⌘K` on macOS, Ctrl+Shift+Space elsewhere. `?` lists the keyboard shortcuts.
+Everything else (ports, config, adding servers) is in the menu and the command palette: `⌘K` on macOS, Ctrl+Shift+Space elsewhere. `⌘,` (Ctrl+, elsewhere; a browser may keep it for its own settings) or `g` `s` opens Settings, and `?` lists the keyboard shortcuts.
+
+While no server is configured, the dashboard shows its getting-started page: finding projects, adding a server by hand, [coding agents](coding-agents.md#setup) and the commands to scan from a terminal. In the macOS app's window it also has **Start Portside at login**, on until you have chosen once (here or in the menu) and applied when you find projects or add a server (or when you flip it); after that it shows the setting as it is; it is the app's **Launch at Login**, which brings your servers back after a restart. In a browser the page shows `portside service install` instead ([Login service](how-it-works.md#login-service)).
 
 Servers run in a PTY, so colors, progress bars and interactive prompts work. Type into a server's terminal in the dashboard, or attach from your own terminal with `portside attach web` and detach with `Ctrl-]`.
 

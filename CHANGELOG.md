@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0
+
+- **Crashed servers start again by default.** A server without a `restart` setting now uses `on-failure`: after a crash it starts again with backoff (1, 2, 4, 8 and 16 s), and only after 5 restarts in a row does it stay `crashed` and get reported. Tasks (`oneshot = true`) still default to `no`, so a failed migration is reported at once rather than repeated. To keep the old behavior for a server, set `restart = "no"`; the dashboard's form now writes that choice explicitly.
+- **Getting started:** in the macOS app, the dashboard's getting-started page offers **Start Portside at login**, on until you have chosen once (there or in the app's menu) and applied when you find projects or add a server, so your servers come back after a restart. In a browser it shows `portside service install` instead.
+- **Settings shortcut:** `⌘,` (Ctrl+, outside macOS) opens Settings in the dashboard, and the app menu has **Settings…** with `⌘,`.
+
 ## 0.10.2
 
 - **Fixed, tasks:** `portside restart` of a task (alone, with other servers, from the dashboard or `restart_server`) runs it again instead of leaving it stopped. After an upgrade in place, a server that was waiting for a task whose process ended during the upgrade fails with the task's note instead of running the task a second time.

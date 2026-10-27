@@ -16,7 +16,7 @@ export function ShortcutsDialog() {
             <h3>{t(g.title)}</h3>
             <dl>
               {g.items.map((item) => (
-                <div key={item.label} className="shortcut">
+                <div key={item.keys.join(' ')} className="shortcut">
                   <dt>
                     {item.keys.map((k, i) => (
                       <span key={k}>

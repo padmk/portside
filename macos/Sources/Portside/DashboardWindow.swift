@@ -50,6 +50,11 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         window.delegate = self
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        let bridge = AppBridge(owner: self)
+        for name in [AppBridge.loginItemMessage, AppBridge.proposalMessage] {
+            config.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: name)
+        }
+        updateBridge()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -90,6 +95,7 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         dashboardHost = link.dashboardHost
         signInLink = link.url
         loadedBase = api.base
+        updateBridge()
         webView.load(URLRequest(url: link.url))
     }
 
@@ -270,8 +276,67 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
         }
     }
 
+    /// The app's state the dashboard reads at document start: whether the app
+    /// opens at login, and whether the user has chosen (kept by the app, since
+    /// the dashboard's origin changes with each cold start of the daemon). The
+    /// dashboard shows its switch only when this exists.
+    fileprivate func updateBridge() {
+        let content = webView.configuration.userContentController
+        content.removeAllUserScripts()
+        let source = "window.\(AppBridge.global) = Object.freeze({ loginItem: \(LoginItem.isEnabled), loginItemDecided: \(LoginItem.decided) })"
+        content.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    }
+
+    /// Whether a bridge message comes from the dashboard's own page.
+    fileprivate func fromDashboard(_ message: WKScriptMessage) -> Bool {
+        guard message.frameInfo.isMainFrame, let dashboardHost, let base else { return false }
+        let origin = message.frameInfo.securityOrigin
+        return origin.protocol == "http" && origin.host == dashboardHost && origin.port == base.port
+    }
+
     private func isDashboard(_ url: URL) -> Bool {
         guard let base, let dashboardHost, url.port == base.port else { return false }
         return url.host == dashboardHost
+    }
+}
+
+/// The one capability the app gives the dashboard: turning launch at login on
+/// or off. The page posts `true` or `false` to the `loginItem` handler (the
+/// user flipped its switch) or to `loginItemProposal` (the user went on with
+/// the page's proposal, which applies only while no choice has been made, so
+/// a page loaded before a change in the menu never undoes it), and gets the
+/// resulting state back, or an error.
+@MainActor
+private final class AppBridge: NSObject, WKScriptMessageHandlerWithReply {
+    static let loginItemMessage = "loginItem"
+    static let proposalMessage = "loginItemProposal"
+    /// The global the user script sets.
+    static let global = "appBridge"
+
+    /// The web view's configuration keeps the handler, and the controller
+    /// owns the web view.
+    private weak var owner: DashboardWindowController?
+
+    init(owner: DashboardWindowController) { self.owner = owner }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
+                               replyHandler: @escaping @MainActor (Any?, String?) -> Void) {
+        guard let owner, owner.fromDashboard(message) else { return replyHandler(nil, "not allowed") }
+        // Only a JavaScript boolean: numbers arrive as NSNumber too.
+        guard let body = message.body as? NSNumber, CFGetTypeID(body) == CFBooleanGetTypeID() else {
+            return replyHandler(nil, "expected true or false")
+        }
+        if message.name == Self.proposalMessage, LoginItem.decided {
+            owner.updateBridge()
+            return replyHandler(LoginItem.isEnabled, nil)
+        }
+        guard message.name == Self.loginItemMessage || message.name == Self.proposalMessage else {
+            return replyHandler(nil, "unknown message")
+        }
+        var failure: String?
+        LoginItem.set(body.boolValue) { failure = $0 }
+        owner.updateBridge()
+        if let failure { return replyHandler(nil, failure) }
+        replyHandler(LoginItem.isEnabled, nil)
     }
 }

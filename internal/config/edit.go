@@ -35,6 +35,9 @@ type Spec struct {
 	Open      string            `json:"open,omitempty"`
 	Stop      string            `json:"stopTimeout,omitempty"`
 	Enabled   *bool             `json:"enabled,omitempty"`
+	// Oneshot is never written; it picks the restart policy left unwritten
+	// as the default (see DefaultRestart), so editing a task keeps its choice.
+	Oneshot bool `json:"-"`
 	// Comment is written as # lines above the table header.
 	Comment string `json:"comment,omitempty"`
 }
@@ -125,7 +128,7 @@ func Render(s Spec) string {
 		}
 		fmt.Fprintf(&b, "projects = [%s]\n", strings.Join(q, ", "))
 	}
-	if s.Restart != "" && s.Restart != RestartNo {
+	if s.Restart != "" && s.Restart != DefaultRestart(s.Oneshot) {
 		fmt.Fprintf(&b, "restart = %s\n", Quote(s.Restart))
 	}
 	if s.Health != "" {
@@ -163,7 +166,7 @@ func SpecOf(s Server) Spec {
 	sp := Spec{
 		Name: s.Name, Dir: s.DirRaw, Cmd: s.Cmd, Group: s.Group, DependsOn: s.DependsOn, Projects: s.Projects,
 		Env: s.Env, Restart: s.Restart, Health: s.Health, Open: s.Open, Stop: s.StopRaw,
-		Icon: s.IconRaw,
+		Icon: s.IconRaw, Oneshot: s.Oneshot,
 	}
 	if !s.PortAuto {
 		p := s.Port
@@ -518,6 +521,7 @@ func UpdateServerIfUnchanged(path, name string, s Spec, rev string) error {
 		}
 		old, _ := cfg.Server(name)
 		before := specValues(SpecOf(old))
+		s.Oneshot = old.Oneshot // a form never says; the entry being edited does
 		after := specValues(s)
 		out := append([]string{}, d.lines...)
 		for _, k := range specKeys(before, after) {

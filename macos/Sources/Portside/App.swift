@@ -201,6 +201,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                   confirm: L.t("Disconnect and Show", "Rozłącz i pokaż"))
     }
 
+    /// The app menu's Settings item: the dashboard's Settings dialog.
+    @objc func showSettings(_ sender: Any?) {
+        openDashboard(route: "settings")
+    }
+
     /// Opens the coding-agent setup, which exists only for this computer.
     private func connectAgents() {
         openLocal(route: "settings/agents",
@@ -285,6 +290,9 @@ enum MainMenu {
 
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: L.t("About \(name)", "O aplikacji \(name)"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        // Reaches AppDelegate through the responder chain.
+        appMenu.addItem(withTitle: L.t("Settings…", "Ustawienia…"), action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: L.t("Hide \(name)", "Ukryj \(name)"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())

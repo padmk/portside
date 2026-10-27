@@ -728,9 +728,13 @@ func TestRenderRoundTrip(t *testing.T) {
 
 func TestRenderOmitsDefaults(t *testing.T) {
 	on := true
-	got := Render(Spec{Name: "a", Cmd: "x", Restart: RestartNo, Enabled: &on})
+	got := Render(Spec{Name: "a", Cmd: "x", Restart: RestartOnFailure, Enabled: &on})
 	if want := "[servers.a]\ncmd = \"x\"\n"; got != want {
 		t.Errorf("Render = %q, want %q", got, want)
+	}
+	// "no" is no longer the default, so a form that chose it keeps it.
+	if got := Render(Spec{Name: "a", Cmd: "x", Restart: RestartNo}); !strings.Contains(got, "restart = \"no\"\n") {
+		t.Errorf("Render dropped restart = no: %q", got)
 	}
 }
 
@@ -798,5 +802,23 @@ func TestSetKeyMatchesKeyCase(t *testing.T) {
 	wantText(t, path, "[servers.web]\ncmd = \"x\"\nEnabled = false # note\n")
 	if web, _ := mustLoad(t, path).Server("web"); web.Enabled {
 		t.Error("web is still enabled")
+	}
+}
+
+// A task's default is "no", so choosing on-failure for it in the form is written, and the
+// edit round trip of a task with no restart key writes nothing.
+func TestUpdateTaskRestart(t *testing.T) {
+	path := newConfig(t, "[servers.migrate]\ncmd = \"x\"\noneshot = true\nport = 0\n")
+	if err := UpdateServer(path, "migrate", Spec{Name: "migrate", Cmd: "x", Port: new(0), Restart: RestartNo}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readConfig(t, path); strings.Contains(got, "restart") {
+		t.Errorf("unchanged task gained a restart key:\n%s", got)
+	}
+	if err := UpdateServer(path, "migrate", Spec{Name: "migrate", Cmd: "x", Port: new(0), Restart: RestartOnFailure}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readConfig(t, path); !strings.Contains(got, `restart = "on-failure"`) {
+		t.Errorf("task's on-failure was not written:\n%s", got)
 	}
 }
