@@ -29,31 +29,78 @@ const forwardedTo = (r: RemoteConnection, port: number) => {
  * through the local daemon's proxy at <server>.<peer>.localhost.
  */
 function localUrls(v: ServerView, r: RemoteConnection): ServerView {
-  const proxied = (raw: string) => {
+  // The other computer's daemon supplies these addresses, so only plain
+  // http(s) addresses and server names that are valid host labels become links.
+  const webUrl = (raw: string) => {
     try {
       const u = new URL(raw)
-      return `http://${v.name}.${r.peer.label}.localhost:${r.localPort}${u.pathname}${u.search}`
+      return u.protocol === 'http:' || u.protocol === 'https:' ? u : undefined
     } catch {
-      return raw
+      return undefined
     }
   }
-  let url = v.url
-  if (url) {
-    try {
-      const u = new URL(url)
-      const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
-      const local = forwardedTo(r, port)
-      if (!local) url = proxied(url)
-      else if (local !== port) {
-        u.port = String(local)
-        url = u.toString()
-      }
-    } catch {
-      /* keep the original */
-    }
+  const proxied = (raw: string) => {
+    const u = webUrl(raw)
+    if (!u || !SERVER_LABEL.test(v.name)) return undefined
+    return `http://${v.name}.${r.peer.label}.localhost:${r.localPort}${u.pathname}${u.search}`
   }
-  return { ...v, url, alias: v.alias ? proxied(v.alias) : v.alias }
+  let url: string | undefined
+  const u = v.url ? webUrl(v.url) : undefined
+  if (u) {
+    const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+    const local = forwardedTo(r, port)
+    // Only the scheme, path and query come from the other computer; the
+    // host is always this one.
+    url = local ? `${u.protocol}//localhost:${local}${u.pathname}${u.search}` : proxied(u.toString())
+  }
+  return { ...v, url, alias: v.alias ? proxied(v.alias) : undefined }
 }
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const listOf = (v: unknown, item: (x: unknown) => boolean) => v == null || (Array.isArray(v) && v.every(item))
+const isString = (v: unknown) => typeof v === 'string'
+const optional = (test: (v: unknown) => boolean) => (v: unknown) => v == null || test(v)
+const strings = (v: unknown) => listOf(v, isString)
+
+/** Whether every field named in spec passes its test. */
+const fields = (v: unknown, spec: Record<string, (x: unknown) => boolean>) =>
+  isObject(v) && Object.entries(spec).every(([k, test]) => test(v[k]))
+
+/**
+ * Whether a state from the other computer has the shape the dashboard reads:
+ * the fields it uses directly, with their types.
+ */
+function fitsState(s: Record<string, unknown>): boolean {
+  const docker = s.docker
+  return (
+    fields(s, { warnings: strings, groups: strings }) &&
+    fields(s.daemon, { version: isString, port: (v) => typeof v === 'number' }) &&
+    // Older daemons leave out some config fields; those present must fit.
+    fields(s.config, {
+      path: optional(isString),
+      pathDisplay: optional(isString),
+      root: optional(isString),
+      stateDir: optional(isString),
+      revision: optional(isString),
+      error: optional(isString),
+      warnings: strings,
+    }) &&
+    listOf(s.servers, (v) =>
+      fields(v, {
+        name: isString,
+        status: isString,
+        url: optional(isString),
+        alias: optional(isString),
+        note: optional(isString),
+        port: optional((p) => typeof p === 'number'),
+      }),
+    ) &&
+    (docker == null || (isObject(docker) && listOf(docker.containers, (c) => fields(c, { name: isString }))))
+  )
+}
+
+/** A server name as the config allows it, so it is a valid host label. */
+const SERVER_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
 /**
  * A port forwarded from another computer is not held by a local process: the
@@ -202,8 +249,10 @@ function openPeer() {
     }
     if (store.get().remote?.peer.dnsName !== msg.remote.peer.dnsName) enterRemote(msg.remote)
     const remote = normalizeRemote(msg.remote)
-    // Until the remote answers, a frame carries only the connection.
-    if (msg.daemon && msg.servers !== undefined) raw = msg as State
+    // Until the remote answers, a frame carries only the connection. The
+    // other computer's daemon supplies the state, so one of another shape is
+    // dropped and the last one that fit stays.
+    if (msg.daemon && msg.servers !== undefined && fitsState(msg)) raw = msg as State
     publish({ remote, state: raw ? normalize(raw, remote) : null, connection: 'open' })
   }
   ws.onclose = () => {
