@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -19,25 +18,38 @@ import (
 	"github.com/padmk/portside/internal/paths"
 )
 
-// Spec describes a server as written to the file. Empty fields are omitted.
+// Spec describes a server as written to the file. Empty fields are omitted;
+// durations and sizes are the text written, such as "30s" or "2GB".
 type Spec struct {
-	Name      string            `json:"name"`
-	Dir       string            `json:"dir"`
-	Cmd       string            `json:"cmd"`
-	Port      *int              `json:"port,omitempty"`
-	Group     string            `json:"group,omitempty"`
-	DependsOn []string          `json:"dependsOn,omitempty"`
-	Projects  []string          `json:"projects,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Restart   string            `json:"restart,omitempty"`
-	Health    string            `json:"health,omitempty"`
-	Icon      string            `json:"icon,omitempty"`
-	Open      string            `json:"open,omitempty"`
-	Stop      string            `json:"stopTimeout,omitempty"`
-	Enabled   *bool             `json:"enabled,omitempty"`
-	// Oneshot is never written; it picks the restart policy left unwritten
-	// as the default (see DefaultRestart), so editing a task keeps its choice.
-	Oneshot bool `json:"-"`
+	Name       string            `json:"name"`
+	Dir        string            `json:"dir"`
+	Cmd        string            `json:"cmd"`
+	Oneshot    bool              `json:"oneshot,omitempty"`
+	Port       *int              `json:"port,omitempty"`
+	Group      string            `json:"group,omitempty"`
+	DependsOn  []string          `json:"dependsOn,omitempty"`
+	Projects   []string          `json:"projects,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
+	Restart    string            `json:"restart,omitempty"`
+	Health     string            `json:"health,omitempty"`
+	ReadyLog   string            `json:"readyLog,omitempty"`
+	ReadyAfter string            `json:"readyAfter,omitempty"`
+	Icon       string            `json:"icon,omitempty"`
+	Open       string            `json:"open,omitempty"`
+	Stop       string            `json:"stopTimeout,omitempty"`
+	Enabled    *bool             `json:"enabled,omitempty"`
+	LAN        bool              `json:"lan,omitempty"`
+	Schedule   string            `json:"schedule,omitempty"`
+	Watch      []string          `json:"watch,omitempty"`
+	Wrap       string            `json:"wrap,omitempty"`
+	// The hook commands: nil inherits the top-level one, "" runs none.
+	OnCrash      *string `json:"onCrash,omitempty"`
+	OnUnready    *string `json:"onUnready,omitempty"`
+	OnRecover    *string `json:"onRecover,omitempty"`
+	UnreadyAfter string  `json:"unreadyAfter,omitempty"`
+	RetryAfter   string  `json:"retryAfter,omitempty"`
+	Umask        string  `json:"umask,omitempty"`
+	MemoryLimit  string  `json:"memoryLimit,omitempty"`
 	// Comment is written as # lines above the table header.
 	Comment string `json:"comment,omitempty"`
 }
@@ -95,6 +107,103 @@ func key(k string) string {
 	return Quote(k)
 }
 
+// specOrder is the order Render writes a server's keys in, so a key added
+// by an edit lands where a new table would have it.
+var specOrder = []string{
+	"dir", "cmd", "oneshot", "port", "group", "depends_on", "projects", "restart", "health",
+	"ready_log", "ready_after", "icon", "open", "stop_timeout", "enabled", "lan", "schedule",
+	"watch", "wrap", "on_crash", "on_unready", "on_recover", "unready_after", "retry_after",
+	"umask", "memory_limit", "env",
+}
+
+// specLiterals returns the TOML literal of every key s sets, without the
+// defaults: restart when it is the default for what the entry is, enabled
+// unless false, and wrap = "auto".
+func specLiterals(s Spec) map[string]string {
+	out := map[string]string{}
+	str := func(k, v string) {
+		if v != "" {
+			out[k] = Quote(v)
+		}
+	}
+	hook := func(k string, v *string) {
+		if v != nil {
+			out[k] = Quote(*v)
+		}
+	}
+	str("dir", s.Dir)
+	out["cmd"] = Quote(s.Cmd)
+	if s.Oneshot {
+		out["oneshot"] = "true"
+	}
+	if s.Port != nil {
+		out["port"] = strconv.Itoa(*s.Port)
+	}
+	str("group", s.Group)
+	if len(s.DependsOn) > 0 {
+		out["depends_on"] = quoteList(s.DependsOn)
+	}
+	if len(s.Projects) > 0 {
+		out["projects"] = quoteList(s.Projects)
+	}
+	if s.Restart != DefaultRestart(s.Oneshot) {
+		str("restart", s.Restart)
+	}
+	str("health", s.Health)
+	str("ready_log", s.ReadyLog)
+	str("ready_after", s.ReadyAfter)
+	str("icon", s.Icon)
+	str("open", s.Open)
+	str("stop_timeout", s.Stop)
+	if s.Enabled != nil && !*s.Enabled {
+		out["enabled"] = "false"
+	}
+	if s.LAN {
+		out["lan"] = "true"
+	}
+	str("schedule", s.Schedule)
+	if len(s.Watch) > 0 {
+		out["watch"] = quoteList(s.Watch)
+	}
+	if s.Wrap != WrapAuto {
+		str("wrap", s.Wrap)
+	}
+	hook("on_crash", s.OnCrash)
+	hook("on_unready", s.OnUnready)
+	hook("on_recover", s.OnRecover)
+	str("unready_after", s.UnreadyAfter)
+	str("retry_after", s.RetryAfter)
+	str("umask", s.Umask)
+	str("memory_limit", s.MemoryLimit)
+	if len(s.Env) > 0 {
+		out["env"] = inlineTable(s.Env)
+	}
+	return out
+}
+
+// quoteList renders a list of strings as a TOML array.
+func quoteList(items []string) string {
+	q := make([]string, len(items))
+	for i, item := range items {
+		q[i] = Quote(item)
+	}
+	return "[" + strings.Join(q, ", ") + "]"
+}
+
+// inlineTable renders a string map as a TOML inline table, keys sorted.
+func inlineTable(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = key(k) + " = " + Quote(m[k])
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
+}
+
 // Render returns the TOML table for a server, ending with a newline.
 func Render(s Spec) string {
 	var b strings.Builder
@@ -104,79 +213,41 @@ func Render(s Spec) string {
 		}
 	}
 	fmt.Fprintf(&b, "[servers.%s]\n", s.Name)
-	if s.Dir != "" {
-		fmt.Fprintf(&b, "dir = %s\n", Quote(s.Dir))
-	}
-	fmt.Fprintf(&b, "cmd = %s\n", Quote(s.Cmd))
-	if s.Port != nil {
-		fmt.Fprintf(&b, "port = %d\n", *s.Port)
-	}
-	if s.Group != "" {
-		fmt.Fprintf(&b, "group = %s\n", Quote(s.Group))
-	}
-	if len(s.DependsOn) > 0 {
-		q := make([]string, len(s.DependsOn))
-		for i, d := range s.DependsOn {
-			q[i] = Quote(d)
+	literals := specLiterals(s)
+	for _, k := range specOrder {
+		if v, ok := literals[k]; ok {
+			fmt.Fprintf(&b, "%s = %s\n", k, v)
 		}
-		fmt.Fprintf(&b, "depends_on = [%s]\n", strings.Join(q, ", "))
-	}
-	if len(s.Projects) > 0 {
-		q := make([]string, len(s.Projects))
-		for i, project := range s.Projects {
-			q[i] = Quote(project)
-		}
-		fmt.Fprintf(&b, "projects = [%s]\n", strings.Join(q, ", "))
-	}
-	if s.Restart != "" && s.Restart != DefaultRestart(s.Oneshot) {
-		fmt.Fprintf(&b, "restart = %s\n", Quote(s.Restart))
-	}
-	if s.Health != "" {
-		fmt.Fprintf(&b, "health = %s\n", Quote(s.Health))
-	}
-	if s.Icon != "" {
-		fmt.Fprintf(&b, "icon = %s\n", Quote(s.Icon))
-	}
-	if s.Open != "" {
-		fmt.Fprintf(&b, "open = %s\n", Quote(s.Open))
-	}
-	if s.Stop != "" {
-		fmt.Fprintf(&b, "stop_timeout = %s\n", Quote(s.Stop))
-	}
-	if s.Enabled != nil && !*s.Enabled {
-		b.WriteString("enabled = false\n")
-	}
-	if len(s.Env) > 0 {
-		keys := make([]string, 0, len(s.Env))
-		for k := range s.Env {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, len(keys))
-		for i, k := range keys {
-			parts[i] = key(k) + " = " + Quote(s.Env[k])
-		}
-		fmt.Fprintf(&b, "env = { %s }\n", strings.Join(parts, ", "))
 	}
 	return b.String()
 }
 
-// SpecOf converts a loaded server back into a Spec, keeping the original dir text.
+// SpecOf returns a loaded server's entry as written in the file, with the
+// restart policy in effect.
 func SpecOf(s Server) Spec {
-	sp := Spec{
-		Name: s.Name, Dir: s.DirRaw, Cmd: s.Cmd, Group: s.Group, DependsOn: s.DependsOn, Projects: s.Projects,
-		Env: s.Env, Restart: s.Restart, Health: s.Health, Open: s.Open, Stop: s.StopRaw,
-		Icon: s.IconRaw, Oneshot: s.Oneshot,
-	}
-	if !s.PortAuto {
-		p := s.Port
-		sp.Port = &p
-	}
-	if !s.Enabled {
-		f := false
-		sp.Enabled = &f
-	}
+	sp := s.spec
+	sp.Name = s.Name
 	return sp
+}
+
+// writtenSpec is a server's entry as the file writes it; restart is the
+// policy in effect.
+func writtenSpec(name string, r rawServer, restart string) Spec {
+	deref := func(v *string) string {
+		if v == nil {
+			return ""
+		}
+		return *v
+	}
+	return Spec{
+		Name: name, Dir: r.Dir, Cmd: r.Cmd, Oneshot: r.Oneshot, Port: r.Port, Group: r.Group,
+		DependsOn: r.DependsOn, Projects: r.Projects, Env: r.Env, Restart: restart, Health: r.Health,
+		ReadyLog: r.ReadyLog, ReadyAfter: durationText(r.ReadyAfter), Icon: r.Icon, Open: r.Open,
+		Stop: durationText(r.StopTimeout), Enabled: r.Enabled, LAN: r.LAN, Schedule: r.Schedule,
+		Watch: r.Watch, Wrap: r.Wrap, OnCrash: r.OnCrash, OnUnready: r.OnUnready, OnRecover: r.OnRecover,
+		UnreadyAfter: durationText(r.UnreadyAft), RetryAfter: durationText(r.RetryAfter),
+		Umask: deref(r.Umask), MemoryLimit: deref(r.MemoryLimit),
+	}
 }
 
 var headerRe = regexp.MustCompile(`^\s*\[\s*servers\s*\.\s*"?([A-Za-z0-9_-]+)"?\s*(\.[^\]]*)?\]\s*(#.*)?$`)
@@ -520,45 +591,26 @@ func UpdateServerIfUnchanged(path, name string, s Spec, rev string) error {
 			return nil, err
 		}
 		old, _ := cfg.Server(name)
-		before := specValues(SpecOf(old))
-		s.Oneshot = old.Oneshot // a form never says; the entry being edited does
-		after := specValues(s)
+		written := SpecOf(old)
+		before, after := specLiterals(written), specLiterals(s)
 		out := append([]string{}, d.lines...)
-		for _, k := range specKeys(before, after) {
-			if reflect.DeepEqual(before[k], after[k]) {
+		for _, k := range specOrder {
+			changed := before[k] != after[k]
+			if k == "restart" {
+				// The unwritten default depends on oneshot, so compare what the
+				// entry means: a task turned into a server (or back) gets its
+				// restart line reconciled even when both sides omit it.
+				changed = written.Restart != s.Restart || written.Oneshot != s.Oneshot
+			}
+			if !changed {
 				continue
 			}
-			if k == "env" && hasEnvEntries(out, name) {
-				keys := map[string]bool{}
-				for k := range old.Env {
-					keys[k] = true
-				}
-				for k := range s.Env {
-					keys[k] = true
-				}
-				ordered := make([]string, 0, len(keys))
-				for k := range keys {
-					ordered = append(ordered, k)
-				}
-				sort.Strings(ordered)
-				for _, k := range ordered {
-					v, exists := s.Env[k]
-					if ov, ok := old.Env[k]; ok == exists && ov == v {
-						continue
-					}
-					literal := ""
-					if exists {
-						literal = Quote(v)
-					}
-					out = patchValue(out, []string{"servers", name, "env", k}, literal)
-				}
+			table := []string{"servers", name, k}
+			if k == "env" && hasEntries(out, table) {
+				out = patchEntries(out, table, written.Env, s.Env)
 				continue
 			}
-			literal := ""
-			if v, ok := after[k]; ok {
-				literal = tomlLiteral(v)
-			}
-			out = patchValue(out, []string{"servers", name, k}, literal)
+			out = patchValue(out, table, after[k])
 		}
 		if s.Comment != "" {
 			_, head, _, _ := newDoc(out).block(name)
@@ -579,25 +631,33 @@ func UpdateServerIfUnchanged(path, name string, s Spec, rev string) error {
 	})
 }
 
-// specKeys lists the server keys set in either spec, in the order Render
-// writes them, so a key added by an edit lands where a new table would have it.
-func specKeys(specs ...map[string]any) []string {
-	order := []string{"dir", "cmd", "port", "group", "depends_on", "projects", "restart", "health", "icon", "open", "stop_timeout", "enabled", "env"}
-	seen := map[string]bool{}
-	for _, k := range order {
-		seen[k] = true
+// patchEntries patches the entries of the string table at path (env) one
+// by one from old to new, so each keeps its line and comment.
+func patchEntries(lines, table []string, old, new map[string]string) []string {
+	keys := map[string]bool{}
+	for k := range old {
+		keys[k] = true
 	}
-	var extra []string
-	for _, m := range specs {
-		for k := range m {
-			if !seen[k] {
-				seen[k] = true
-				extra = append(extra, k)
-			}
+	for k := range new {
+		keys[k] = true
+	}
+	ordered := make([]string, 0, len(keys))
+	for k := range keys {
+		ordered = append(ordered, k)
+	}
+	sort.Strings(ordered)
+	for _, k := range ordered {
+		v, exists := new[k]
+		if ov, ok := old[k]; ok == exists && ov == v {
+			continue
 		}
+		literal := ""
+		if exists {
+			literal = Quote(v)
+		}
+		lines = patchValue(lines, append(append([]string{}, table...), k), literal)
 	}
-	sort.Strings(extra)
-	return append(order, extra...)
+	return lines
 }
 
 // renameDependency rewrites depends_on entries of other servers so that a
@@ -708,38 +768,4 @@ func LoadAssignedPorts(path string, avoid func(port int) bool) (*Config, error) 
 		return nil, err
 	}
 	return Parse(path, []byte(strings.Join(lines, "\n")))
-}
-
-// SetTopLevel sets a top-level key (outside any table) to a TOML literal.
-func SetTopLevel(path, k, literal string) error {
-	keyRe := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(k) + `\s*=`)
-	return edit(path, func(d *doc) ([]string, error) {
-		lines := d.lines
-		firstTable := len(lines)
-		for i := range lines {
-			if d.isTable(i) {
-				firstTable = i
-				break
-			}
-		}
-		for i := 0; i < firstTable; i++ {
-			if !d.cont[i] && keyRe.MatchString(lines[i]) {
-				// Keeps the key's spelling and its trailing comment.
-				return patchValue(lines, []string{k}, literal), nil
-			}
-		}
-		at := firstTable
-		// Keep comments that introduce the first table attached to it.
-		for at > 0 && d.isComment(at-1) {
-			at--
-		}
-		ins := []string{k + " = " + literal}
-		if at > 0 && strings.TrimSpace(lines[at-1]) != "" {
-			ins = append([]string{""}, ins...)
-		}
-		if at < len(lines) {
-			ins = append(ins, "")
-		}
-		return append(append(append([]string{}, lines[:at]...), ins...), lines[at:]...), nil
-	})
 }

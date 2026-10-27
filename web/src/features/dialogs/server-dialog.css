@@ -13,29 +13,9 @@
   display: grid;
   gap: 16px;
 }
-.grid-2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-@media (max-width: 720px) {
-  .grid-2 {
-    grid-template-columns: 1fr;
-  }
-}
 .inline {
   display: flex;
   gap: 6px;
-}
-fieldset.field {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  min-width: 0;
-}
-fieldset.field legend {
-  padding: 0;
-  margin-bottom: 5px;
 }
 .dep-list {
   display: flex;
@@ -62,41 +42,51 @@ fieldset.field legend {
   margin: 0;
   accent-color: var(--primary);
 }
-.env-field {
-  display: grid;
+
+/* Advanced: the server keys most entries leave alone, in groups. */
+.advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.advanced > summary {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  min-height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
 }
-.env-row {
+.advanced > summary:hover {
+  color: var(--text);
+}
+.advanced > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.advanced-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) var(--control-h);
+  gap: 20px;
+  padding-top: 14px;
+}
+.advanced-group .grid-2 {
+  align-items: start;
+}
+.advanced-group > legend {
+  margin-bottom: 10px;
+  color: var(--text);
+  font-weight: 600;
+}
+.field .check.hint {
   gap: 6px;
-}
-.env-add {
-  justify-self: start;
-}
-.form-error {
-  margin: 0;
-  color: var(--crashed-text);
   font-size: var(--fs-xs);
 }
-.form-error--block {
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--crashed) 40%, transparent);
-  border-radius: var(--r-md);
-  background: var(--crashed-wash);
-  font-size: var(--fs-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.field .check.hint input {
+  width: 14px;
+  height: 14px;
 }
-.form-conflict {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  white-space: normal;
-}
-
 /* Discover */
 .discover {
   display: grid;

@@ -1,0 +1,55 @@
+/* Form pieces shared by the server form and Settings. */
+fieldset.field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+fieldset.field legend {
+  padding: 0;
+  margin-bottom: 5px;
+}
+.env-field {
+  display: grid;
+  gap: 6px;
+}
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) var(--control-h);
+  gap: 6px;
+}
+.env-add {
+  justify-self: start;
+}
+.form-error {
+  margin: 0;
+  color: var(--crashed-text);
+  font-size: var(--fs-xs);
+}
+.form-error--block {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--crashed) 40%, transparent);
+  border-radius: var(--r-md);
+  background: var(--crashed-wash);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.form-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  white-space: normal;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 720px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}

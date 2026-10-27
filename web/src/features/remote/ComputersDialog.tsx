@@ -13,6 +13,7 @@ import { useBusy } from '../servers/actions'
 import { CopyButton } from '../../ui/CopyButton'
 import { connectTo, disconnectRemote, pairWith } from './actions'
 import { AgentPrompt, TailscaleHelp } from './TailscaleHelp'
+import '../../ui/fields.css'
 import './remote.css'
 
 export function OsIcon({ os, size = 18 }: { os?: string; size?: number }) {

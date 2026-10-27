@@ -1,45 +1,11 @@
 package config
 
 import (
-	"fmt"
 	"reflect"
-	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 )
-
-func specValues(s Spec) map[string]any {
-	var v struct{ Servers map[string]map[string]any }
-	_, _ = toml.Decode(Render(s), &v)
-	return v.Servers[s.Name]
-}
-
-func tomlLiteral(v any) string {
-	switch v := v.(type) {
-	case string:
-		return Quote(v)
-	case []any:
-		parts := make([]string, len(v))
-		for i, item := range v {
-			parts[i] = tomlLiteral(item)
-		}
-		return "[" + strings.Join(parts, ", ") + "]"
-	case map[string]any:
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			parts = append(parts, key(k)+" = "+tomlLiteral(v[k]))
-		}
-		return "{ " + strings.Join(parts, ", ") + " }"
-	default:
-		return fmt.Sprint(v)
-	}
-}
 
 type assignment struct {
 	start, end int
@@ -79,9 +45,12 @@ func assignments(lines []string) []assignment {
 	return out
 }
 
-func hasEnvEntries(lines []string, name string) bool {
+// hasEntries reports whether the table at path (such as a server's env) is
+// written as separate entries, dotted keys or a [table], rather than as one
+// inline table.
+func hasEntries(lines []string, table []string) bool {
 	for _, a := range assignments(lines) {
-		if len(a.path) == 4 && reflect.DeepEqual(a.path[:3], []string{"servers", name, "env"}) {
+		if len(a.path) == len(table)+1 && reflect.DeepEqual(a.path[:len(table)], table) {
 			return true
 		}
 	}
@@ -92,18 +61,21 @@ func hasEnvEntries(lines []string, name string) bool {
 		}
 		var v map[string]any
 		meta, err := toml.Decode(lines[i], &v)
-		if err == nil && len(meta.Keys()) > 0 && reflect.DeepEqual([]string(meta.Keys()[0]), []string{"servers", name, "env"}) {
+		if err == nil && len(meta.Keys()) > 0 && reflect.DeepEqual([]string(meta.Keys()[0]), table) {
 			return true
 		}
 	}
 	return false
 }
 
-// samePath reports whether an assignment's key path is the edited one. A
-// server's own keys match in any case, as the decoder reads them (Cmd sets
-// cmd), so the edit changes the key that is there; keys below them, such as
-// env entries, keep their case.
+// samePath reports whether an assignment's key path is the edited one.
+// Top-level keys and a server's own keys match in any case, as the decoder
+// reads them (Cmd sets cmd), so the edit changes the key that is there;
+// keys below them, such as env entries, keep their case.
 func samePath(have, want []string) bool {
+	if len(have) == 1 && len(want) == 1 {
+		return strings.EqualFold(have[0], want[0])
+	}
 	if len(have) == 3 && len(want) == 3 && have[0] == "servers" && want[0] == "servers" && have[1] == want[1] {
 		return strings.EqualFold(have[2], want[2])
 	}

@@ -56,16 +56,40 @@ func ValidName(name string) error {
 	return nil
 }
 
-// Duration is a time.Duration written as a string such as "10s" in TOML.
-type Duration struct{ time.Duration }
+// Duration is a time.Duration written as a string such as "10s" in TOML;
+// Text keeps that string as written.
+type Duration struct {
+	time.Duration
+	Text string
+}
 
 func (d *Duration) UnmarshalText(b []byte) error {
 	v, err := time.ParseDuration(string(b))
 	if err != nil {
 		return err
 	}
-	d.Duration = v
+	d.Duration, d.Text = v, string(b)
 	return nil
+}
+
+// durationText is a duration setting as written, "" when it is not set.
+func durationText(d *Duration) string {
+	if d == nil {
+		return ""
+	}
+	return d.Text
+}
+
+// shortDuration writes d the way people do, "1m" rather than "1m0s".
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 // Restart policies.
@@ -111,7 +135,6 @@ type Server struct {
 	// it as is, anything else is a command prefix.
 	Wrap    string
 	Stop    time.Duration
-	StopRaw string // stop_timeout as written, "" when inherited
 	IconRaw string // icon as written
 	Enabled bool
 	// LAN says the server is meant to be reachable from other devices, so
@@ -154,6 +177,8 @@ type Server struct {
 	// Watch, when set, holds file patterns relative to Dir whose changes
 	// restart the server; nil for none.
 	Watch *Watch
+	// spec is the entry as written in the file, which SpecOf returns for edits.
+	spec Spec
 }
 
 // RetriesAfterGivingUp reports whether s is started again after its
@@ -165,6 +190,12 @@ func (s Server) RetriesAfterGivingUp() bool {
 // DefaultUnreadyAfter is how long a running server must go without
 // answering before OnUnready runs, unless unready_after says otherwise.
 const DefaultUnreadyAfter = time.Minute
+
+// Defaults of the top-level stop_timeout and shell.
+const (
+	DefaultStopTimeout = 10 * time.Second
+	DefaultShell       = "bash"
+)
 
 var umaskRe = regexp.MustCompile(`^0?[0-7]{3}$`)
 
@@ -383,7 +414,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		Notify:      raw.Notify == nil || *raw.Notify,
 		Editor:      strings.TrimSpace(raw.Editor),
 		Terminal:    strings.TrimSpace(raw.Terminal),
-		StopTimeout: 10 * time.Second,
+		StopTimeout: DefaultStopTimeout,
 		DockerStart: strings.TrimSpace(raw.DockerStart),
 		Share:       raw.Share,
 		OwnEnv:      raw.LoginEnv != nil && !*raw.LoginEnv,
@@ -399,7 +430,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 	}
 	cfg.Port, cfg.PortAuto = port, raw.Port == 0
 	if cfg.Shell == "" {
-		cfg.Shell = "bash"
+		cfg.Shell = DefaultShell
 	}
 	if raw.StopTimeout != nil {
 		cfg.StopTimeout = raw.StopTimeout.Duration
@@ -537,7 +568,6 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		}
 		if r.StopTimeout != nil {
 			s.Stop = r.StopTimeout.Duration
-			s.StopRaw = r.StopTimeout.Duration.String()
 		}
 		switch s.Restart {
 		case "":
@@ -552,6 +582,7 @@ func parse(path string, data []byte, avoid func(port int) bool) (*Config, error)
 		if s.Restart == RestartNo && r.RetryAfter != nil && s.RetryAfter > 0 {
 			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s: retry_after has no effect with restart = %q", name, RestartNo))
 		}
+		s.spec = writtenSpec(name, r, s.Restart)
 		if r.Port != nil {
 			s.Port = *r.Port
 			if s.Port < 0 || s.Port > 65535 {

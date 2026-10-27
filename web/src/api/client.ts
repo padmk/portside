@@ -13,6 +13,8 @@ import type {
   RemoteConnection,
   RemoteOverview,
   ServerView,
+  Settings,
+  SettingsView,
   Spec,
   State,
 } from './types'
@@ -147,6 +149,9 @@ export const api = {
 
   config: () => on<{ path: string; text: string; revision: string }>('GET', '/config'),
   saveConfig: (text: string, revision: string) => on<State>('PUT', '/config', { text, revision }),
+  settings: () => on<SettingsView>('GET', '/settings'),
+  /** Writes the settings that differ from the file's; 409 when the file changed since `revision`. */
+  saveSettings: (values: Settings, revision: string) => on<State>('PUT', '/settings', { ...values, revision }),
   session: () => request<{ authenticated: boolean }>('GET', `${LOCAL}/session`),
 
   listeners: () => on<{ listeners: ListenerView[] }>('GET', '/listeners'),

@@ -113,6 +113,47 @@ func (s *Server) setEnabled(w http.ResponseWriter, r *http.Request) {
 	s.edit(w, r, func() error { return config.SetEnabled(s.opt.ConfigPath, r.PathValue("name"), body.Enabled) }, nil)
 }
 
+// settingsView is the top-level settings as written, the values in effect
+// for those not set, and the revision of the file they were read from.
+type settingsView struct {
+	Values   config.Settings `json:"values"`
+	Defaults config.Settings `json:"defaults"`
+	Revision string          `json:"revision"`
+}
+
+func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	values, rev, err := config.ReadSettings(s.opt.ConfigPath)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settingsView{Values: values, Defaults: config.DefaultSettings(s.opt.ConfigPath), Revision: rev})
+}
+
+// putSettings writes the top-level settings that changed, refused with 409
+// when the file is no longer at the revision the form was loaded from.
+func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		config.Settings
+		Revision string `json:"revision"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	if body.Revision == "" {
+		fail(w, http.StatusBadRequest, errors.New("revision is required; reload the settings and try again"))
+		return
+	}
+	var warnings []string
+	if body.Root != "" {
+		warnings = directoryWarnings(filepath.Dir(s.opt.ConfigPath), body.Root)
+	}
+	s.edit(w, r, func() error {
+		return config.UpdateSettingsIfUnchanged(s.opt.ConfigPath, body.Settings, body.Revision)
+	}, warnings)
+}
+
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	data, err := os.ReadFile(s.opt.ConfigPath)
 	if err != nil {

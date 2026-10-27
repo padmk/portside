@@ -55,6 +55,8 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/config", s.getConfig)
 	m.HandleFunc("PUT /api/config", s.putConfig)
+	m.HandleFunc("GET /api/settings", s.getSettings)
+	m.HandleFunc("PUT /api/settings", s.putSettings)
 	m.HandleFunc("GET /api/listeners", s.listeners)
 	m.HandleFunc("POST /api/listeners/kill", s.killListener)
 	m.HandleFunc("GET /api/discover", s.discover)

@@ -210,10 +210,13 @@ export interface ContainerDetails {
   configFiles?: string[]
 }
 
+/** A server's entry as written in the config file; durations and sizes are the text written. */
 export interface Spec {
   name: string
   dir: string
   cmd: string
+  /** A task that runs to completion (`oneshot = true`). */
+  oneshot?: boolean
   port?: number
   group?: string
   dependsOn?: string[]
@@ -221,11 +224,53 @@ export interface Spec {
   env?: Record<string, string>
   restart?: string
   health?: string
+  readyLog?: string
+  readyAfter?: string
   icon?: string
   open?: string
   stopTimeout?: string
   enabled?: boolean
+  lan?: boolean
+  schedule?: string
+  watch?: string[]
+  wrap?: string
+  /** Hook commands: absent inherits the top-level one, '' runs none. */
+  onCrash?: string
+  onUnready?: string
+  onRecover?: string
+  unreadyAfter?: string
+  retryAfter?: string
+  umask?: string
+  memoryLimit?: string
   comment?: string
+}
+
+/** The config file's top-level settings as written; '' is unset. */
+export interface Settings {
+  root: string
+  path: string[] | null
+  env: Record<string, string> | null
+  restore: boolean
+  notify: boolean
+  stopTimeout: string
+  shell: string
+  dockerStart: string
+  onCrash: string
+  onUnready: string
+  onRecover: string
+  unreadyAfter: string
+  retryAfter: string
+  memoryLimit: string
+  loginEnv: boolean
+  umask: string
+}
+
+export interface SettingsView {
+  values: Settings
+  /** What applies to a key that is not set ('' where that is none, or the daemon's own). */
+  defaults: Settings
+  /** The config revision the values come from; a save is refused once the file changed since. */
+  revision: string
 }
 
 export interface ListenerView extends Listener {

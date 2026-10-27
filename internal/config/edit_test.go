@@ -484,7 +484,7 @@ func TestSetTopLevelInsertKeepsTableComment(t *testing.T) {
 	if err := SetTopLevel(path, "editor", `"vim"`); err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, path, fixHead+"editor = \"vim\"\n\n"+fixWebC+fixWeb+fixRest)
+	wantText(t, path, strings.Replace(fixHead, "# daemon port\n", "# daemon port\neditor = \"vim\"\n", 1)+fixWebC+fixWeb+fixRest)
 	if mustLoad(t, path).Editor != "vim" {
 		t.Error("editor not set")
 	}
@@ -507,7 +507,7 @@ func TestSetTopLevelWithoutTables(t *testing.T) {
 	if err := SetTopLevel(path, "editor", `"vim"`); err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, path, "root = \"/tmp\"\n\neditor = \"vim\"\n")
+	wantText(t, path, "root = \"/tmp\"\neditor = \"vim\"\n")
 }
 
 func TestSetTopLevelRejected(t *testing.T) {
@@ -809,13 +809,13 @@ func TestSetKeyMatchesKeyCase(t *testing.T) {
 // edit round trip of a task with no restart key writes nothing.
 func TestUpdateTaskRestart(t *testing.T) {
 	path := newConfig(t, "[servers.migrate]\ncmd = \"x\"\noneshot = true\nport = 0\n")
-	if err := UpdateServer(path, "migrate", Spec{Name: "migrate", Cmd: "x", Port: new(0), Restart: RestartNo}); err != nil {
+	if err := UpdateServer(path, "migrate", Spec{Name: "migrate", Cmd: "x", Oneshot: true, Port: new(0), Restart: RestartNo}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readConfig(t, path); strings.Contains(got, "restart") {
 		t.Errorf("unchanged task gained a restart key:\n%s", got)
 	}
-	if err := UpdateServer(path, "migrate", Spec{Name: "migrate", Cmd: "x", Port: new(0), Restart: RestartOnFailure}); err != nil {
+	if err := UpdateServer(path, "migrate", Spec{Name: "migrate", Cmd: "x", Oneshot: true, Port: new(0), Restart: RestartOnFailure}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readConfig(t, path); !strings.Contains(got, `restart = "on-failure"`) {

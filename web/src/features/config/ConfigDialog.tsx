@@ -8,6 +8,7 @@ import { toast } from '../../state/toasts'
 import { Dialog, DialogFoot, DialogMain } from '../../ui/Dialog'
 import { ConfirmDialog } from '../dialogs/ConfirmDialog'
 import { openOnDesktop, saveConfig } from '../servers/actions'
+import '../../ui/fields.css'
 import './config.css'
 
 /** Same as config.Revision in Go: the first 8 bytes of SHA-256, in hex. */

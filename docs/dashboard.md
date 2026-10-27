@@ -48,8 +48,25 @@ A running server or container port that listens on the network, not only on loop
 
 Every listening TCP port on the machine with its process and working directory, and the container a published port belongs to. Strays can be killed from here; [Security](security.md#killing-processes) says which processes may be.
 
+## Settings and the server form
+
+Everything in the [config file](configuration.md) can be set from the dashboard; **Edit config** in the menu stays for editing the file as text. Saves write only the keys you changed ([Editing and reloading](configuration.md#editing-and-reloading)) and leave a key out (or remove it) when you set it back to its default. Each field shows its default, or the value a server inherits, as its placeholder.
+
+**Settings** has its sections on the left (at the top on a narrow window):
+
+- **General**: appearance, palette, layout and language (kept in this browser), the editor and terminal the dashboard opens, and **Startup**.
+- **Servers**: the projects folder (`root`), bringing servers back after a restart (`restore`), desktop notifications (`notify`), `stop_timeout`, `retry_after` and `memory_limit`. The dashboard's `port` is shown but set only in the file, and takes effect after a daemon restart; sharing with your other devices is under **Computers**.
+- **Environment**: `shell`, the `PATH` folders (`path`), environment variables for every server (`env`), the login shell's environment (`login_env`) and `umask`.
+- **Events**: the [hook commands](configuration.md#hook-commands) `on_crash`, `on_unready` and `on_recover`, and `unready_after`.
+- **Docker**: the command **Start Docker** runs (`docker_start`).
+- **Coding agents**: [setup](coding-agents.md#setup) on this computer.
+
+**Save** at the bottom saves the Servers, Environment, Events and Docker sections together. An invalid value, such as `unready_after = "soon"`, is refused with the daemon's message and nothing is written. The footer shows the daemon's version.
+
+A server's form (**Add** or **Edit** in its menu) has the common fields, **It's a task (runs once)** for a [task](configuration.md#tasks), which hides the port, `health` and readiness, and **Advanced** with the rest of the [server keys](configuration.md#server-keys): readiness (`ready_log`, `ready_after`), lifecycle and limits (`stop_timeout`, `retry_after`, `memory_limit`, `enabled`), `schedule` and `watch`, the hook commands with `unready_after` (empty inherits the top-level command, **None for this server** writes `""`), the tool environment (`wrap`), `umask` and `lan`, and `open`, `icon` and Compose `projects`. **Advanced** opens by itself when any of these is set.
+
 ## Themes
 
-Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme. **Settings** also holds the layout, the language, and the editor and terminal the dashboard opens.
+Rosé Pine (default), Everforest, Tokyo Night, Catppuccin, Nord and a neutral palette, each in light and dark, following the system setting or your choice. The terminal follows the theme.
 
 ![Settings: appearance, palette, layout, language, and the editor and terminal the dashboard opens](../design/screenshots/settings.png)

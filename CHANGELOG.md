@@ -2,6 +2,7 @@
 
 ## 0.11.1
 
+- **Every setting in the dashboard:** Settings has sections (General, Servers, Environment, Events, Docker, Coding agents) that edit the config file's top-level keys, from the projects folder, `restore` and `notify` to `path`, `env`, `login_env`, `umask`, the hook commands and `docker_start`, with one **Save**, the daemon's errors, defaults as placeholders and the daemon's version in the footer. Only `port` stays in the file. A server's form has **It's a task (runs once)** and an **Advanced** section with every other server key: `ready_log`, `ready_after`, `stop_timeout`, `retry_after`, `memory_limit`, `enabled`, `schedule`, `watch`, the hook commands, `unready_after`, `wrap`, `umask`, `lan`, `open`, `icon` and `projects`. Saves change only the keys you edited and keep your comments; a value set back to its default is removed ([Settings and the server form](docs/dashboard.md#settings-and-the-server-form)).
 - **Settings:** the dashboard's Settings has **Startup** with **Start Portside at login** in the macOS app (in a browser, the `portside service install` command), so the setting is no longer only in the menu bar app's menu and on the getting-started page.
 
 ## 0.11.0
