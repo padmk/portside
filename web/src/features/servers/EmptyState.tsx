@@ -4,7 +4,7 @@ import { useLive } from '../../state/live'
 import { openAddServer } from '../../state/ui'
 import { Mark } from '../../app/Mark'
 import { brand, brandTitle } from '../../brand'
-import { CopyButton } from '../../ui/CopyButton'
+import { CommandLine } from '../../ui/CommandLine'
 import { AgentSetup } from '../agents/AgentSetup'
 import { LoginStartSwitch, useLoginStart } from './LoginStart'
 
@@ -53,7 +53,7 @@ export function EmptyState() {
           {t('empty.manual')}
         </button>
       </div>
-      {local && login && <LoginStartSwitch login={login} />}
+      {local && login && <LoginStartSwitch login={login} id="empty-login-why" className="empty-login" />}
       {local && (
         <section className="empty-agents" aria-labelledby="empty-agents">
           <h2 id="empty-agents">{t('agents.title')}</h2>
@@ -75,19 +75,6 @@ export function EmptyState() {
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-function CommandLine({ command }: { command: string }) {
-  const t = useT()
-  return (
-    <div className="cli-line">
-      <code>
-        <span aria-hidden="true">$ </span>
-        {command}
-      </code>
-      <CopyButton text={command} label={t('common.copyCommand', { command })} size={13} />
     </div>
   )
 }

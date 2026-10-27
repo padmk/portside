@@ -167,3 +167,12 @@
   color: var(--text);
   text-decoration-color: currentColor;
 }
+
+/* Launch at login: the switch with its reason under it, aligned with the other settings. */
+.setting-login {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}

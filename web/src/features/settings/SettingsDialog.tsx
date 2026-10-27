@@ -13,6 +13,9 @@ import { layoutFor, setLayout, useOverviewState } from '../overview/overviewStat
 import { useLive, useRemote } from '../../state/live'
 import { toastError } from '../../state/toasts'
 import { AgentSetup } from '../agents/AgentSetup'
+import { LoginStartSwitch, useLoginStart } from '../servers/LoginStart'
+import { brand, brandTitle } from '../../brand'
+import { CommandLine } from '../../ui/CommandLine'
 import './settings.css'
 
 const MODES: { id: ModeChoice; label: Key; icon: React.ReactNode }[] = [
@@ -28,6 +31,7 @@ export function SettingsDialog() {
   const count = useLive().state?.servers.length ?? 0
   const layout = layoutFor(layoutChoice, count)
   const local = !useRemote()
+  const login = useLoginStart({ propose: false })
   // Opened for the coding agents (the menu bar app's Connect Coding Agents): that section is scrolled into view.
   const [toAgents] = useState(() => {
     const d = getUi().dialog
@@ -127,6 +131,20 @@ export function SettingsDialog() {
         </div>
 
         {local && <AppPickers />}
+
+        {local && (
+          <section className="setting" aria-labelledby="set-startup">
+            <h3 id="set-startup">{t('settings.startup')}</h3>
+            {login ? (
+              <LoginStartSwitch login={login} id="set-startup-why" className="setting-login" />
+            ) : (
+              <>
+                <p className="setting-hint">{t('empty.service', { name: brandTitle })}</p>
+                <CommandLine command={`${brand.name} service install`} />
+              </>
+            )}
+          </section>
+        )}
 
         {local && (
           <section className="setting" id="set-agents" aria-labelledby="set-agents-title">

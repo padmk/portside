@@ -14,14 +14,15 @@ export interface LoginStart {
 }
 
 /**
- * The getting-started page's launch-at-login choice in the app's window: proposed on until the
- * user has chosen from here, applied when the user starts adding servers or flips the switch;
+ * The launch-at-login choice in the app's window. On the getting-started page it is proposed on
+ * until the user has chosen (`propose`), applied when the user starts adding servers or flips the
+ * switch; in Settings it always shows the setting as it is;
  * later visits (the page shows whenever there are no servers) show the setting as it is, so a
  * choice made earlier is never undone from here. Null in a browser.
  */
-export function useLoginStart(): LoginStart | null {
+export function useLoginStart({ propose = true }: { propose?: boolean } = {}): LoginStart | null {
   const [actual, setActual] = useState(() => loginItem?.enabled() ?? false)
-  const [on, setOn] = useState(() => (loginItem?.decided() ? actual : true))
+  const [on, setOn] = useState(() => (propose && !loginItem?.decided() ? true : actual))
   const [busy, setBusy] = useState(false)
   if (!loginItem) return null
   const bridge = loginItem
@@ -51,16 +52,17 @@ export function useLoginStart(): LoginStart | null {
   }
 }
 
-export function LoginStartSwitch({ login }: { login: LoginStart }) {
+/** The switch with its reason; `id` names the reason for the switch, unique per place it is shown. */
+export function LoginStartSwitch({ login, id, className }: { login: LoginStart; id: string; className: string }) {
   const t = useT()
   return (
-    <div className="empty-login">
-      <button type="button" role="switch" className="switch" aria-checked={login.on} aria-describedby="empty-login-why" disabled={login.busy} onClick={login.toggle}>
+    <div className={className}>
+      <button type="button" role="switch" className="switch" aria-checked={login.on} aria-describedby={id} disabled={login.busy} onClick={login.toggle}>
         <span className="track" aria-hidden="true" />
         {t('empty.login', { name: brandTitle })}
         {login.busy && <Loader2 size={14} className="spin" aria-hidden="true" />}
       </button>
-      <p id="empty-login-why">{t('empty.loginWhy')}</p>
+      <p id={id}>{t('empty.loginWhy')}</p>
     </div>
   )
 }
