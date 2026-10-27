@@ -241,18 +241,23 @@ func doctorRemote(ov server.RemoteOverview, ok, warn func(string, ...any)) {
 		}
 	}
 	if cn := ov.Connection; cn != nil {
-		forwarded, busy, off := 0, 0, 0
+		forwarded, busy, off, over := 0, 0, 0, 0
 		for _, m := range cn.Mirrors {
 			switch m.State {
 			case "busy":
 				busy++
 			case "off":
 				off++
+			case "limit":
+				over++
 			default:
 				forwarded++
 			}
 		}
 		ports := fmt.Sprintf("%d ports forwarded, %d busy here, %d turned off", forwarded, busy, off)
+		if over > 0 {
+			ports += fmt.Sprintf(", %d over the open-file limit", over)
+		}
 		if cn.Status == remote.Open {
 			ok("connected to %s (%s)", cn.Peer.Name, ports)
 		} else {

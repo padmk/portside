@@ -355,7 +355,7 @@ export interface Mirror {
   server?: string
   container?: string
   /** `off` when the user turned its forwarding off; it is then neither bound here nor proxied. */
-  state: 'mirrored' | 'busy' | 'off'
+  state: 'mirrored' | 'busy' | 'off' | 'limit'
 }
 
 export interface RemoteConnection {

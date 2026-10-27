@@ -16,8 +16,11 @@ import (
 // Linux refuses that later bind while the mirror listens, so there is
 // nothing to detect, and wildcardHeld would conflict with the mirror itself.
 func wildcardTaken(port int) bool {
-	return runtime.GOOS == "darwin" && wildcardHeld(port)
+	return probeWildcard && wildcardHeld(port)
 }
+
+// probeWildcard is whether bound mirrors are checked with wildcardTaken.
+const probeWildcard = runtime.GOOS == "darwin"
 
 // wildcardHeld reports whether a socket of another process stands in the way
 // of a mirror on port, by binding the wildcard addresses with SO_REUSEADDR.

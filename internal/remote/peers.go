@@ -231,7 +231,7 @@ func call(ctx context.Context, tr http.RoundTripper, node tailnet.Node, port int
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	res, err := (&http.Client{Transport: tr}).Do(req)
+	res, err := (&http.Client{Transport: tr, CheckRedirect: noRedirects}).Do(req)
 	if err != nil {
 		return nil, "", &Error{Status: http.StatusBadGateway, Msg: node.Name + " is not reachable"}
 	}

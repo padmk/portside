@@ -27,13 +27,80 @@ type mirror struct {
 	server, container string
 	lns               []net.Listener // empty while the port is busy here
 	tried             time.Time      // last bind attempt, to space out retries
+	over              bool           // beyond the ports forwardLimit allows
+	pending           bool           // a mirrorJob for it is running
+}
+
+// mirrorJob is a bind attempt or a check for a local listener that
+// reconcileLocked plans and update runs without the manager's lock: with
+// thousands of sockets open, single calls can take the kernel hundreds of
+// milliseconds.
+type mirrorJob struct {
+	mr    *mirror
+	local int
+	check bool           // check a bound mirror instead of binding
+	lns   []net.Listener // what a bind got
+	taken bool           // what a check found
+}
+
+func (j *mirrorJob) run(c *conn) {
+	if j.check {
+		j.taken = wildcardTaken(j.local)
+	} else {
+		j.lns = listen(j.local)
+	}
+}
+
+// bindableLocked reports whether mr may listen on its local port now.
+func (c *conn) bindableLocked(mr *mirror, now time.Time) bool {
+	_, wanted := c.want[mr.port]
+	return wanted && !c.off[mr.port] && !mr.over && c.m.forwardable(mr.local) &&
+		!now.Before(c.held[mr.local]) && (c.m.wanted == nil || !c.m.wanted(mr.local))
+}
+
+// finishLocked applies what jobs found, unless the mirror changed meanwhile:
+// a bind starts accepting connections only once it is kept here.
+func (c *conn) finishLocked(jobs []*mirrorJob) {
+	defer c.settled.Broadcast()
+	now := time.Now()
+	for _, j := range jobs {
+		mr := j.mr
+		mr.pending = false
+		if !j.check {
+			c.binding[j.local]--
+			if c.binding[j.local] <= 0 {
+				delete(c.binding, j.local)
+			}
+		}
+		current := c.m.c == c && c.mirrors[mr.port] == mr && mr.local == j.local
+		if j.check {
+			if current && j.taken && len(mr.lns) > 0 {
+				// A local process started listening on the port: it gets
+				// the traffic, and the mirror waits until the port is free.
+				log.Printf("remote: port %d is now in use on this computer; no longer forwarding it", j.local)
+				mr.close()
+				mr.tried = now
+			}
+			continue
+		}
+		if !current || len(mr.lns) > 0 || !c.bindableLocked(mr, now) {
+			closeAll(j.lns)
+			continue
+		}
+		mr.lns = j.lns
+		c.serve(mr.lns, mr.port)
+	}
 }
 
 func (mr *mirror) close() {
-	for _, ln := range mr.lns {
+	closeAll(mr.lns)
+	mr.lns = nil
+}
+
+func closeAll(lns []net.Listener) {
+	for _, ln := range lns {
 		_ = ln.Close()
 	}
-	mr.lns = nil
 }
 
 // dropAfter is how long mirrors outlive a lost connection: long enough for
@@ -44,6 +111,40 @@ const dropAfter = time.Minute
 // retryBusy spaces out bind attempts on a port busy here, so a local server
 // that restarts gets its port back before the mirror tries it again.
 const retryBusy = 4 * time.Second
+
+// mirrorWork is the most bind attempts and checks for a local listener one
+// reconcile makes. Each takes several system calls under the manager's lock,
+// so with thousands of forwarded ports they are spread over several passes,
+// in turn, instead of holding the lock for seconds.
+const mirrorWork = 128
+
+// forwardLimit returns how many ports may be forwarded here: those that
+// fit in an eighth of this process's open-file limit (which Go raises to
+// the hard limit at start). Each port listens on two sockets, so forwarded
+// ports hold at most a quarter of the descriptors; the rest is left for the
+// connections through them (two descriptors each), the servers' terminals
+// and logs, and the daemon's clients, so a computer that was taken over
+// cannot make this daemon run out of them.
+func forwardLimit() int {
+	var lim syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &lim); err != nil || lim.Cur == 0 {
+		return 1024 / 8
+	}
+	return int(min(lim.Cur/8, 65535))
+}
+
+// forwardable reports whether a port may be bound here for a forwarded
+// port: never this daemon's own port or the ports a daemon of this product
+// may move to.
+func (m *Manager) forwardable(port int) bool {
+	switch {
+	case port <= 0 || port > 65535:
+		return false
+	case port == m.localPort || port == app.DefaultPort:
+		return false
+	}
+	return !slices.Contains(app.FallbackPorts(), port)
+}
 
 // localFor returns the local port a remote port is forwarded to.
 func (c *conn) localFor(port int) int {
@@ -56,7 +157,8 @@ func (c *conn) localFor(port int) int {
 // reconcileLocked binds wanted ports that are free here and releases the
 // rest: ports no longer wanted, ports turned off (listed, never bound),
 // ports another local process now listens on, and every port once the
-// connection has been down for dropAfter.
+// connection has been down for dropAfter. It only plans the binds and the
+// checks for local listeners, as jobs that update runs.
 func (c *conn) reconcileLocked() {
 	now := time.Now()
 	for port, until := range c.held {
@@ -74,35 +176,59 @@ func (c *conn) reconcileLocked() {
 	if offline {
 		return
 	}
-	for port, w := range c.want {
+	// Ports beyond the limit, in the order the other computer lists them
+	// (servers first); ports turned off do not count.
+	over := map[int]bool{}
+	n := 0
+	for _, port := range c.order {
+		if !c.off[port] {
+			over[port] = n >= c.m.maxForwarded
+			n++
+		}
+	}
+	// Bind attempts and checks start where the last pass stopped.
+	work, from, resume := 0, 0, -1
+	if len(c.order) > 0 {
+		from = c.next % len(c.order)
+	}
+	for i := range c.order {
+		at := (from + i) % len(c.order)
+		port := c.order[at]
+		w := c.want[port]
 		local := c.localFor(port)
 		mr := c.mirrors[port]
 		if mr == nil {
 			mr = &mirror{port: port, local: local}
 			c.mirrors[port] = mr
 		}
-		mr.server, mr.container = w.Server, w.Container
-		if c.off[port] {
+		mr.server, mr.container, mr.over = w.Server, w.Container, over[port]
+		if c.off[port] || mr.over {
 			mr.close()
 			continue
 		}
-		if len(mr.lns) > 0 {
-			if wildcardTaken(local) {
-				// A local process started listening on the port: it gets
-				// the traffic, and the mirror waits until the port is free.
-				log.Printf("remote: port %d is now in use on this computer; no longer forwarding it", local)
-				mr.close()
-				mr.tried = now
+		bound := len(mr.lns) > 0
+		switch {
+		case mr.pending:
+			continue
+		case bound && !probeWildcard:
+			continue
+		case !bound && (now.Sub(mr.tried) < retryBusy || !c.bindableLocked(mr, now)):
+			continue
+		case work >= c.m.mirrorWork:
+			if resume < 0 {
+				resume = at // the first port left for the next pass
 			}
 			continue
 		}
-		if local == c.m.localPort || now.Before(c.held[local]) || now.Sub(mr.tried) < retryBusy ||
-			(c.m.wanted != nil && c.m.wanted(local)) {
-			continue
+		work++
+		mr.pending = true
+		if !bound {
+			mr.tried = now
+			c.binding[local]++
 		}
-		mr.tried = now
-		mr.lns = c.bind(local, port)
+		c.jobs = append(c.jobs, &mirrorJob{mr: mr, local: local, check: bound})
 	}
+	c.next = max(resume, 0)
 }
 
 // bind listens on loopback port local, IPv4 and (where available) IPv6,
@@ -115,6 +241,14 @@ func (c *conn) reconcileLocked() {
 // keep the port busy. Binds are tried instead of connecting, so local
 // servers never see probe connections.
 func (c *conn) bind(local, port int) []net.Listener {
+	lns := listen(local)
+	c.serve(lns, port)
+	return lns
+}
+
+// listen binds loopback port local for a mirror, as bind describes, without
+// accepting connections yet.
+func listen(local int) []net.Listener {
 	p := strconv.Itoa(local)
 	ctx := context.Background()
 	if wildcardHeld(local) {
@@ -134,10 +268,14 @@ func (c *conn) bind(local, port int) []net.Listener {
 		_ = v4.Close()
 		return nil
 	}
+	return lns
+}
+
+// serve forwards the connections lns accept to port on the remote machine.
+func (c *conn) serve(lns []net.Listener, port int) {
 	for _, ln := range lns {
 		go c.accept(ln, port)
 	}
-	return lns
 }
 
 func (c *conn) accept(ln net.Listener, port int) {
@@ -247,6 +385,11 @@ func (m *Manager) Release(port int) {
 	}
 	c.update(func() {
 		c.held[port] = time.Now().Add(30 * time.Second)
+		// A bind of the port still running would hold it for a moment;
+		// finishLocked drops it now that the port is held.
+		for c.binding[port] > 0 {
+			c.settled.Wait()
+		}
 		for _, mr := range c.mirrors {
 			if mr.local == port {
 				mr.close()
@@ -297,8 +440,8 @@ func (m *Manager) SetLocalPort(port, local int) (Info, error) {
 	if port <= 0 || port > 65535 || local <= 0 || local > 65535 {
 		return Info{}, &Error{Status: http.StatusBadRequest, Msg: "invalid port"}
 	}
-	if local == m.localPort {
-		return Info{}, &Error{Status: http.StatusConflict, Msg: fmt.Sprintf("port %d is %s's own port", local, app.Name)}
+	if !m.forwardable(local) {
+		return Info{}, &Error{Status: http.StatusConflict, Msg: fmt.Sprintf("port %d is kept for %s", local, app.Name)}
 	}
 	var conflict error
 	c.update(func() {

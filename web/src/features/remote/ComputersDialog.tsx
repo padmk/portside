@@ -107,7 +107,7 @@ function Connected({ remote }: { remote: RemoteConnection }) {
 /** A suggestion for a busy port's local stand-in: the same digits, 10000 higher. */
 const suggestPort = (port: number) => (port + 10000 <= 65535 ? String(port + 10000) : '')
 
-const MIRROR_STATE = { mirrored: 'remote.mirrored', busy: 'remote.busy', off: 'remote.off' } as const
+const MIRROR_STATE = { mirrored: 'remote.mirrored', busy: 'remote.busy', off: 'remote.off', limit: 'remote.limit' } as const
 
 /** Forwarded ports, each with a switch; a busy one can be forwarded to another local port instead. */
 function Mirrors({ mirrors }: { mirrors: Mirror[] }) {
@@ -167,7 +167,7 @@ function Mirrors({ mirrors }: { mirrors: Mirror[] }) {
                 <span className="track" aria-hidden="true" />
               </button>
               <span className="mono num">{m.local ? `${m.port} → ${m.local}` : m.port}</span>
-              {t(MIRROR_STATE[m.state])}
+              {m.state === 'limit' ? <span title={t('remote.limitHint')}>{t(MIRROR_STATE[m.state])}</span> : t(MIRROR_STATE[m.state])}
               {m.local && m.state === 'mirrored' && (
                 <CopyButton text={address} label={t('common.copyUrl', { url: address })} className="icon-btn mirror-btn" size={13} />
               )}

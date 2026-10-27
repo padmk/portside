@@ -122,6 +122,8 @@ func printConnection(e *env, cn *remote.Info) {
 			p += " (off)"
 		case "busy":
 			p += " (busy here)"
+		case "limit":
+			p += " (over the open-file limit)"
 		}
 		ports = append(ports, p)
 	}

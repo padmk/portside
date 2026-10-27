@@ -159,12 +159,6 @@ func TestBindLeavesTakenPortsAlone(t *testing.T) {
 	closeAll(lns)
 }
 
-func closeAll(lns []net.Listener) {
-	for _, l := range lns {
-		l.Close()
-	}
-}
-
 func TestApplyMirrorsRunningPorts(t *testing.T) {
 	m, c := connected(t)
 	running, stopped, db, stoppedDB := freePort(t), freePort(t), freePort(t), freePort(t)

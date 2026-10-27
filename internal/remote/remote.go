@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -50,8 +51,9 @@ type Mirror struct {
 	Local     int    `json:"local,omitempty"`
 	Server    string `json:"server,omitempty"`
 	Container string `json:"container,omitempty"`
-	// State is "mirrored", "busy" when the port is taken here, or "off"
-	// when the user turned its forwarding off.
+	// State is "mirrored", "busy" when the port is taken here, "off" when
+	// the user turned its forwarding off, or "limit" when more ports are
+	// forwarded than this computer allows (forwardLimit).
 	State string `json:"state"`
 }
 
@@ -79,9 +81,13 @@ var ErrForwardingOff = errors.New("forwarding is off")
 // Manager holds at most one connection.
 type Manager struct {
 	localPort int
-	ts        *tailnet.Cache
-	tokens    *tokens
-	store     *store
+	// maxForwarded is how many ports of the connected computer may be
+	// forwarded here (forwardLimit).
+	maxForwarded int
+	mirrorWork   int // see the constant
+	ts           *tailnet.Cache
+	tokens       *tokens
+	store        *store
 
 	mu       sync.Mutex
 	c        *conn
@@ -94,7 +100,7 @@ type Manager struct {
 // New creates a manager for the daemon listening on localPort that keeps
 // its pairings in stateDir.
 func New(localPort int, stateDir string, ts *tailnet.Cache) *Manager {
-	return &Manager{localPort: localPort, ts: ts, tokens: newTokens(stateDir), store: newStore(stateDir), known: map[string]int{}}
+	return &Manager{localPort: localPort, maxForwarded: forwardLimit(), mirrorWork: mirrorWork, ts: ts, tokens: newTokens(stateDir), store: newStore(stateDir), known: map[string]int{}}
 }
 
 // Subscribe returns a channel signalled on every change, including each new
@@ -185,6 +191,11 @@ type conn struct {
 	state   json.RawMessage
 	servers map[string]int               // remote server name to port
 	want    map[int]Mirror               // by remote port
+	order   []int                        // wanted remote ports, servers first
+	next    int                          // index in order where reconcileLocked resumes
+	jobs    []*mirrorJob                 // planned by reconcileLocked, run by update
+	binding map[int]int                  // local ports with a bind job running
+	settled *sync.Cond                   // on m.mu: signalled when jobs finish
 	mirrors map[int]*mirror              // by remote port
 	locals  map[int]int                  // remote port to the local port chosen for it
 	off     map[int]bool                 // remote ports the user turned off
@@ -197,7 +208,8 @@ func newConn(m *Manager, node tailnet.Node, port int, cred share.Credential, tr 
 	c := &conn{m: m, node: node, host: net.JoinHostPort(node.DNSName, strconv.Itoa(port)),
 		ctx: ctx, cancel: cancel, peerTr: tr, since: time.Now(), status: Open, port: port, cred: cred,
 		servers: map[string]int{}, mirrors: map[int]*mirror{}, held: map[int]time.Time{},
-		locals: m.store.locals(node.DNSName), off: m.store.off(node.DNSName), tunnels: map[int]map[*tunnel]struct{}{}}
+		locals: m.store.locals(node.DNSName), off: m.store.off(node.DNSName), tunnels: map[int]map[*tunnel]struct{}{},
+		binding: map[int]int{}, settled: sync.NewCond(&m.mu)}
 	c.devTr = &http.Transport{
 		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
 			_, p, err := net.SplitHostPort(addr)
@@ -236,6 +248,8 @@ func (c *conn) infoLocked() Info {
 		switch {
 		case c.off[mr.port]:
 			state = "off"
+		case mr.over:
+			state = "limit"
 		case len(mr.lns) > 0:
 			state = "mirrored"
 		}
@@ -249,8 +263,9 @@ func (c *conn) infoLocked() Info {
 	return info
 }
 
-// update changes the connection under the lock and notifies subscribers,
-// telling info subscribers only when Info changed.
+// update changes the connection under the lock, runs the mirror jobs fn
+// planned without it, and notifies subscribers, telling info subscribers
+// only when Info changed.
 func (c *conn) update(fn func()) {
 	c.m.mu.Lock()
 	if c.m.c != c {
@@ -259,6 +274,15 @@ func (c *conn) update(fn func()) {
 	}
 	before, _ := json.Marshal(c.infoLocked())
 	fn()
+	if jobs := c.jobs; len(jobs) > 0 {
+		c.jobs = nil
+		c.m.mu.Unlock()
+		for _, j := range jobs {
+			j.run(c)
+		}
+		c.m.mu.Lock()
+		c.finishLocked(jobs)
+	}
 	after, _ := json.Marshal(c.infoLocked())
 	c.m.mu.Unlock()
 	c.m.notify(!bytes.Equal(before, after))
@@ -354,7 +378,7 @@ func (c *conn) dialWS(ctx context.Context, uri string) (*websocket.Conn, error) 
 	challenge := share.Challenge(h)
 	host, _ := c.address()
 	ws, res, err := websocket.Dial(ctx, "wss://"+host+uri, &websocket.DialOptions{
-		HTTPClient: &http.Client{Transport: c.peerTr}, HTTPHeader: h})
+		HTTPClient: &http.Client{Transport: c.peerTr, CheckRedirect: noRedirects}, HTTPHeader: h})
 	if err != nil {
 		if res != nil && res.StatusCode == http.StatusUnauthorized {
 			return nil, errRevoked
@@ -461,8 +485,9 @@ func (c *conn) stream() error {
 		if err != nil {
 			return err
 		}
+		// Only an object is a state; JSON null would decode into an empty one.
 		var rs remoteState
-		if json.Unmarshal(data, &rs) == nil {
+		if bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) && json.Unmarshal(data, &rs) == nil {
 			c.apply(data, &rs)
 		}
 	}
@@ -472,6 +497,16 @@ func (c *conn) stream() error {
 func (c *conn) apply(data []byte, rs *remoteState) {
 	servers := map[string]int{}
 	want := map[int]Mirror{}
+	// A remote port that may not be bound here is still listed, as busy, so
+	// it can be forwarded to another local port; reconcileLocked checks the
+	// local one and the limit.
+	var order []int
+	add := func(mr Mirror) {
+		if _, taken := want[mr.Port]; !taken {
+			want[mr.Port] = mr
+			order = append(order, mr.Port)
+		}
+	}
 	for _, s := range rs.Servers {
 		port := s.Port
 		if u, err := url.Parse(s.URL); err == nil && u.Port() != "" {
@@ -482,7 +517,7 @@ func (c *conn) apply(data []byte, rs *remoteState) {
 		}
 		servers[s.Name] = port
 		if s.PID != 0 {
-			want[port] = Mirror{Port: port, Server: s.Name}
+			add(Mirror{Port: port, Server: s.Name})
 		}
 	}
 	for _, ct := range rs.Docker.Containers {
@@ -490,8 +525,8 @@ func (c *conn) apply(data []byte, rs *remoteState) {
 			continue
 		}
 		for _, p := range ct.Ports {
-			if _, taken := want[p.Public]; p.Proto == "tcp" && p.Public > 0 && !taken {
-				want[p.Public] = Mirror{Port: p.Public, Container: ct.Name}
+			if p.Proto == "tcp" && p.Public > 0 {
+				add(Mirror{Port: p.Public, Container: ct.Name})
 			}
 		}
 	}
@@ -500,6 +535,7 @@ func (c *conn) apply(data []byte, rs *remoteState) {
 		c.version = rs.Daemon.Version
 		c.servers = servers
 		c.want = want
+		c.order = order
 		c.reconcileLocked()
 	})
 }
@@ -551,6 +587,54 @@ const PathPrefix = "/api/peer"
 
 // maxRelayBody bounds a relayed request body; the remote accepts no more.
 const maxRelayBody = 8 << 20
+
+// maxRelayReply bounds a relayed reply body. This daemon may hold a whole
+// reply to prove it to its own client, so a computer that was taken over
+// cannot make it hold more; API replies are far smaller (container logs,
+// the largest, stop at 16 MiB).
+const maxRelayReply = 64 << 20
+
+var errReplyTooLarge = fmt.Errorf("the other computer's reply is larger than %d MiB", maxRelayReply>>20)
+
+// relayIdle is how long a relayed reply body may go without data before it
+// is aborted. A reply may take long to start, as a container recreate
+// replies once it is done, but its body then arrives at once.
+var relayIdle = time.Minute
+
+// cappedBody fails a reply body once it has given more than maxRelayReply
+// bytes, and closes it once no data came for relayIdle, which aborts the
+// relayed reply.
+type cappedBody struct {
+	io.ReadCloser
+	read int64
+	idle *time.Timer
+}
+
+func newCappedBody(body io.ReadCloser) *cappedBody {
+	b := &cappedBody{ReadCloser: body}
+	b.idle = time.AfterFunc(relayIdle, func() { _ = body.Close() })
+	return b
+}
+
+func (b *cappedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.idle.Reset(relayIdle)
+	b.read += int64(n)
+	if b.read > maxRelayReply {
+		return n, errReplyTooLarge
+	}
+	return n, err
+}
+
+func (b *cappedBody) Close() error {
+	b.idle.Stop()
+	return b.ReadCloser.Close()
+}
+
+// noRedirects keeps a client on the address it was given: a redirect from
+// the other computer is returned as its reply, never followed with the
+// request's signature and body.
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -634,6 +718,12 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 				}
 				return errUnverified
 			}
+			if res.StatusCode != http.StatusSwitchingProtocols {
+				if res.ContentLength > maxRelayReply {
+					return errReplyTooLarge
+				}
+				res.Body = newCappedBody(res.Body)
+			}
 			sanitizeRelayed(res.Header)
 			// The proxy adds the reply's headers to those set here, so
 			// this daemon's copy of a header the reply has goes.
@@ -647,6 +737,10 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			if errors.Is(err, errPeerRefused) {
 				writeError(w, http.StatusBadGateway, c.node.Name+" refused the request; pair with it again if this continues")
+				return
+			}
+			if errors.Is(err, errReplyTooLarge) {
+				writeError(w, http.StatusBadGateway, errReplyTooLarge.Error())
 				return
 			}
 			if errors.Is(err, errPeerRejected) {
@@ -709,9 +803,12 @@ func (m *Manager) wrapped(c *conn) []byte {
 	info := c.infoLocked()
 	state := c.state
 	m.mu.Unlock()
-	obj := map[string]json.RawMessage{}
+	var obj map[string]json.RawMessage
 	if state != nil {
 		_ = json.Unmarshal(state, &obj)
+	}
+	if obj == nil {
+		obj = map[string]json.RawMessage{} // a state that is not an object
 	}
 	raw, err := json.Marshal(info)
 	if err != nil {

@@ -216,10 +216,12 @@
 .mirror-switch:disabled {
   opacity: 0.55;
 }
-.mirror--off {
+.mirror--off,
+.mirror--limit {
   border-style: dashed;
 }
-.mirror--off .num {
+.mirror--off .num,
+.mirror--limit .num {
   color: var(--text-2);
   font-weight: 500;
 }
