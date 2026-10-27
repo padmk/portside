@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 - **Tasks:** `oneshot = true` makes an entry a task that runs to completion, such as a migration. Servers that `depends_on` it start once it exits with code 0, and are `crashed` with a note such as `dependency migrate failed: exited with code 1` when it fails. `ensure`, `up --wait` and `ensure_server` run the task again and wait for its end; servers started together share one run. A task has no port, shows as **done** after a successful run, and counts for `portside check` only while it runs, when it failed, or when you name it ([Tasks](docs/configuration.md#tasks)).
 - **Schedules:** `schedule = "30 2 * * *"` starts a task or server at the times a crontab expression matches, in local time (five fields, names, ranges, lists, steps and `@daily` style macros). A run missed during sleep or while the daemon was down happens once afterwards, a server still running skips the run, `PORTSIDE_TRIGGER` is `schedule`, and `enabled = false` pauses it. `portside status`, the dashboard and `list_servers` show the next run ([Schedules](docs/configuration.md#schedules)).
