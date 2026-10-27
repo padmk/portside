@@ -238,8 +238,7 @@ func (m *Monitor) runCompose(c Container, kind string) (*Job, error) {
 		case <-time.After(2 * time.Second):
 		}
 		_ = f.Close()
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			err = fmt.Errorf("exited with code %d", ee.ExitCode())
 		}
 		m.finish(c.Name, j, err)

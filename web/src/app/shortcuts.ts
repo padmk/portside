@@ -57,14 +57,14 @@ export const SHORTCUTS: ShortcutGroup[] = [
   },
 ]
 
-export const isTyping = (el: EventTarget | null) => {
+const isTyping = (el: EventTarget | null) => {
   if (!(el instanceof HTMLElement)) return false
   return el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.classList.contains('xterm-helper-textarea')
 }
 
 const FILTER_ID = 'overview-filter'
 
-export function focusFilter() {
+function focusFilter() {
   // In a detail page the filter lives on the overview, so go there first.
   closeServer()
   requestAnimationFrame(() => {

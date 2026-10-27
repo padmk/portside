@@ -131,7 +131,7 @@ func cmdAttach(e *env, args []string) error {
 			if err != nil {
 				return
 			}
-			for i := 0; i < n; i++ {
+			for i := range n {
 				if buf[i] == 0x1d { // Ctrl-]
 					if i > 0 {
 						send(termMsg{T: "i", D: string(buf[:i])})

@@ -10,10 +10,7 @@ import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess, isUp, restar
 import { useProtectedReason } from '../servers/holder'
 import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
-import { ScheduleBadge } from '../servers/ScheduleBadge'
-import { TaskBadge } from '../servers/TaskBadge'
-import { TemporaryBadge } from '../servers/TemporaryBadge'
-import { ServerNetworkBadge } from '../servers/NetworkBadge'
+import { ServerBadges } from '../servers/ServerBadges'
 import { ContainerCount } from '../containers/ContainerStrip'
 import { containersOf } from '../containers/status'
 
@@ -46,12 +43,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
           <button type="button" className="card-open" onClick={open} aria-label={t('card.open', { name: v.name })}>
             {v.name}
           </button>
-          {v.stale && <span className="chip chip--warn" title={t('badge.staleHint')}>{t('badge.stale')}</span>}
-          {!v.enabled && <span className="chip">{t('badge.disabled')}</span>}
-          <TaskBadge server={v} />
-          <ScheduleBadge server={v} now={now} />
-          <TemporaryBadge server={v} />
-          <ServerNetworkBadge server={v} />
+          <ServerBadges server={v} now={now} />
           <ContainerCount server={v} containers={containers} />
         </h3>
         <p className="row-sub">

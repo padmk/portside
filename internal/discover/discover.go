@@ -234,8 +234,8 @@ var generic = map[string]bool{
 func nameFor(dir string) string {
 	parts := strings.Split(filepath.Clean(dir), string(filepath.Separator))
 	name := ""
-	for i := len(parts) - 1; i >= 0; i-- {
-		p := Slug(parts[i])
+	for _, part := range slices.Backward(parts) {
+		p := Slug(part)
 		if name == "" {
 			name = p
 		} else if !generic[p] {

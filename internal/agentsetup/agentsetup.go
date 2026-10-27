@@ -264,15 +264,18 @@ func skillItems(dirs agentskill.Dirs, self, content string) []Item {
 			// Its skills directory is an earlier agent's, so that item covers it.
 			continue
 		}
-		label := "Skill for " + a.name
+		var label strings.Builder
+		label.WriteString("Skill for ")
+		label.WriteString(a.name)
 		for _, b := range agents[i+1:] {
 			if _, own := targets[b.key]; ok && !own && installed(b) {
-				label += " and " + b.name
+				label.WriteString(" and ")
+				label.WriteString(b.name)
 			}
 		}
 		it := Item{
 			ID:         a.key + "-skill",
-			Label:      label,
+			Label:      label.String(),
 			Applicable: ok,
 			Command:    self + " skill install",
 			State:      Missing,

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -291,20 +292,11 @@ func call(ctx context.Context, tr http.RoundTripper, node tailnet.Node, port int
 func (m *Manager) ports(prefer ...int) []int {
 	out := []int{}
 	for _, p := range append(prefer, m.localPort, app.DefaultPort) {
-		if p > 0 && !containsInt(out, p) {
+		if p > 0 && !slices.Contains(out, p) {
 			out = append(out, p)
 		}
 	}
 	return out
-}
-
-func containsInt(s []int, v int) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 // findPort asks each candidate port for the daemon's hello, all at once:
@@ -324,7 +316,7 @@ func (m *Manager) findPort(ctx context.Context, tr http.RoundTripper, n tailnet.
 	}
 	cands := m.ports(prefer, saved)
 	for _, p := range app.FallbackPorts() {
-		if !containsInt(cands, p) {
+		if !slices.Contains(cands, p) {
 			cands = append(cands, p)
 		}
 	}

@@ -214,12 +214,12 @@ func readShell(sh string) ([]string, error) {
 		}
 		return nil, err
 	}
-	i := bytes.Index(out, []byte(envMarker))
-	if i < 0 {
+	_, after, ok := bytes.Cut(out, []byte(envMarker))
+	if !ok {
 		return nil, errors.New("no environment in its output")
 	}
 	var env []string
-	for _, kv := range bytes.Split(out[i+len(envMarker):], []byte{0}) {
+	for kv := range bytes.SplitSeq(after, []byte{0}) {
 		s := string(kv)
 		if !strings.Contains(s, "=") {
 			continue
@@ -251,7 +251,7 @@ func sshAgents() (map[int]bool, bool) {
 		return nil, false
 	}
 	agents := map[int]bool{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 2 || filepath.Base(strings.Join(f[1:], " ")) != "ssh-agent" {
 			continue
@@ -420,8 +420,8 @@ func mergeEnv(base []string, overrides map[string]string) []string {
 	out := make([]string, 0, len(base)+len(overrides))
 	for _, kv := range base {
 		k := kv
-		if i := strings.IndexByte(kv, '='); i >= 0 {
-			k = kv[:i]
+		if before, _, ok := strings.Cut(kv, "="); ok {
+			k = before
 		}
 		if j, ok := idx[k]; ok {
 			out[j] = kv
@@ -442,9 +442,9 @@ func mergeEnv(base []string, overrides map[string]string) []string {
 }
 
 func lookupEnv(env []string, key string) string {
-	for i := len(env) - 1; i >= 0; i-- {
-		if strings.HasPrefix(env[i], key+"=") {
-			return env[i][len(key)+1:]
+	for _, e := range slices.Backward(env) {
+		if strings.HasPrefix(e, key+"=") {
+			return e[len(key)+1:]
 		}
 	}
 	return ""

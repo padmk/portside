@@ -357,7 +357,7 @@ func (m *Manager) disable(ctx context.Context) error {
 func (m *Manager) recorded() map[string]bool {
 	out := map[string]bool{}
 	b, _ := os.ReadFile(m.record)
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			out[l] = true
 		}

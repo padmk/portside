@@ -66,11 +66,9 @@ func wantRejected(t *testing.T, path, before string, err error) {
 	}
 }
 
-func intp(n int) *int { return &n }
-
 func TestAddServer(t *testing.T) {
 	path := newConfig(t, fixture)
-	if err := AddServer(path, Spec{Name: "db", Cmd: "postgres", Port: intp(5432), Comment: "database"}); err != nil {
+	if err := AddServer(path, Spec{Name: "db", Cmd: "postgres", Port: new(5432), Comment: "database"}); err != nil {
 		t.Fatal(err)
 	}
 	wantText(t, path, fixture+"\n# database\n[servers.db]\ncmd = \"postgres\"\nport = 5432\n")
@@ -101,7 +99,7 @@ func TestAddServerRejected(t *testing.T) {
 		"bad name":    {Name: "Web App", Cmd: "x"},
 		"empty cmd":   {Name: "new", Cmd: " "},
 		"bad restart": {Name: "new", Cmd: "x", Restart: "sometimes"},
-		"daemon port": {Name: "new", Cmd: "x", Port: intp(7999)},
+		"daemon port": {Name: "new", Cmd: "x", Port: new(7999)},
 		"unknown dep": {Name: "new", Cmd: "x", DependsOn: []string{"ghost"}},
 		"self cycle":  {Name: "new", Cmd: "x", DependsOn: []string{"new"}},
 	}
@@ -115,7 +113,7 @@ func TestAddServerRejected(t *testing.T) {
 
 func TestUpdateServerKeepsCommentAboveAndNeighbours(t *testing.T) {
 	path := newConfig(t, fixture)
-	err := UpdateServer(path, "web", Spec{Name: "web", Dir: "web", Cmd: "pnpm dev", Port: intp(3100)})
+	err := UpdateServer(path, "web", Spec{Name: "web", Dir: "web", Cmd: "pnpm dev", Port: new(3100)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -701,7 +699,7 @@ func TestQuoteInvalidUTF8(t *testing.T) {
 func TestRenderRoundTrip(t *testing.T) {
 	off := false
 	spec := Spec{
-		Name: "web", Dir: "/srv/web", Cmd: "npm run dev -- --host \"0.0.0.0\"", Port: intp(3100),
+		Name: "web", Dir: "/srv/web", Cmd: "npm run dev -- --host \"0.0.0.0\"", Port: new(3100),
 		Group: "front", DependsOn: []string{"db"}, Restart: RestartOnFailure, Health: "/healthz",
 		Icon: "/srv/web/icon.png", Open: "/admin", Stop: "30s", Enabled: &off,
 		Env:     map[string]string{"A": "1", "with space": "x y", "Q": `"q"`},

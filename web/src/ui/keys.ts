@@ -4,7 +4,7 @@ import type { Translate } from '../i18n'
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
 /** How the shortcut sheet and hints write the app's modifier ('mod'). */
-export const modLabel = isMac ? '⌘' : 'Ctrl+Shift'
+const modLabel = isMac ? '⌘' : 'Ctrl+Shift'
 
 /** How the shortcut sheet and hints write a key: 'mod' and 'Space' are translated. */
 export const keyLabel = (key: string, t: Translate) => (key === 'mod' ? modLabel : key === 'Space' ? t('keys.space') : key)

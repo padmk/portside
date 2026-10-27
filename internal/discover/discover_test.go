@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,9 +51,7 @@ func TestDetectPython(t *testing.T) {
 	uv := map[string]string{"uv.lock": ""}
 	with := func(base map[string]string, kv ...string) map[string]string {
 		m := map[string]string{}
-		for k, v := range base {
-			m[k] = v
-		}
+		maps.Copy(m, base)
 		for i := 0; i+1 < len(kv); i += 2 {
 			m[kv[i]] = kv[i+1]
 		}

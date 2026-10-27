@@ -77,10 +77,6 @@ func withPath(base, prepend []string) []string {
 	return mergeEnv(base, map[string]string{"PATH": path})
 }
 
-func (s *Supervisor) buildEnv(sv config.Server, prepend []string, global map[string]string) []string {
-	return launchEnv(s.env.get(), sv, prepend, global)
-}
-
 // launchInputs are the parts a server's environment was built from, kept so
 // that stale checks compare the config's parts directly and ignore volatile
 // values only in the login-shell part.

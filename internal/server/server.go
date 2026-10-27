@@ -91,7 +91,7 @@ func New(opt Options) *Server {
 	}
 	// Extra origins allowed to write, for the Vite dev server: full origins,
 	// or a bare port for the dashboard host at that port.
-	for _, o := range strings.Split(os.Getenv(app.Env("DEV_ORIGIN")), ",") {
+	for o := range strings.SplitSeq(os.Getenv(app.Env("DEV_ORIGIN")), ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			if p, err := strconv.Atoi(o); err == nil && opt.DashboardHost != "" {
 				o = s.dashboardOrigin(p)

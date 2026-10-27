@@ -137,7 +137,7 @@ func TestBindLeavesTakenPortsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer wild.Close()
-	if lns := c.bind(wild.Addr().(*net.TCPAddr).Port, 1); lns != nil {
+	if lns := bindAndServe(c, wild.Addr().(*net.TCPAddr).Port, 1); lns != nil {
 		closeAll(lns)
 		t.Error("bound a port that a listener on 0.0.0.0 holds")
 	}
@@ -145,14 +145,14 @@ func TestBindLeavesTakenPortsAlone(t *testing.T) {
 	// Another process on IPv6 loopback only.
 	if v6, err := net.Listen("tcp6", "[::1]:0"); err == nil {
 		defer v6.Close()
-		if lns := c.bind(v6.Addr().(*net.TCPAddr).Port, 1); lns != nil {
+		if lns := bindAndServe(c, v6.Addr().(*net.TCPAddr).Port, 1); lns != nil {
 			closeAll(lns)
 			t.Error("bound a port that a listener on ::1 holds")
 		}
 	}
 
 	p := freePort(t)
-	lns := c.bind(p, p)
+	lns := bindAndServe(c, p, p)
 	if lns == nil {
 		t.Fatal("did not bind a free port")
 	}

@@ -383,8 +383,7 @@ func upgradeInPlace(e *env, c *client.Client, old client.Health, allowDowngrade 
 	if errors.Is(err, client.ErrUnverified) {
 		return false, nil
 	}
-	var apiErr *client.APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*client.APIError](err); ok {
 		// Not found or not implemented: a daemon without in-place upgrades.
 		// Unauthorized: one from before verified requests.
 		if apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusNotImplemented || apiErr.Status == http.StatusUnauthorized {

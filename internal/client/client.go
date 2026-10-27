@@ -479,19 +479,8 @@ func sandboxedError(port int) error {
 }
 
 // DaemonRunning reports whether a daemon holds this state directory's lock.
-// The test takes a shared lock for a moment; a daemon starting meanwhile
-// retries its own.
 func DaemonRunning() bool {
-	f, err := os.Open(filepath.Join(paths.StateDir(), paths.LockName))
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-		return errors.Is(err, syscall.EWOULDBLOCK)
-	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	return false
+	return paths.LockHeld(filepath.Join(paths.StateDir(), paths.LockName))
 }
 
 // follow points the client at the port a daemon recorded, when that differs

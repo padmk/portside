@@ -59,7 +59,7 @@ func TestPairOnceWithNormalizedCode(t *testing.T) {
 func TestCodeWithdrawnAfterTooManyGuesses(t *testing.T) {
 	d := newDevices(t.TempDir())
 	code := newCode(t, d)
-	for i := 0; i < codeAttempts; i++ {
+	for i := range codeAttempts {
 		if _, _, err := d.Pair("AAAA-AAAA", mbp); !errors.Is(err, ErrPairing) {
 			t.Fatalf("wrong guess %d: %v", i, err)
 		}

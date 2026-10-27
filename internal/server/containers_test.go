@@ -207,6 +207,8 @@ func TestContainerLogProtocol(t *testing.T) {
 				}
 			}))
 			defer engine.Close()
+			// Not t.Context(): the monitor's stream must end before the
+			// deferred engine.Close, which waits for its connection.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			m := docker.NewMonitor(containerTestHost{endpoint: "tcp://" + engine.Listener.Addr().String()}, time.Second, func() string { return "" })

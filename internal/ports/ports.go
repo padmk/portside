@@ -151,7 +151,7 @@ func listSS(ctx context.Context) []Listener {
 // ("0.0.0.0:22", "[::]:22", "*:22", "127.0.0.53%lo:53").
 func parseSS(out string) []Listener {
 	var set listenerSet
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		m := ssRe.FindStringSubmatch(line)
 		if m == nil {
 			continue
@@ -212,7 +212,7 @@ func Cwds(ctx context.Context, pids []int) map[int]string {
 	}
 	out, _ := run(ctx, "lsof", "-a", "-d", "cwd", "-p", strings.Join(list, ","), "-F", "pn")
 	var pid int
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if line == "" {
 			continue
 		}
@@ -254,7 +254,7 @@ func LoopbackListeners(ctx context.Context, port int) map[string]int {
 	out, err := run(ctx, "lsof", "-nP", "-w", "-iTCP:"+strconv.Itoa(port), "-sTCP:LISTEN", "-F", "pn")
 	if err != nil && len(out) == 0 {
 		out, _ = run(ctx, "ss", "-ltnpH", "sport", "=", ":"+strconv.Itoa(port))
-		for _, line := range strings.Split(string(out), "\n") {
+		for line := range strings.SplitSeq(string(out), "\n") {
 			f := strings.Fields(line)
 			if len(f) < 4 {
 				continue
@@ -267,7 +267,7 @@ func LoopbackListeners(ctx context.Context, port int) map[string]int {
 		return res
 	}
 	pid := 0
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if line == "" {
 			continue
 		}
@@ -295,7 +295,7 @@ func Owner(ctx context.Context, port int) (Listener, bool) {
 		return Listener{}, false
 	}
 	l := Listener{Port: port}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if line == "" {
 			continue
 		}

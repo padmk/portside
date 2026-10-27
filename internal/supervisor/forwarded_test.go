@@ -42,7 +42,7 @@ func TestForwardedPortIsNotExternal(t *testing.T) {
 	}
 
 	// Without the hook the listener counts as another process.
-	s.sample(context.Background(), map[string]int{})
+	s.check(context.Background(), map[string]int{}, true)
 	if v := view(); v.External == nil || v.ForwardedFrom != "" {
 		t.Fatalf("unforwarded: External = %v, ForwardedFrom = %q", v.External, v.ForwardedFrom)
 	}
@@ -53,7 +53,7 @@ func TestForwardedPortIsNotExternal(t *testing.T) {
 	}
 
 	s.SetForwarded(func(p int) (string, bool) { return "devbox", p == port })
-	s.sample(context.Background(), map[string]int{})
+	s.check(context.Background(), map[string]int{}, true)
 	v := view()
 	if v.External != nil || v.ForwardedFrom != "devbox" || v.Status != Stopped {
 		t.Errorf("forwarded: External = %v, ForwardedFrom = %q, Status = %s", v.External, v.ForwardedFrom, v.Status)

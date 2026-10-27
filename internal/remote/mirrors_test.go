@@ -144,7 +144,7 @@ func TestBindAfterClosedConnections(t *testing.T) {
 	p := freePort(t)
 	addr := "127.0.0.1:" + strconv.Itoa(p)
 	for i := range 3 {
-		lns := c.bind(p, 1)
+		lns := bindAndServe(c, p, 1)
 		if lns == nil {
 			t.Fatalf("round %d: the port is busy right after the mirror's connections closed", i)
 		}
@@ -174,7 +174,7 @@ func TestBindAfterClosedConnections(t *testing.T) {
 			}
 			t.Fatalf("listener on %q next to closing connections: %v", l.host, err)
 		}
-		if lns := c.bind(p, 1); lns != nil {
+		if lns := bindAndServe(c, p, 1); lns != nil {
 			closeAll(lns)
 			t.Errorf("bound port %d while another process listens on %s", p, local.Addr())
 		}
@@ -370,4 +370,12 @@ func TestReleaseDuringABind(t *testing.T) {
 	if mr := mirrorOf(t, m, p); mr.State == "mirrored" {
 		t.Errorf("mirror = %+v, want it not bound", mr)
 	}
+}
+
+// bindAndServe binds local for a mirror and forwards it to port, as the
+// manager does in two steps.
+func bindAndServe(c *conn, local, port int) []net.Listener {
+	lns := listen(local)
+	c.serve(lns, port)
+	return lns
 }

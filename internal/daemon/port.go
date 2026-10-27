@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -35,10 +36,8 @@ func SavedPort(stateDir string) int {
 		return 0
 	}
 	p, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-	for _, f := range app.FallbackPorts() {
-		if p == f {
-			return p
-		}
+	if slices.Contains(app.FallbackPorts(), p) {
+		return p
 	}
 	return 0
 }
@@ -66,8 +65,7 @@ func (e portHeld) Is(target error) bool { return target == ErrPortHeld }
 func listenConfigured(cfg *config.Config, cfgPath, stateDir string, avoid func(port int) bool) ([]net.Listener, error) {
 	if !cfg.PortAuto {
 		lns, err := listen(cfg.Port)
-		var busy *busyError
-		if errors.As(err, &busy) {
+		if _, ok := errors.AsType[*busyError](err); ok {
 			return nil, fmt.Errorf("%w; %s, or change `port` in %s", err, holder(cfg.Port), paths.ShortenHome(cfgPath))
 		}
 		return lns, err

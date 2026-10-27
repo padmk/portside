@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -74,8 +75,8 @@ func tlsConfig(ep Endpoint) (*tls.Config, error) {
 }
 
 func lookPathIn(name string, env []string) string {
-	for i := len(env) - 1; i >= 0; i-- {
-		if dirs, ok := strings.CutPrefix(env[i], "PATH="); ok {
+	for _, e := range slices.Backward(env) {
+		if dirs, ok := strings.CutPrefix(e, "PATH="); ok {
 			for _, dir := range filepath.SplitList(dirs) {
 				p := filepath.Join(dir, name)
 				if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {

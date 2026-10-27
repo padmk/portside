@@ -32,12 +32,7 @@ func (s *Server) edit(w http.ResponseWriter, r *http.Request, fn func() error, w
 		err = s.reload(rename...)
 	}
 	s.editMu.Unlock()
-	if errors.Is(err, config.ErrConflict) {
-		fail(w, http.StatusConflict, err)
-		return
-	}
-	if err != nil {
-		fail(w, http.StatusBadRequest, err)
+	if failedEdit(w, err) {
 		return
 	}
 	state := s.snapshot(r)
@@ -158,12 +153,7 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		err = s.reload()
 	}
 	s.editMu.Unlock()
-	if errors.Is(err, config.ErrConflict) {
-		fail(w, http.StatusConflict, err)
-		return
-	}
-	if err != nil {
-		fail(w, http.StatusBadRequest, err)
+	if failedEdit(w, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.snapshot(r))
@@ -178,4 +168,18 @@ func (s *Server) changesShare(text string) bool {
 	}
 	next, err := config.Parse(s.opt.ConfigPath, []byte(text))
 	return err == nil && next.Share != cur
+}
+
+// failedEdit answers a config edit that failed, with 409 when the file
+// changed underneath it, and reports whether it did.
+func failedEdit(w http.ResponseWriter, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, config.ErrConflict):
+		fail(w, http.StatusConflict, err)
+	default:
+		fail(w, http.StatusBadRequest, err)
+	}
+	return true
 }

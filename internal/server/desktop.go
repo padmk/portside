@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -305,8 +306,8 @@ func (s *Server) desktop() desktop {
 }
 
 func envValue(env []string, key string) string {
-	for i := len(env) - 1; i >= 0; i-- {
-		if v, ok := strings.CutPrefix(env[i], key+"="); ok {
+	for _, e := range slices.Backward(env) {
+		if v, ok := strings.CutPrefix(e, key+"="); ok {
 			return v
 		}
 	}
@@ -351,10 +352,8 @@ func named(list []desktopApp, setting string) *desktopApp {
 		if strings.EqualFold(a.Name, setting) {
 			return &list[i]
 		}
-		for _, c := range a.Cmds {
-			if c == setting {
-				return &list[i]
-			}
+		if slices.Contains(a.Cmds, setting) {
+			return &list[i]
 		}
 	}
 	return nil

@@ -6,7 +6,7 @@
 export type ThemeMode = 'light' | 'dark'
 export type ModeChoice = 'system' | ThemeMode
 
-export const THEME_IDS = [
+const THEME_IDS = [
   'rose-pine',
   'rose-pine-dawn',
   'everforest-dark',
@@ -45,7 +45,7 @@ export const DEFAULT_MODE: ModeChoice = 'system'
 export const isFamilyId = (v: unknown): v is string => FAMILIES.some((f) => f.id === v)
 export const isModeChoice = (v: unknown): v is ModeChoice => v === 'system' || v === 'light' || v === 'dark'
 
-export function familyOf(id: string): ThemeFamily {
+function familyOf(id: string): ThemeFamily {
   return FAMILIES.find((f) => f.id === id) ?? FAMILIES[0]!
 }
 

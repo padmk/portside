@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/padmk/portside/internal/app"
 )
@@ -78,7 +77,7 @@ func moveLegacy(forService bool) []string {
 			useLegacy(app.Env("STATE_DIR"), stateFrom)
 		}
 	}
-	if stateFrom != "" && lockHeld(filepath.Join(stateFrom, LockName)) {
+	if stateFrom != "" && LockHeld(filepath.Join(stateFrom, LockName)) {
 		useOld()
 		return append(notes, fmt.Sprintf("a daemon runs from %s, where an earlier version kept its state; using it until that daemon stops, then it moves to %s", ShortenHome(stateFrom), ShortenHome(defaultStateDir())))
 	}
@@ -203,18 +202,4 @@ func serviceNames(cfgFile, stateDir string) bool {
 func useLegacy(env, path string) {
 	_ = os.Setenv(env, filepath.Clean(path))
 	legacyEnv = append(legacyEnv, env)
-}
-
-// lockHeld reports whether a daemon holds the lock file at path.
-func lockHeld(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
-		return errors.Is(err, syscall.EWOULDBLOCK)
-	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	return false
 }

@@ -295,17 +295,12 @@ func (s *Server) action(kind string) http.HandlerFunc {
 			fail(w, http.StatusNotFound, fmt.Errorf("unknown server %q", name))
 			return
 		}
-		wait := time.Duration(0)
-		if body.Timeout != "" {
-			d, err := time.ParseDuration(body.Timeout)
-			if err != nil || d <= 0 {
-				fail(w, http.StatusBadRequest, errors.New("timeout must be a positive duration"))
-				return
-			}
-			wait = d
+		wait, err := requestTimeout(body.Timeout, 0)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
 		}
 		opt := supervisor.StartOptions{Takeover: body.Takeover, Since: time.Now()}
-		var err error
 		switch kind {
 		case "start":
 			err = s.sup.Start(name, opt)
@@ -374,20 +369,16 @@ func (s *Server) ensure(w http.ResponseWriter, r *http.Request) {
 		}
 		name = target
 	}
-	timeout := supervisor.ReadyTimeout
-	if body.Timeout != "" {
-		d, err := time.ParseDuration(body.Timeout)
-		if err != nil || d <= 0 {
-			fail(w, http.StatusBadRequest, errors.New("timeout must be a positive duration"))
-			return
-		}
-		timeout = d
+	timeout, err := requestTimeout(body.Timeout, supervisor.ReadyTimeout)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
 	}
 	// A task is run again by every start, and the wait is for that run, or
 	// one already in progress; waiting only accepts the last one.
 	var since time.Time
 	if body.Wait {
-		if _, ok := s.sup.Logs(name); !ok {
+		if _, ok := s.sup.Lookup(name); !ok {
 			fail(w, http.StatusBadRequest, fmt.Errorf("unknown server %q", name))
 			return
 		}
@@ -705,4 +696,17 @@ func (s *Server) shutdown(w http.ResponseWriter, r *http.Request) {
 			s.opt.Shutdown(body.Restart)
 		}()
 	}
+}
+
+// requestTimeout reads a request's timeout, such as "3m": def when it is
+// empty, an error unless it is a positive duration.
+func requestTimeout(text string, def time.Duration) (time.Duration, error) {
+	if text == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(text)
+	if err != nil || d <= 0 {
+		return 0, errors.New("timeout must be a positive duration")
+	}
+	return d, nil
 }

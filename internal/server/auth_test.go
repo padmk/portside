@@ -454,7 +454,7 @@ func TestSessionCookieOnlyFromOwnAccount(t *testing.T) {
 		lookups.Add(1)
 		return ports.ConnOwner{}, ports.ErrNoOwner
 	}
-	if session() || session() {
+	if first, second := session(), session(); first || second {
 		t.Error("the cookie accepted when the owner is unknown")
 	}
 	if n := lookups.Load() - before; n != 2 {

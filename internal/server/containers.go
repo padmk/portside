@@ -334,7 +334,7 @@ func (s *Server) containerDetails(w http.ResponseWriter, r *http.Request) {
 		d.Networks = append(d.Networks, NetworkView{Name: name, IP: n.IPAddress, Aliases: aliases})
 	}
 	sort.Slice(d.Networks, func(i, j int) bool { return d.Networks[i].Name < d.Networks[j].Name })
-	for _, f := range strings.Split(in.Config.Labels["com.docker.compose.project.config_files"], ",") {
+	for f := range strings.SplitSeq(in.Config.Labels["com.docker.compose.project.config_files"], ",") {
 		if f = strings.TrimSpace(f); f != "" {
 			d.ConfigFiles = append(d.ConfigFiles, paths.ShortenHome(f))
 		}
@@ -426,7 +426,8 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			shownID, shownState = c.ID, c.State
+			// shownState is set on every path below.
+			shownID = c.ID
 			tail := "all"
 			if firstStream || since.IsZero() {
 				tail = strconv.Itoa(initialTail)
@@ -456,7 +457,8 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 					return sendStatus(map[string]string{"t": "cursor", "d": last.Format(time.RFC3339Nano), "id": c.ID})
 				})
 				stream.Close()
-				if streamErr != nil && !errors.Is(streamErr, io.EOF) && ctx.Err() == nil {
+				// pump returns io.EOF when the stream ends.
+				if !errors.Is(streamErr, io.EOF) && ctx.Err() == nil {
 					if status("error", streamErr.Error()) != nil {
 						return
 					}

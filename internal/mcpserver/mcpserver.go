@@ -636,7 +636,7 @@ func (t *tools) text(ctx context.Context, computer string, check func(context.Co
 // onlyNotes reports whether a logs reply holds nothing but its bracketed
 // notes.
 func onlyNotes(text string) bool {
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		if l != "" && !(strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]")) {
 			return false
 		}

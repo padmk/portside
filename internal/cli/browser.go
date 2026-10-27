@@ -15,7 +15,7 @@ func browserCommand(goos string, getenv func(string) string, u string) []string 
 		return nil
 	}
 	// $BROWSER lists commands separated by colons; %s stands for the address.
-	for _, entry := range strings.Split(getenv("BROWSER"), ":") {
+	for entry := range strings.SplitSeq(getenv("BROWSER"), ":") {
 		f := strings.Fields(entry)
 		if len(f) == 0 || !onPath(f[0]) {
 			continue

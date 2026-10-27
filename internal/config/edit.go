@@ -96,7 +96,7 @@ func key(k string) string {
 func Render(s Spec) string {
 	var b strings.Builder
 	if s.Comment != "" {
-		for _, line := range strings.Split(strings.TrimRight(s.Comment, "\n"), "\n") {
+		for line := range strings.SplitSeq(strings.TrimRight(s.Comment, "\n"), "\n") {
 			b.WriteString("# " + strings.TrimSpace(line) + "\n")
 		}
 	}
@@ -495,7 +495,7 @@ func UpdateServer(path, name string, s Spec) error {
 		}
 	}
 	return edit(path, func(d *doc) ([]string, error) {
-		start, head, _, ok := d.block(name)
+		start, _, _, ok := d.block(name)
 		if !ok {
 			return nil, fmt.Errorf("server %q not found in %s", name, path)
 		}
@@ -549,7 +549,7 @@ func UpdateServer(path, name string, s Spec) error {
 			out = patchValue(out, []string{"servers", name, k}, literal)
 		}
 		if s.Comment != "" {
-			_, head, _, _ = newDoc(out).block(name)
+			_, head, _, _ := newDoc(out).block(name)
 			comments := strings.Split(strings.TrimSuffix(Render(Spec{Name: name, Cmd: "x", Comment: s.Comment}), "\n"), "\n")
 			out = append(append(append([]string{}, out[:start]...), comments[:len(comments)-2]...), out[head:]...)
 		}

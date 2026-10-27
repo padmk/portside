@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/padmk/portside/internal/app"
@@ -266,16 +267,14 @@ func Main(args []string) int {
 		err = c.run(e, rest)
 	}
 	if err != nil {
-		var ue usageError
-		if errors.As(err, &ue) {
+		if ue, ok := errors.AsType[usageError](err); ok {
 			fmt.Fprintf(e.errOut, "usage: %s %s\n", app.ID, c.usage)
 			if ue.msg != "" {
 				fmt.Fprintln(e.errOut, ue.msg)
 			}
 			return 2
 		}
-		var se silentError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[silentError](err); ok {
 			return se.code
 		}
 		fmt.Fprintf(e.errOut, "%s %s\n", e.paint(red, "error:"), err)
@@ -286,10 +285,8 @@ func Main(args []string) int {
 
 func find(name string) *command {
 	for _, c := range commands {
-		for _, n := range c.names {
-			if n == name {
-				return c
-			}
+		if slices.Contains(c.names, name) {
+			return c
 		}
 	}
 	return nil

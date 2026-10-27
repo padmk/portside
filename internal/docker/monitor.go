@@ -220,9 +220,9 @@ func (m *Monitor) changedLocked() { m.changes.Notify() }
 func (m *Monitor) getenv(key string) string {
 	prefix := key + "="
 	env := m.host.Environ()
-	for i := len(env) - 1; i >= 0; i-- {
-		if strings.HasPrefix(env[i], prefix) {
-			return env[i][len(prefix):]
+	for _, e := range slices.Backward(env) {
+		if strings.HasPrefix(e, prefix) {
+			return e[len(prefix):]
 		}
 	}
 	return ""
@@ -715,9 +715,7 @@ func (m *Monitor) pollStats(ctx context.Context, c *Client) {
 		m.mu.Unlock()
 		var wg sync.WaitGroup
 		for _, id := range ids {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				sctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -734,7 +732,7 @@ func (m *Monitor) pollStats(ctx context.Context, c *Client) {
 					s.PreCPU.Usage.Total, s.PreCPU.System = last.CPU.Usage.Total, last.CPU.System
 				}
 				m.recordPolled(id, s, last != nil || s.PreCPU.System != 0, last != nil)
-			}()
+			})
 		}
 		wg.Wait()
 		// Containers no longer running start over without a previous sample.
@@ -934,7 +932,7 @@ func bindExposure(hostIP string) ports.Exposure {
 
 func splitList(s string) []string {
 	var out []string
-	for _, p := range strings.Split(s, ",") {
+	for p := range strings.SplitSeq(s, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}

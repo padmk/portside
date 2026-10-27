@@ -73,7 +73,7 @@ func TestReadyAfterDelaysRunning(t *testing.T) {
 func TestReadyLogSeesALineInAFlood(t *testing.T) {
 	p := &proc{logs: NewMemoryLog()}
 	p.logs.WatchLines(newReadyMatcher(p, regexp.MustCompile(`^Worker ready$`), nil).watch)
-	for i := 0; i < 20000; i++ {
+	for i := range 20000 {
 		fmt.Fprintf(p.logs, "\x1b[2mline %d\x1b[0m\r\n", i)
 		if i == 12345 {
 			fmt.Fprint(p.logs, "Worker re")

@@ -231,23 +231,15 @@ func (c *conn) reconcileLocked() {
 	c.next = max(resume, 0)
 }
 
-// bind listens on loopback port local, IPv4 and (where available) IPv6,
-// when it is free here, and forwards connections to port on the remote
-// machine. A port counts as taken when a socket of another process holds it
-// on loopback or on all addresses: 127.0.0.1 can be bound next to a process
-// listening on all addresses and would steal its traffic, so wildcardHeld
-// checks for one first. The binds use SO_REUSEADDR (Go's default), so
-// connections still closing after the mirror's last bind (TIME_WAIT) do not
-// keep the port busy. Binds are tried instead of connecting, so local
-// servers never see probe connections.
-func (c *conn) bind(local, port int) []net.Listener {
-	lns := listen(local)
-	c.serve(lns, port)
-	return lns
-}
-
-// listen binds loopback port local for a mirror, as bind describes, without
-// accepting connections yet.
+// listen binds loopback port local for a mirror, IPv4 and (where
+// available) IPv6, when it is free here, without accepting connections
+// yet (serve does). A port counts as taken when a socket of another
+// process holds it on loopback or on all addresses: 127.0.0.1 can be bound
+// next to a process listening on all addresses and would steal its
+// traffic, so wildcardHeld checks for one first. The binds use
+// SO_REUSEADDR (Go's default), so connections still closing after the
+// mirror's last bind (TIME_WAIT) do not keep the port busy. Binds are tried
+// instead of connecting, so local servers never see probe connections.
 func listen(local int) []net.Listener {
 	p := strconv.Itoa(local)
 	ctx := context.Background()

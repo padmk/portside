@@ -31,7 +31,7 @@ export class ApiError extends Error {
  * A response to a request made for a computer the dashboard no longer shows.
  * Callers drop it silently: its data and its errors belong to that computer.
  */
-export class StaleResponseError extends Error {
+class StaleResponseError extends Error {
   constructor() {
     super('response from a computer no longer shown')
   }

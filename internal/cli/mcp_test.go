@@ -21,8 +21,7 @@ func TestMCPModeFlags(t *testing.T) {
 		cancel()
 		e.ctx = ctx
 		err := cmdMCP(e, args)
-		var ue usageError
-		if !errors.As(err, &ue) {
+		if _, ok := errors.AsType[usageError](err); !ok {
 			t.Errorf("mcp %s: %v, want a usage error", strings.Join(args, " "), err)
 		}
 	}

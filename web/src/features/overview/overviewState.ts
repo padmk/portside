@@ -7,7 +7,7 @@ import { groupOf, type StatusGroupId } from './status'
 export type Layout = 'cards' | 'list'
 
 /** Above this many servers the overview starts in list mode. */
-export const CARDS_MAX = 12
+const CARDS_MAX = 12
 
 const COLLAPSED_KEY = storageKey('collapsed')
 const LAYOUT_KEY = storageKey('layout')

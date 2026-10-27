@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -305,8 +306,7 @@ func (c *conn) setStatus(status string, err error) {
 }
 
 func friendly(name string, err error) string {
-	var e *Error
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*Error](err); ok {
 		return e.Msg
 	}
 	if errors.Is(err, errUnverified) {
@@ -698,9 +698,7 @@ func (m *Manager) ServeAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			h := peerHeader(&c.cred, epoch, pr.Out.Method, pr.Out.URL.RequestURI(), body)
 			challenge = share.Challenge(h)
-			for k, v := range h {
-				pr.Out.Header[k] = v
-			}
+			maps.Copy(pr.Out.Header, h)
 		},
 		Transport:     c.peerTr,
 		FlushInterval: -1,

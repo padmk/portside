@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,8 +63,7 @@ func (e *unavailable) Is(target error) bool { return target == ErrUnavailable }
 // Problem is the reason for an ErrUnavailable (Missing, Stopped or
 // SignedOut), or "" for any other error.
 func Problem(err error) string {
-	var u *unavailable
-	if errors.As(err, &u) {
+	if u, ok := errors.AsType[*unavailable](err); ok {
 		return u.reason
 	}
 	return ""
@@ -183,10 +183,8 @@ func (st *Status) Owned(n Node) bool {
 // ByIP returns the node, this machine included, that has address ip.
 func (st *Status) ByIP(ip string) (Node, bool) {
 	for _, n := range append([]Node{st.Self}, st.Peers...) {
-		for _, a := range n.IPs {
-			if a == ip {
-				return n, true
-			}
+		if slices.Contains(n.IPs, ip) {
+			return n, true
 		}
 	}
 	return Node{}, false

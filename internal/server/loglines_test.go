@@ -203,7 +203,7 @@ func TestPickMatchOverlappingContexts(t *testing.T) {
 
 func TestPickMatchUsesLastHits(t *testing.T) {
 	var texts []string
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		texts = append(texts, fmt.Sprintf("hit %d", i), "filler")
 	}
 	got := (logQuery{lines: 2, match: regexp.MustCompile("hit")}).pick(mkLines(texts...))
@@ -289,7 +289,7 @@ func TestWriteLinesSinceDropsLinesWithoutTime(t *testing.T) {
 func TestWriteLinesSinceThenTail(t *testing.T) {
 	now := time.Now()
 	var lines []supervisor.Line
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		lines = append(lines, supervisor.Line{At: now.Add(time.Duration(i-10) * time.Minute), Text: fmt.Sprint("l", i)})
 	}
 	body, _ := render(logQuery{lines: 2, since: now.Add(-5*time.Minute - time.Second)}, lines)
@@ -384,7 +384,7 @@ func tail(s string, n int) string {
 
 func TestWriteLinesCapsReply(t *testing.T) {
 	var lines []supervisor.Line
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		lines = append(lines, supervisor.Line{Text: fmt.Sprintf("%04d", i) + strings.Repeat("x", 996)})
 	}
 	body, _ := render(logQuery{lines: 1000}, lines, "note")
@@ -404,7 +404,7 @@ func TestWriteLinesCapsReply(t *testing.T) {
 
 func TestWriteLinesUnderCapHasNoNote(t *testing.T) {
 	var lines []supervisor.Line
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		lines = append(lines, supervisor.Line{Text: strings.Repeat("y", 1000)})
 	}
 	body, _ := render(logQuery{lines: 200}, lines)
@@ -416,7 +416,7 @@ func TestWriteLinesUnderCapHasNoNote(t *testing.T) {
 func TestWriteLinesCapKeepsNewestEvenWhenLarge(t *testing.T) {
 	// Every line is a maximal 4 KiB line plus its cut note.
 	var lines []supervisor.Line
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		lines = append(lines, supervisor.Line{Text: fmt.Sprintf("%03d", i) + strings.Repeat("z", maxLineBytes)})
 	}
 	body, _ := render(logQuery{lines: 100}, lines)

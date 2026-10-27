@@ -12,7 +12,7 @@ const rules: Record<Locale, Intl.PluralRules> = {
   pl: new Intl.PluralRules('pl'),
 }
 
-export function translate(locale: Locale, key: Key, vars?: Vars): string {
+function translate(locale: Locale, key: Key, vars?: Vars): string {
   const msg = dictionaries[locale][key] ?? en[key]
   let text: string
   if (typeof msg === 'string') {

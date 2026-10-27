@@ -24,10 +24,10 @@ import (
 	"github.com/padmk/portside/internal/ports"
 )
 
-func TestBuildEnvDisablesComposeMenu(t *testing.T) {
+func TestLaunchEnvDisablesComposeMenu(t *testing.T) {
 	s := &Supervisor{env: shellEnv{env: []string{"PATH=/bin", "COMPOSE_MENU=true"}, fetched: time.Now()}}
 	for _, cmd := range []string{"docker compose up", "docker-compose up", "podman compose up"} {
-		env := s.buildEnv(config.Server{Cmd: cmd, Port: 3010, Env: map[string]string{"COMPOSE_MENU": "true"}}, nil, nil)
+		env := launchEnv(s.env.get(), config.Server{Cmd: cmd, Port: 3010, Env: map[string]string{"COMPOSE_MENU": "true"}}, nil, nil)
 		if got := lookupEnv(env, "COMPOSE_MENU"); got != "false" {
 			t.Errorf("%s: COMPOSE_MENU=%s", cmd, got)
 		}
@@ -35,7 +35,7 @@ func TestBuildEnvDisablesComposeMenu(t *testing.T) {
 			t.Errorf("PORT=%s", got)
 		}
 	}
-	env := s.buildEnv(config.Server{Cmd: "pnpm dev"}, nil, nil)
+	env := launchEnv(s.env.get(), config.Server{Cmd: "pnpm dev"}, nil, nil)
 	if got := lookupEnv(env, "COMPOSE_MENU"); got != "true" {
 		t.Errorf("non-compose COMPOSE_MENU=%s", got)
 	}
@@ -416,7 +416,7 @@ func TestStopWinsDuringPreflight(t *testing.T) {
 	}
 }
 
-func TestSampleRefreshesStaleExternalOwner(t *testing.T) {
+func TestUsageCheckRefreshesStaleExternalOwner(t *testing.T) {
 	if _, err := exec.LookPath("lsof"); err != nil {
 		if _, err := exec.LookPath("ss"); err != nil {
 			t.Skip("no listener owner tool")
@@ -430,7 +430,7 @@ func TestSampleRefreshesStaleExternalOwner(t *testing.T) {
 	p.cfg.Port = port
 	p.external = &ports.Listener{Port: port, PID: os.Getpid(), Command: "cached"}
 	p.externalStart = "stale process identity"
-	s.sample(context.Background(), map[string]int{"web": port})
+	s.check(context.Background(), map[string]int{"web": port}, true)
 	if p.external == nil || p.external.Command == "cached" || p.external.PID != os.Getpid() || p.externalStart == "stale process identity" {
 		t.Fatalf("owner not refreshed: %+v", p.external)
 	}

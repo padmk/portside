@@ -372,3 +372,12 @@ func inheritTerminal(h Handoff) (*os.File, error) {
 	}
 	return f, nil
 }
+
+// awaitHandoffLocked waits while an upgrade in place is under way: it
+// either replaces this process, or fails and lets a start in preflight go
+// on instead of giving it up.
+func (s *Supervisor) awaitHandoffLocked() {
+	for s.closing && s.handoff {
+		s.handoffEnd.Wait()
+	}
+}

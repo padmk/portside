@@ -80,7 +80,7 @@ func procNetAddr(s string) (netip.AddrPort, bool) {
 // named "<client>-><server>" and returns its pid and uid.
 func lsofEntry(out string, client, server netip.AddrPort) (pid, uid int, found bool) {
 	want := client.String() + "->" + server.String()
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if line == "" {
 			continue
 		}

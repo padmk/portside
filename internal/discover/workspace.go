@@ -88,7 +88,7 @@ func pnpmWorkspacePackages(dir string) []string {
 			}
 			rest = unquote(rest)
 			if inline, ok := strings.CutPrefix(rest, "["); ok {
-				for _, p := range strings.Split(strings.TrimSuffix(inline, "]"), ",") {
+				for p := range strings.SplitSeq(strings.TrimSuffix(inline, "]"), ",") {
 					if p = unquote(p); p != "" {
 						out = append(out, p)
 					}

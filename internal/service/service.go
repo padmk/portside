@@ -315,13 +315,13 @@ func unitEnv(def, key string) (string, bool) {
 			return "", false
 		}
 		rest := def[i+len(prefix):]
-		j := strings.Index(rest, "</string>")
-		if j < 0 {
+		before, _, ok := strings.Cut(rest, "</string>")
+		if !ok {
 			return "", false
 		}
-		return strings.NewReplacer("&lt;", "<", "&gt;", ">", "&amp;", "&").Replace(rest[:j]), true
+		return strings.NewReplacer("&lt;", "<", "&gt;", ">", "&amp;", "&").Replace(before), true
 	case "linux":
-		for _, line := range strings.Split(def, "\n") {
+		for line := range strings.SplitSeq(def, "\n") {
 			if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Environment="+key+"="); ok {
 				if u, err := strconv.Unquote(v); err == nil {
 					return u, true
@@ -395,7 +395,7 @@ func HasDisplay(pid int) (has, known bool) {
 	if err != nil {
 		return false, false
 	}
-	for _, kv := range strings.Split(string(data), "\x00") {
+	for kv := range strings.SplitSeq(string(data), "\x00") {
 		if k, v, _ := strings.Cut(kv, "="); (k == "DISPLAY" || k == "WAYLAND_DISPLAY") && v != "" {
 			return true, true
 		}

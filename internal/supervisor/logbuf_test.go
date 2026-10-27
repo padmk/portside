@@ -160,7 +160,7 @@ func TestTimedLinesFollowMarks(t *testing.T) {
 
 func TestMarksAtMostOnePerSecond(t *testing.T) {
 	lb := NewMemoryLog()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		put(lb, t0.Add(time.Duration(i)*100*time.Millisecond), fmt.Sprintf("line %d\n", i))
 	}
 	// 5 seconds of output, a mark each time a full second has passed.
@@ -287,7 +287,7 @@ func TestShiftMarks(t *testing.T) {
 // per second, up to just under the buffer limit.
 func fill(lb *LogBuffer, group int) int {
 	n := logBufferSize / 100
-	for i := 0; i < n; i++ {
+	for i := range n {
 		put(lb, t0.Add(time.Duration(i/group)*time.Second), fmt.Sprintf("%07d%s\n", i, strings.Repeat(".", 92)))
 	}
 	return n
@@ -350,26 +350,22 @@ func TestMarksSurviveBufferTrim(t *testing.T) {
 func TestLogBufferConcurrent(t *testing.T) {
 	lb := NewMemoryLog()
 	var wg sync.WaitGroup
-	for w := 0; w < 4; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 500; i++ {
+	for range 4 {
+		wg.Go(func() {
+			for i := range 500 {
 				lb.Write([]byte(fmt.Sprintf("line %d\n", i)))
 			}
-		}()
+		})
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 200; i++ {
+	wg.Go(func() {
+		for i := range 200 {
 			lb.TimedLines()
 			lb.Tail(3, 20)
 			if i%50 == 0 {
 				lb.Clear()
 			}
 		}
-	}()
+	})
 	wg.Wait()
 }
 

@@ -28,7 +28,7 @@ func sampleProcesses(ctx context.Context) map[int]procSample {
 		return nil
 	}
 	res := make(map[int]procSample, 512)
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 4 {
 			continue
@@ -174,11 +174,6 @@ func (s *Supervisor) Run(ctx context.Context) {
 		case <-s.sampleNow:
 		}
 	}
-}
-
-// sample samples usage and checks the ports of all servers.
-func (s *Supervisor) sample(ctx context.Context, knownExternal map[string]int) {
-	s.check(ctx, knownExternal, true)
 }
 
 // check checks the ports of all servers and, with usage, samples the CPU

@@ -5,8 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-export const stylesDir = path.resolve(here, '../src/styles')
-export const themesDir = path.join(stylesDir, 'themes')
+const stylesDir = path.resolve(here, '../src/styles')
+const themesDir = path.join(stylesDir, 'themes')
 
 export type Vars = Record<string, string>
 export type Color = [number, number, number, number]
@@ -121,7 +121,7 @@ const channel = (v: number) => {
   v /= 255
   return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
 }
-export const luminance = (c: Color) => 0.2126 * channel(c[0]) + 0.7152 * channel(c[1]) + 0.0722 * channel(c[2])
+const luminance = (c: Color) => 0.2126 * channel(c[0]) + 0.7152 * channel(c[1]) + 0.0722 * channel(c[2])
 export function contrast(a: Color, b: Color): number {
   const x = luminance(a)
   const y = luminance(b)

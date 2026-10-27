@@ -177,10 +177,10 @@ func TestInstallAndState(t *testing.T) {
 		wantContent string
 	}{
 		{"missing is written", nil, false, true, false, Missing, content},
-		{"current is left", ptr(content), false, false, false, Current, content},
-		{"own outdated copy is refreshed", ptr(ownOld), false, true, false, Outdated, content},
-		{"foreign file is kept", ptr("my own skill\n"), false, false, true, Foreign, "my own skill\n"},
-		{"foreign file with force is replaced", ptr("my own skill\n"), true, true, false, Foreign, content},
+		{"current is left", new(content), false, false, false, Current, content},
+		{"own outdated copy is refreshed", new(ownOld), false, true, false, Outdated, content},
+		{"foreign file is kept", new("my own skill\n"), false, false, true, Foreign, "my own skill\n"},
+		{"foreign file with force is replaced", new("my own skill\n"), true, true, false, Foreign, content},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -263,5 +263,3 @@ func TestRefreshOnlyRewritesOwnCopies(t *testing.T) {
 		t.Errorf("Refresh installed a skill that was not there: %v", err)
 	}
 }
-
-func ptr(s string) *string { return &s }

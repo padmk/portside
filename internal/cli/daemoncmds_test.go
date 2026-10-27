@@ -78,9 +78,9 @@ func TestDaemonInfoNoStart(t *testing.T) {
 		wantCfgErr bool
 	}{
 		{"no config file", nil, infoNotRunning, false},
-		{"valid config", ptr("port = 7999\n"), infoNotRunning, false},
-		{"config does not load", ptr("port = \"not a number\n[servers.x\n"), infoConfigError, true},
-		{"invalid server", ptr("[servers.web]\nport = 3000\n"), infoConfigError, true},
+		{"valid config", new("port = 7999\n"), infoNotRunning, false},
+		{"config does not load", new("port = \"not a number\n[servers.x\n"), infoConfigError, true},
+		{"invalid server", new("[servers.web]\nport = 3000\n"), infoConfigError, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -389,8 +389,6 @@ func TestShutdownSignalsOnlyProvenDaemon(t *testing.T) {
 		})
 	}
 }
-
-func ptr(s string) *string { return &s }
 
 func TestRestartRefusesNewerDaemon(t *testing.T) {
 	defer func(v string) { app.Version = v }(app.Version)

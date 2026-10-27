@@ -85,7 +85,7 @@ func lockDir(ctx context.Context, pid int) string {
 	if err != nil && len(out) == 0 {
 		return ""
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if n, ok := strings.CutPrefix(line, "n"); ok && filepath.Base(n) == lock {
 			return filepath.Dir(n)
 		}
