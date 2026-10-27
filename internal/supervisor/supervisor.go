@@ -79,39 +79,52 @@ type proc struct {
 	exitCode       int
 	hasExit        bool
 	stopping       bool
-	want           bool // the user wants this server running
-	startSeq       int  // bumped by every Start and Stop; a launch proceeds only with the latest
-	retries        int
-	gen            int // increments on every start; stale goroutines compare it
-	done           chan struct{}
-	copied         chan struct{} // closed when all PTY output has been read
-	reader         *outputReader // copies the terminal into logs
-	logs           *LogBuffer
-	hist           history
-	cpu            float64
-	mem            int64
-	listening      bool
-	exposure       ports.Exposure // where the live listeners can be reached from; "" until read
-	kind           string         // the tool the live command starts, read with a network exposure (discover.CommandKind)
-	external       *ports.Listener
-	cols           uint16
-	rows           uint16
-	removed        bool
-	temp           *temporary // set for a temporary copy of a configured server
+	// ending is closed once the latest Stop or Shutdown has ended the whole
+	// process group, which can outlive the leader; nil before the first
+	// (see Supervisor.endings).
+	ending    chan struct{}
+	want      bool // the user wants this server running
+	startSeq  int  // bumped by every Start and Stop; a launch proceeds only with the latest
+	retries   int
+	gen       int // increments on every start; stale goroutines compare it
+	done      chan struct{}
+	copied    chan struct{} // closed when all PTY output has been read
+	reader    *outputReader // copies the terminal into logs
+	logs      *LogBuffer
+	hist      history
+	cpu       float64
+	mem       int64
+	listening bool
+	exposure  ports.Exposure // where the live listeners can be reached from; "" until read
+	kind      string         // the tool the live command starts, read with a network exposure (discover.CommandKind)
+	external  *ports.Listener
+	cols      uint16
+	rows      uint16
+	removed   bool
+	temp      *temporary // set for a temporary copy of a configured server
 }
 
 // Supervisor owns all managed processes.
 type Supervisor struct {
-	mu       sync.Mutex
-	tempMu   sync.Mutex // serializes creating temporary servers
-	cfg      *config.Config
-	order    []string
-	procs    map[string]*proc
-	env      shellEnv
-	logDir   string
-	state    string
-	changes  notify.Signals
-	closing  bool
+	mu      sync.Mutex
+	saveErr string // why the last state write failed; "" when it worked
+	// endings holds the process-group terminations under way by server
+	// name, also of servers removed from the config meanwhile: Shutdown
+	// waits for them, an upgrade waits until there are none, and a start of
+	// the same name waits for its own.
+	endings map[chan struct{}]string
+	tempMu  sync.Mutex // serializes creating temporary servers
+	cfg     *config.Config
+	order   []string
+	procs   map[string]*proc
+	env     shellEnv
+	logDir  string
+	state   string
+	changes notify.Signals
+	closing bool
+	// handoff is set while the servers are being handed to the binary this
+	// daemon re-executes; closing is set too.
+	handoff  bool
 	notifier func(title, msg string)
 	selfPID  int
 	// release frees a port this daemon holds for another purpose before a
@@ -147,6 +160,11 @@ type Supervisor struct {
 	// adoptedRemoved lists adopted servers that are no longer configured;
 	// Recover stops them once it has read the previous state.
 	adoptedRemoved []string
+	// handoffExited holds handed-off servers that exited during the upgrade,
+	// and handoffRestarts those of them that their restart policy restarts;
+	// Recover reads both.
+	handoffExited   map[string]bool
+	handoffRestarts []string
 }
 
 // AddDesktopClient registers a client that notifies the user itself and
@@ -277,6 +295,11 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 			p.cfg.Name = name
 			p.running.Name = name
 			p.logs.retarget(s.logDir, name)
+			// A stop still ending its group goes with it, so a start of the
+			// new name waits for that group.
+			if _, ok := s.endings[p.ending]; ok && p.ending != nil {
+				s.endings[p.ending] = name
+			}
 			if p.pid == 0 && p.status == Starting {
 				p.startSeq++
 				restart = p.want
@@ -396,28 +419,38 @@ func (s *Supervisor) Start(name string, opt StartOptions) error {
 	}
 	// An explicit start gets a fresh automatic-restart budget.
 	p.retries = 0
-	alive := p.pid != 0
-	pending := !alive && p.want && p.status == Starting
+	if p.pid != 0 {
+		// A server that is stopping starts again once it has exited (see
+		// wait), unless a later Stop withdraws the request. The request is
+		// recorded under the same lock as the check, so an exit in between
+		// cannot miss it.
+		s.reserveLocked(p)
+		s.mu.Unlock()
+		return nil
+	}
+	pending := p.want && p.status == Starting
 	s.mu.Unlock()
 	if pending {
 		return nil // a start (e.g. waiting for dependencies) is already under way
 	}
-	if alive {
-		s.reserve(name)
-		return nil
-	}
 
 	// Dependencies come from the definition, so a temporary server shares
 	// its origin's dependencies.
-	deps := cfg.WithDeps(p.cfg.DependsOn)
-	token := s.reserve(name)
+	return s.launch(name, cfg.WithDeps(p.cfg.DependsOn), opt, s.reserve(name))
+}
+
+// launch starts deps in order and then name, while token is the latest
+// start request for name.
+func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token int) error {
 	if len(deps) == 0 {
 		return s.startOne(name, opt, token)
 	}
 	s.mu.Lock()
-	p.status = Starting
-	p.note = "waiting for " + strings.Join(deps, ", ")
-	s.changedLocked()
+	if p := s.procs[name]; p != nil && p.pid == 0 && p.startSeq == token {
+		p.status = Starting
+		p.note = "waiting for " + strings.Join(deps, ", ")
+		s.changedLocked()
+	}
 	s.mu.Unlock()
 	// Dependencies start in order; each must be ready before the next starts.
 	// A Stop of the target (or shutdown) cancels the rest of the chain.
@@ -451,6 +484,11 @@ func (s *Supervisor) reserve(name string) int {
 	if p == nil {
 		return 0
 	}
+	return s.reserveLocked(p)
+}
+
+// reserveLocked records a start request for p and returns its token.
+func (s *Supervisor) reserveLocked(p *proc) int {
 	p.want = true
 	p.restartPending = false
 	p.startSeq++
@@ -499,6 +537,20 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		return nil
 	}
 	p.restartPending = false
+	if ending := s.endingLocked(name); ending != nil {
+		// The leader has exited, but a Stop is still ending the rest of its
+		// group (also one of a server of this name removed and added again),
+		// which may hold the port; start once it is gone.
+		p.status = Starting
+		p.note = "waiting for the previous process to exit"
+		s.changedLocked()
+		s.mu.Unlock()
+		<-ending
+		if !s.current(name, token) {
+			return nil
+		}
+		return s.startOne(name, opt, token)
+	}
 	sv := p.cfg
 	shell := s.cfg.Shell
 	prepend := s.cfg.PathPrepend
@@ -686,7 +738,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	code := exitCode(process.Wait())
 	pgid := p.pid
 	s.mu.Lock()
-	stopping := p.stopping || s.closing
+	stopping := s.requestedExitLocked(p)
 	s.mu.Unlock()
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
@@ -717,11 +769,17 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	stamp := p.exitedAt.Format("15:04:05")
 
 	var restartIn time.Duration
+	again := false
 	switch {
-	case p.stopping || s.closing:
+	case s.requestedExitLocked(p):
 		p.status = Stopped
 		p.note = ""
 		fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  stopped ──\x1b[0m\r\n", stamp)
+		// Started again while it was stopping, with no Stop since.
+		if p.stopping && p.want && !p.removed && !s.closing {
+			again = true
+			p.status = Starting
+		}
 	case code == 0:
 		p.status = Exited
 		p.note = "exited on its own"
@@ -742,7 +800,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			p.want = false // nothing to restore after a daemon restart
 		}
 		if restartIn > 0 {
-			p.note += fmt.Sprintf(", restarting in %s", restartIn.Round(time.Second))
+			p.note += fmt.Sprintf("%s%s", restartingNote, restartIn.Round(time.Second))
 		} else if p.status == Exited && p.cfg.Restart == config.RestartAlways && p.retries >= maxRetries {
 			s.reportCrashLocked(p, &code, uptime) // gave up on a server meant to keep running
 		} else if p.status == Crashed {
@@ -756,6 +814,10 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	name = p.cfg.Name
 	token := p.startSeq
 	removed := p.removed
+	var deps []string
+	if again {
+		deps = s.cfg.WithDeps(p.cfg.DependsOn)
+	}
 	s.changedLocked()
 	s.saveLocked()
 	s.mu.Unlock()
@@ -776,6 +838,10 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		s.mu.Unlock()
 		return
 	}
+	if again {
+		_ = s.launch(name, deps, StartOptions{}, token)
+		return
+	}
 	if restartIn > 0 {
 		time.AfterFunc(restartIn, func() {
 			s.mu.Lock()
@@ -787,6 +853,26 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			}
 		})
 	}
+}
+
+// isClosed reports whether ch has been closed.
+func isClosed(ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// restartingNote starts the part of a note that announces an automatic restart.
+const restartingNote = ", restarting in "
+
+// requestedExitLocked reports whether p's process was asked to exit: by a
+// Stop or by the daemon shutting down. During a handoff the daemon only
+// re-executes, so an exit then is the server's own.
+func (s *Supervisor) requestedExitLocked(p *proc) bool {
+	return p.stopping || (s.closing && !s.handoff)
 }
 
 // backoffLocked returns the delay before an automatic restart, or 0 to give up.
@@ -829,27 +915,61 @@ func (s *Supervisor) Stop(name string) error {
 		}
 		s.changedLocked()
 		s.saveLocked()
+		ending := p.ending
 		s.mu.Unlock()
+		if ending != nil {
+			<-ending // a stop still ending the group after its leader exited
+		}
 		return nil
 	}
 	pid := p.pid
 	done := p.done
-	if p.stopping {
+	if ending := p.ending; ending != nil && !isClosed(ending) {
 		// Already stopping: a second Ctrl-C would make tools such as
 		// docker compose abort their own graceful shutdown.
 		s.mu.Unlock()
-		<-done
-		waitGroupGone(pid, 20*time.Second)
+		<-ending
 		return nil
 	}
 	p.stopping = true
 	p.status = Stopping
 	grace := p.running.Stop
+	ending := s.beginEndingLocked(p)
 	s.changedLocked()
 	s.saveLocked()
 	s.mu.Unlock()
 
 	Terminate(pid, done, grace)
+	s.endEnding(ending)
+	return nil
+}
+
+// beginEndingLocked records that p's process group is being ended and
+// returns the channel endEnding closes once it is.
+func (s *Supervisor) beginEndingLocked(p *proc) chan struct{} {
+	ch := make(chan struct{})
+	p.ending = ch
+	if s.endings == nil {
+		s.endings = map[chan struct{}]string{}
+	}
+	s.endings[ch] = p.cfg.Name
+	return ch
+}
+
+func (s *Supervisor) endEnding(ch chan struct{}) {
+	s.mu.Lock()
+	delete(s.endings, ch)
+	s.mu.Unlock()
+	close(ch)
+}
+
+// endingLocked returns a termination under way for a server named name.
+func (s *Supervisor) endingLocked(name string) chan struct{} {
+	for ch, n := range s.endings {
+		if n == name {
+			return ch
+		}
+	}
 	return nil
 }
 
@@ -931,28 +1051,53 @@ func (s *Supervisor) ClearLogs(name string) {
 }
 
 // Shutdown stops every server. The set of servers the user wanted running is
-// persisted first so that the next daemon start can restore it.
+// persisted first so that the next daemon start can restore it; once the
+// servers have exited, the state is saved again without their process
+// groups, whose ids an unrelated program may get before the next start.
 func (s *Supervisor) Shutdown() {
 	s.mu.Lock()
-	s.saveLocked()
-	s.closing = true
-	var wg sync.WaitGroup
 	for _, p := range s.procs {
-		if p.pid == 0 {
+		// No automatic restart follows a shutdown.
+		if p.restartPending {
+			p.restartPending = false
+			p.note, _, _ = strings.Cut(p.note, restartingNote)
+		}
+	}
+	st := s.stateLocked()
+	s.savedLocked(writeState(s.state, st))
+	s.closing = true
+	s.handoff = false
+	var wg sync.WaitGroup
+	// Stops still ending a group, also after its leader exited or its
+	// server was removed: a second Ctrl-C would make tools such as docker
+	// compose abort their own graceful shutdown.
+	for ending := range s.endings {
+		wg.Go(func() { <-ending })
+	}
+	for _, p := range s.procs {
+		if p.pid == 0 || (p.ending != nil && !isClosed(p.ending)) {
 			continue
 		}
 		p.stopping = true
 		p.status = Stopping
-		wg.Add(1)
-		go func(pid int, done chan struct{}, grace time.Duration) {
-			defer wg.Done()
+		ending := s.beginEndingLocked(p)
+		pid, done, grace := p.pid, p.done, p.running.Stop
+		wg.Go(func() {
 			Terminate(pid, done, grace)
-		}(p.pid, p.done, p.running.Stop)
+			s.endEnding(ending)
+		})
 	}
 	s.changedLocked()
 	s.mu.Unlock()
 	wg.Wait()
 	s.mu.Lock()
+	for name, g := range st.Groups {
+		if p := s.procs[name]; (p == nil || p.pid == 0) && syscall.Kill(-g.PID, 0) != nil {
+			delete(st.Groups, name)
+		}
+	}
+	st.Saved = time.Now()
+	s.savedLocked(writeState(s.state, st))
 	for _, p := range s.procs {
 		p.logs.Close()
 	}

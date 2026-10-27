@@ -65,10 +65,10 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	if s.closing {
 		return nil, errors.New("the daemon is shutting down")
 	}
-	for _, name := range s.order {
-		if p := s.procs[name]; p != nil && p.pid != 0 && p.stopping {
-			return nil, fmt.Errorf("%s is stopping; try again once it has stopped", name)
-		}
+	// Also after the leader exited or its server was removed: the stop
+	// still ends the rest of the group, which exec would cut off.
+	for _, name := range s.endings {
+		return nil, fmt.Errorf("%s is stopping; try again once it has stopped", name)
 	}
 	// Readers stop between reads, so what the processes write from now on
 	// stays in their terminals for the new daemon, and the state below
@@ -110,6 +110,7 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	// the new binary does not take them over.
 	s.saveLocked()
 	s.closing = true
+	s.handoff = true
 	var out []Handoff
 	for _, name := range s.order {
 		p := s.procs[name]
@@ -146,6 +147,7 @@ func (s *Supervisor) CancelHandoff() {
 		}
 	}
 	s.closing = false
+	s.handoff = false
 	s.changedLocked()
 	s.mu.Unlock()
 }
@@ -201,6 +203,10 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 	for _, h := range hs {
 		f, err := inheritTerminal(h)
 		if err != nil {
+			if h.PID > 1 && h.PIDStart != "" && !sameStart(h.PID, h.PIDStart) {
+				s.exitedDuringHandoff(h)
+				continue
+			}
 			log.Printf("handoff: %s: %v; recovering it as after a crash", h.Name, err)
 			continue
 		}
@@ -289,6 +295,38 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		adopted = append(adopted, h.Name)
 	}
 	return adopted
+}
+
+// exitedDuringHandoff records a handed-off server whose process exited
+// before this daemon could take it over: the daemon it replaced reaped it,
+// so its exit code is unknown and it counts as a crash. Recover restarts
+// it when its restart policy says so; otherwise on_crash reports it.
+func (s *Supervisor) exitedDuringHandoff(h Handoff) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.procs[h.Name]
+	if p == nil || p.pid != 0 {
+		return // no longer configured, or already running
+	}
+	log.Printf("handoff: %s exited during the upgrade", h.Name)
+	if s.handoffExited == nil {
+		s.handoffExited = map[string]bool{}
+	}
+	s.handoffExited[h.Name] = true
+	p.status = Crashed
+	p.note = "exited during the upgrade"
+	p.hasExit = false
+	p.exitedAt = time.Now()
+	p.retries = h.Retries
+	p.want = h.Want
+	fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  exited during the upgrade ──\x1b[0m\r\n", p.exitedAt.Format("15:04:05"))
+	if p.want && p.cfg.Restart != config.RestartNo && p.retries < maxRetries {
+		s.handoffRestarts = append(s.handoffRestarts, h.Name)
+	} else {
+		p.want = false
+		s.reportCrashLocked(p, nil, p.exitedAt.Sub(h.StartedAt))
+	}
+	s.changedLocked()
 }
 
 // inheritTerminal checks that the handed-off descriptor is a terminal and

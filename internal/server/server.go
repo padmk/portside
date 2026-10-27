@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -396,6 +397,16 @@ func (s *Server) reload(rename ...string) error {
 		s.sup.Apply(cfg)
 	}
 	return nil
+}
+
+// warnings returns the config's warnings and, when the server state could not
+// be saved, a warning about that.
+func (s *Server) warnings(cfg []string) []string {
+	err := s.sup.SaveError()
+	if err == "" {
+		return cfg
+	}
+	return append(slices.Clone(cfg), "the server state could not be saved ("+err+"); servers you stopped may start again after the daemon restarts")
 }
 
 func (s *Server) configError() string {

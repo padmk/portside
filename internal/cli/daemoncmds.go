@@ -444,7 +444,9 @@ const (
 // daemonInfo prints where the daemon listens as JSON, starting it unless
 // --no-start is given. It is the menu bar app's contract: when no daemon
 // answers it still prints JSON with running=false and exits 3, or exits 4
-// with configError set when the config file does not load. A daemon that
+// with configError set when the config file does not load. A running daemon
+// keeps the last config that loaded, so it is reported with exit 0 and
+// configError set. A daemon that
 // answers but cannot prove itself (one from before verified requests, or
 // another program) is reported running with verified=false and the version
 // it claims, so the app can offer a restart.
@@ -473,6 +475,10 @@ func daemonInfo(e *env, c *client.Client, args []string) error {
 	} else if answered {
 		out := map[string]any{"running": true, "verified": h.Verified, "url": c.Base, "port": c.Port, "pid": h.PID, "version": h.Version,
 			"config": e.cfgPath, "stateDir": paths.StateDir(), "cli": app.Version, "tokenFile": filepath.Join(paths.StateDir(), paths.TokenName)}
+		if cfgErr != nil {
+			// The daemon goes on with the last config that loaded.
+			out["configError"] = cfgErr.Error()
+		}
 		if !h.Verified {
 			out["error"] = c.Unverified().Error()
 		} else if app.Older(h.Version) {

@@ -148,7 +148,7 @@ func (s *Server) snapshot(r *http.Request) State {
 			PathDisplay: paths.ShortenHome(s.opt.ConfigPath),
 			Root:        paths.ShortenHome(cfg.Root),
 			Error:       s.configError(),
-			Warnings:    cfg.Warnings,
+			Warnings:    s.warnings(cfg.Warnings),
 			StateDir:    paths.ShortenHome(s.opt.StateDir),
 			Revision:    s.configRevision(),
 			Notify:      cfg.Notify,

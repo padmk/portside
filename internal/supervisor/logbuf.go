@@ -30,6 +30,9 @@ type LogBuffer struct {
 	subs    map[chan []byte]struct{}
 	// watch sees every chunk as it is written, until it returns true.
 	watch func(chunk []byte) bool
+	// previousWrite is when the file was last written before this buffer
+	// opened it, by the daemon before this one; zero without a file.
+	previousWrite time.Time
 }
 
 // mark records that the line starting at off in buf began at at. A line
@@ -44,6 +47,9 @@ func newLogBuffer(dir, name string) *LogBuffer {
 	if dir != "" {
 		_ = os.MkdirAll(dir, paths.DirMode)
 		lb.path = filepath.Join(dir, name+".log")
+		if st, err := os.Stat(lb.path); err == nil {
+			lb.previousWrite = st.ModTime()
+		}
 		lb.seedTail()
 		lb.openFile()
 		if len(lb.buf) > 0 {
@@ -320,7 +326,7 @@ func (lb *LogBuffer) TimedLines() []Line {
 	return out
 }
 
-var ansiRe = regexp.MustCompile(`\x1b(\[[0-9;?<=>!]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|[PX^_][^\x1b]*\x1b\\|[()][0-9A-Za-z]|[@-Z\\-_])`)
+var ansiRe = regexp.MustCompile(`\x1b(\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(\x07|\x1b\\)|[PX^_][^\x1b]*\x1b\\|[()][0-9A-Za-z]|[@-Z\\-_])`)
 
 // StripANSI removes terminal escape sequences.
 func StripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }

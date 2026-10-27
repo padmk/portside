@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/padmk/portside/internal/app"
@@ -98,6 +99,12 @@ func cmdDoctor(e *env, args []string) error {
 		}
 		var st server.State
 		if err := c.Do(e.ctx, http.MethodGet, "/api/state", nil, &st); err == nil {
+			// The daemon's own warnings, such as a state file it cannot save.
+			for _, w := range st.Config.Warnings {
+				if cfg == nil || !slices.Contains(cfg.Warnings, w) {
+					warn("daemon: %s", w)
+				}
+			}
 			switch d := st.Docker; {
 			case d.Status == docker.Ready:
 				ok("container engine %s %s on %s", d.Engine, d.Version, d.Host)

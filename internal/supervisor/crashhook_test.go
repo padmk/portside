@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -132,5 +135,40 @@ func TestCrashHookWhenThePortIsTaken(t *testing.T) {
 	}
 	if calls := hookCalls(t, out, 5*time.Second); len(calls) != 1 || !strings.HasPrefix(calls[0], "web||0|port ") {
 		t.Fatalf("calls = %q", calls)
+	}
+}
+
+// A crash command that leaves a process in another process group holding
+// its output still finishes, also when it runs past its time limit, so it
+// never keeps a slot.
+func TestCrashHookBackgroundProcessHoldsOutput(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("perl not found")
+	}
+	old := crashHookTimeout
+	crashHookTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { crashHookTimeout = old })
+	for _, tail := range []string{"exit 0", "sleep 10"} {
+		pidFile := filepath.Join(t.TempDir(), "pid")
+		// The background process leaves the command's process group and
+		// keeps its standard output open.
+		command := fmt.Sprintf(`perl -e 'setpgrp(0, 0); sleep 20' & echo $! > %s; %s`, pidFile, tail)
+		t.Cleanup(func() {
+			if data, err := os.ReadFile(pidFile); err == nil {
+				if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 1 {
+					_ = syscall.Kill(-pid, syscall.SIGKILL)
+				}
+			}
+		})
+		finished := make(chan struct{})
+		go func() {
+			runCrashHook(command, os.Environ(), "web")
+			close(finished)
+		}()
+		select {
+		case <-finished:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: the crash command never finished", tail)
+		}
 	}
 }

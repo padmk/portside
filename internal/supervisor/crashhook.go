@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"bytes"
+	"errors"
 	"log"
 	"os"
 	"os/exec"
@@ -13,10 +14,15 @@ import (
 	"github.com/padmk/portside/internal/app"
 )
 
+// crashHookTimeout bounds one on_crash run; its process group is then
+// terminated.
+var crashHookTimeout = 30 * time.Second
+
 const (
-	// crashHookTimeout bounds one on_crash run; its process group is then
-	// terminated.
-	crashHookTimeout = 30 * time.Second
+	// crashHookOutputWait bounds how long a finished command's output is
+	// read: a background process it started (in another session, which
+	// ending its group misses) can hold the output open.
+	crashHookOutputWait = 2 * time.Second
 	// crashHookLines and crashHookTailBytes bound the log tail a command gets.
 	crashHookLines     = 20
 	crashHookTailBytes = 8 << 10
@@ -124,6 +130,7 @@ func runCrashHook(command string, env []string, server string) {
 	out := &headWriter{max: crashHookOutput + 1}
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = crashHookOutputWait
 	if err := cmd.Start(); err != nil {
 		log.Printf("on_crash for %s: %v", server, err)
 		return
@@ -133,6 +140,10 @@ func runCrashHook(command string, env []string, server string) {
 	go func() { waited <- cmd.Wait(); close(done) }()
 	select {
 	case err := <-waited:
+		if errors.Is(err, exec.ErrWaitDelay) {
+			log.Printf("on_crash for %s ran; a process it left running kept its output open", server)
+			return
+		}
 		if err != nil {
 			log.Printf("on_crash for %s failed: %v: %s", server, err, firstBytes(out.buf.String(), crashHookOutput))
 			return

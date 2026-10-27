@@ -84,6 +84,8 @@ func TestPlainLine(t *testing.T) {
 		"bell\x07":                 "bell",
 		"\x1b(Bplain":              "plain",
 		"\x1b[?25lhidden\x1b[?25h": "hidden",
+		"\x1b[4:3mcurly\x1b[0m":    "curly",
+		"\x1b[38:2::255:0:0mrgb":   "rgb",
 	}
 	for in, want := range cases {
 		if got := PlainLine(in); got != want {
