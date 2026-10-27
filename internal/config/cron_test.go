@@ -31,6 +31,8 @@ func TestParseSchedule(t *testing.T) {
 		{expr: "0 12 */10 * FRI", want: []string{"2026-05-01 12:00", "2026-07-31 12:00"}},
 		{expr: "0 0 */2 * *", want: []string{"2026-01-03 00:00", "2026-01-05 00:00"}},
 		{expr: "0 0 * * */2", want: []string{"2026-01-03 00:00", "2026-01-04 00:00"}},
+		// A Sunday 29 February comes 28 years apart.
+		{expr: "0 0 29 2 */7", want: []string{"2032-02-29 00:00", "2060-02-29 00:00"}},
 		// A step larger than the field keeps only its start.
 		{expr: "0 0 */9223372036854775807 * *", want: []string{"2026-02-01 00:00", "2026-03-01 00:00"}},
 		{expr: "@hourly", want: []string{"2026-01-01 01:00", "2026-01-01 02:00"}},

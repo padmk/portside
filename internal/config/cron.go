@@ -207,13 +207,13 @@ func (s *Schedule) dayMatches(c time.Time) bool {
 // after's location. A local time that occurs twice (a clock turned back)
 // matches once, at its first occurrence; one that does not occur (a clock
 // turned forward) matches at the first instant after the jump. It returns
-// the zero time when nothing matches within ten years, which ParseSchedule
-// rules out.
+// the zero time when nothing matches within 400 years, the period after
+// which the calendar and its weekdays repeat, which ParseSchedule rules out.
 func (s *Schedule) Next(after time.Time) time.Time {
 	loc := after.Location()
 	// Wall-clock arithmetic in UTC, which has no clock changes.
 	c := wallUTC(after).Add(time.Minute)
-	limit := c.AddDate(10, 0, 0)
+	limit := c.AddDate(400, 0, 0)
 	for c.Before(limit) {
 		switch {
 		case s.month&(1<<int(c.Month())) == 0:

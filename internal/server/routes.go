@@ -386,7 +386,12 @@ func (s *Server) ensure(w http.ResponseWriter, r *http.Request) {
 	// A task is run again by every start, and the wait is for that run, or
 	// one already in progress; waiting only accepts the last one.
 	var since time.Time
-	if !body.Wait {
+	if body.Wait {
+		if _, ok := s.sup.Logs(name); !ok {
+			fail(w, http.StatusBadRequest, fmt.Errorf("unknown server %q", name))
+			return
+		}
+	} else {
 		since = time.Now()
 		if err := s.sup.Start(name, supervisor.StartOptions{Takeover: body.Takeover, Since: since}); err != nil {
 			fail(w, http.StatusBadRequest, err)

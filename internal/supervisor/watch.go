@@ -21,8 +21,13 @@ import (
 // saves gives one restart.
 
 const (
-	// WatchInterval is how often watched files are compared.
+	// WatchInterval is how often a server's watched files are compared, at
+	// most. A server whose scan takes longer waits watchShare times as long
+	// as it took, times the number of servers scanned, so all scans
+	// together use about 2% of a core, and a large tree slows only its
+	// own server.
 	WatchInterval = time.Second
+	watchShare    = 50
 	// WatchQuiet is how long changes must have stopped before a restart.
 	WatchQuiet = time.Second
 	// WatchFileLimit is how many files a server's patterns may match; files
@@ -52,6 +57,8 @@ type watchState struct {
 	over, logged bool
 	// restarting is set while a restart this began is under way.
 	restarting bool
+	// nextScan is when the files are compared next.
+	nextScan time.Time
 }
 
 // watchMode is what a scan does for a server.
@@ -146,6 +153,7 @@ func (s *Supervisor) checkWatches(now time.Time) bool {
 	}
 	var jobs []watchJob
 	watched := false
+	active := 0 // servers whose files are compared, due now or not
 	for _, name := range s.order {
 		p := s.procs[name]
 		if p == nil {
@@ -164,6 +172,10 @@ func (s *Supervisor) checkWatches(now time.Time) bool {
 			p.watch.files, p.watch.changed = nil, nil
 			continue
 		}
+		active++
+		if now.Before(p.watch.nextScan) {
+			continue
+		}
 		jobs = append(jobs, watchJob{name: name, p: p, key: key, dir: p.cfg.Dir, watch: p.cfg.Watch})
 	}
 	limit := s.watchLimit
@@ -171,8 +183,11 @@ func (s *Supervisor) checkWatches(now time.Time) bool {
 
 	scans := make([]map[string]fileStamp, len(jobs))
 	over := make([]bool, len(jobs))
+	took := make([]time.Duration, len(jobs))
 	for i, j := range jobs {
+		began := time.Now()
 		scans[i], over[i] = scanWatched(j.dir, j.watch, limit)
+		took[i] = time.Since(began)
 	}
 
 	s.mu.Lock()
@@ -184,6 +199,7 @@ func (s *Supervisor) checkWatches(now time.Time) bool {
 			continue
 		}
 		w := p.watch
+		w.nextScan = now.Add(max(s.watchEvery, took[i]*watchShare*time.Duration(active)))
 		mode := watchModeLocked(p)
 		if mode == watchOff {
 			w.files, w.changed = nil, nil
@@ -260,20 +276,35 @@ func (s *Supervisor) watchRestart(st watchStart) {
 	if closing {
 		return
 	}
-	seq := st.seq
+	p := st.p
 	if st.alive {
 		// Only the run the changes were seen for: a start or stop since
-		// then wins.
-		if err := s.stop(st.name, func(p *proc) bool { return p == st.p && p.startSeq == st.seq }); err != nil {
+		// then wins. The start again is reserved before the stop, as a
+		// start asked for while a server stops, so the server stays wanted
+		// throughout and nothing waiting for it sees it stopped; wait
+		// launches it once the group has exited, unless a stop comes first.
+		s.mu.Lock()
+		if s.procs[st.name] != p || p.startSeq != st.seq || p.pid == 0 || p.stopping || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
+			s.mu.Unlock()
 			return
 		}
-		seq++ // the stop's own
+		p.retries = 0
+		p.againTrigger = triggerWatch
+		s.reserveLocked(p)
+		p.stopping = true
+		p.status = Stopping
+		pid, done, grace := p.pid, p.done, p.running.Stop
+		ending := s.beginEndingLocked(p)
+		s.changedLocked()
+		s.mu.Unlock()
+		Terminate(pid, done, grace)
+		s.endEnding(ending)
+		return
 	}
 	// Reserved under the lock that checks nothing else started or stopped
 	// it since, so a stop in between wins.
 	s.mu.Lock()
-	p := st.p
-	if s.procs[st.name] != p || p.startSeq != seq || p.alive() || p.pid != 0 || s.closing || !p.cfg.Enabled || p.removed {
+	if s.procs[st.name] != p || p.startSeq != st.seq || p.alive() || p.pid != 0 || s.closing || !p.cfg.Enabled || p.removed {
 		s.mu.Unlock()
 		return
 	}

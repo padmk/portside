@@ -62,19 +62,6 @@ func taskStateLocked(p *proc, since time.Time) taskState {
 	return taskFailed
 }
 
-// taskDone reports whether name is a task, and whether it is done in a run
-// that ended at or after since, so a server that depends on it need not
-// run it again.
-func (s *Supervisor) taskDone(name string, since time.Time) (task, done bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p := s.procs[name]
-	if p == nil || !p.cfg.Oneshot {
-		return false, false
-	}
-	return true, p.pid == 0 && taskStateLocked(p, since) == taskDone
-}
-
 // taskEndedInHandoffLocked records a task handed off by the daemon this
 // one replaced that exited before it could be taken over. Its exit code is
 // unknown, so it neither succeeded nor crashed: it is not reported,

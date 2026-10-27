@@ -118,9 +118,16 @@ final class Store {
         var offline = false
     }
 
+    /// Counts servers only: a task (`oneshot`) runs to completion, so a
+    /// running one is not a server still starting, and only its failure
+    /// counts.
     var summary: Summary {
+        let servers = servers.filter { $0.oneshot != true }
         var s = Summary(containerIssues: containerIssues.count, total: servers.count)
         if connection != .connected { s.offline = true }
+        for v in self.servers where v.oneshot == true && (v.status == "crashed" || v.status == "blocked") {
+            s.crashed += 1
+        }
         for v in servers {
             switch v.displayStatus {
             case "running": s.running += 1

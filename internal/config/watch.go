@@ -21,7 +21,7 @@ type Watch struct {
 
 // WatchSkipped are the directories "**" does not descend into: version
 // control, dependencies, virtual environments, caches and build output.
-var WatchSkipped = []string{".git", "node_modules", ".venv", "__pycache__", "target", "dist", "build", ".next"}
+var WatchSkipped = []string{".git", "node_modules", ".venv", "venv", "__pycache__", "target", "dist", "build", ".next"}
 
 // ParseWatch reads the patterns of a watch setting; nil for none. A
 // pattern that is empty, malformed, absolute, starts at the home directory

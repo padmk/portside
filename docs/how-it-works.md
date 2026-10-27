@@ -29,7 +29,7 @@ Process exits are noticed as they happen, so crashes and restart policies need n
 - **Listening addresses:** one `lsof` (or `ss`) call when a server becomes ready, and every 30 seconds along with a usage sample while servers run, to tell which may be reachable from the network ([Security](security.md#servers-reachable-from-the-network)). Container ports are checked with each container resync while a local engine publishes one.
 - **Config file:** its modification time, every second and before each request from a client.
 - **Schedules:** the wall clock against each server's next scheduled run, every 15 seconds, with no process calls or file reads. A comparison of wall-clock time rather than a timer per run, because on macOS the timers' clock stops while the Mac sleeps; a run due meanwhile happens at the first check after it wakes ([Schedules](configuration.md#schedules)).
-- **Watched files:** every second, only for servers with [`watch`](configuration.md#restart-on-file-changes) that a change could restart, a walk of the directories their patterns can match, comparing each file's path, modification time and size; no process calls. Without `watch` nothing runs.
+- **Watched files:** every second per server, or less often for a server whose scan takes long: its next scan waits 50 times as long as the last one took, times the number of servers watched, so watching uses about 2 % of one core at most, whatever the number of files and servers, and a large tree slows only its own server. Only for servers with [`watch`](configuration.md#restart-on-file-changes) that a change could restart, a walk of the directories their patterns can match, comparing each file's path, modification time and size; no process calls. Without `watch` nothing runs.
 - **Containers:** the Docker event stream, a full resync every 30 seconds and a stats stream per running container, polled instead for an `ssh://` engine ([Containers](containers.md)).
 - **Other computers:** while connected to one, a ping every 15 seconds and a check of the forwarded ports every 2 seconds; while sharing is on, the Tailscale Serve entry is applied again every minute.
 
@@ -53,7 +53,7 @@ With the app's panel closed that is about 0.8 % of one core; an open dashboard b
 | one with `usage=0` | 0.46 s | 1.67 s |
 | one showing usage | 0.63 s | 1.99 s |
 
-That is about 21 ms of CPU per scan, some 7 µs per watched file, or 2 % of one core for 3,000 files; the `ps` and `lsof` calls do not change. Narrow patterns cost less: only the files they match are checked (`scripts/bench-idle.sh --watch FILES`).
+That is about 21 ms of CPU per scan, some 7 µs per watched file, or 2 % of one core for 3,000 files; the `ps` and `lsof` calls do not change. More files make the scans less frequent instead of costlier: with 20,000 watched files (about 690 processes) the daemon used 1.48 s per minute with no events client, and a change took a few seconds to notice. Narrow patterns cost less and notice sooner: only the files they match are checked (`scripts/bench-idle.sh --watch FILES`).
 
 Reading listening addresses adds about 2 `lsof` calls a minute while servers run and 2 more while running containers publish ports; on the same Mac with 7 such containers, the 3 to 4 calls took 0.11 to 0.13 s of CPU a minute in all three cases.
 

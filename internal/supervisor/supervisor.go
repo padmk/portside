@@ -4,6 +4,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -64,22 +65,25 @@ type proc struct {
 	restartAt      time.Time // when the pending restart is an automatic one after a crash, its time
 	// scheduleReserved marks a scheduled run reserved but not begun yet.
 	scheduleReserved bool
-	listenPorts      []int
-	listenHost       string
-	missingSince     time.Time
-	externalStart    string
-	running          config.Server // configuration the live process was started with
-	status           Status
-	note             string // short human explanation of the status
-	process          *os.Process
-	pty              *os.File
-	pid              int
-	pidStart         string
-	startedAt        time.Time
-	readyAt          time.Time
-	logReady         atomic.Bool   // a line of this generation's output matched ready_log
-	readyMatch       *readyMatcher // matches ready_log while waiting for it; nil otherwise
-	exitedAt         time.Time
+	// againTrigger is the trigger of a start asked for while the server
+	// was still running or stopping, which wait launches once it exits.
+	againTrigger  string
+	listenPorts   []int
+	listenHost    string
+	missingSince  time.Time
+	externalStart string
+	running       config.Server // configuration the live process was started with
+	status        Status
+	note          string // short human explanation of the status
+	process       *os.Process
+	pty           *os.File
+	pid           int
+	pidStart      string
+	startedAt     time.Time
+	readyAt       time.Time
+	logReady      atomic.Bool   // a line of this generation's output matched ready_log
+	readyMatch    *readyMatcher // matches ready_log while waiting for it; nil otherwise
+	exitedAt      time.Time
 	// settledAt is when the latest run or start attempt ended: an exit, a
 	// failed start or a stop of a server waiting to start. A task's waiters
 	// compare it with when they asked (see taskStateLocked).
@@ -521,14 +525,19 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		// wait), unless a later Stop withdraws the request. The request is
 		// recorded under the same lock as the check, so an exit in between
 		// cannot miss it.
+		p.againTrigger = opt.trigger
 		s.reserveLocked(p)
 		s.mu.Unlock()
 		return nil
 	}
 	pending := p.want && p.status == Starting
-	// A task that a run since this request finished (one a dependent of
-	// it in the same bulk start ran) is done for it.
-	done := p.cfg.Oneshot && !opt.Since.IsZero() && taskStateLocked(p, opt.Since) == taskDone
+	// A task whose run since this request ended (one a dependent of it in
+	// the same bulk start ran) is not run again for it, done or failed.
+	done := false
+	if p.cfg.Oneshot && !opt.Since.IsZero() && p.pid == 0 && !p.settledAt.Before(opt.Since) {
+		state := taskStateLocked(p, opt.Since)
+		done = state == taskDone || state == taskFailed
+	}
 	s.mu.Unlock()
 	if pending || done {
 		return nil // a start (e.g. waiting for dependencies) is already under way
@@ -565,11 +574,18 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 			if !s.current(name, token) {
 				return
 			}
-			task, done := s.taskDone(d, opt.Since)
-			if done {
+			dep := s.reserveDependency(d, opt.Since)
+			switch {
+			case dep.done:
 				continue // a run since the request satisfies it
+			case dep.failed != "":
+				// A run since the request failed: the same request does not
+				// run it again.
+				s.failStart(name, token, fmt.Sprintf("dependency %s failed: %s", d, dep.failed))
+				return
 			}
-			if err := s.startOne(d, StartOptions{trigger: triggerStart}, s.reserve(d)); err != nil {
+			task := dep.task
+			if err := s.startOne(d, StartOptions{trigger: triggerStart}, dep.token); err != nil {
 				s.failStart(name, token, fmt.Sprintf("dependency %s failed: %v", d, err))
 				return
 			}
@@ -587,6 +603,37 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 		}
 	}()
 	return nil
+}
+
+// dependency is how reserveDependency left a dependency: a task done or
+// failed in a run since the request, or reserved with token.
+type dependency struct {
+	task, done bool
+	failed     string // why a task's run since the request failed
+	token      int
+}
+
+// reserveDependency reserves a start of dependency name with a fresh round
+// of automatic restarts, as Start does, unless it is a task whose run since
+// the request already ended (done or failed); one lock covers both, so a
+// run that ends in between is not repeated.
+func (s *Supervisor) reserveDependency(name string, since time.Time) dependency {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.procs[name]
+	if p == nil {
+		return dependency{}
+	}
+	if task := p.cfg.Oneshot; task && p.pid == 0 && !p.settledAt.Before(since) {
+		switch taskStateLocked(p, since) {
+		case taskDone:
+			return dependency{task: true, done: true}
+		case taskFailed:
+			return dependency{task: true, failed: cmp.Or(p.note, string(p.status))}
+		}
+	}
+	p.retries = 0
+	return dependency{task: p.cfg.Oneshot, token: s.reserveLocked(p)}
 }
 
 // reserve marks a server as wanted and returns a token that a later launch
@@ -975,6 +1022,8 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	token := p.startSeq
 	removed := p.removed
 	var deps []string
+	trigger := cmp.Or(p.againTrigger, triggerStart)
+	p.againTrigger = ""
 	if again {
 		deps = s.cfg.WithDeps(p.cfg.DependsOn)
 	}
@@ -999,7 +1048,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		return
 	}
 	if again {
-		_ = s.launch(name, deps, StartOptions{trigger: triggerStart}, token)
+		_ = s.launch(name, deps, StartOptions{trigger: trigger}, token)
 		return
 	}
 }
@@ -1144,24 +1193,17 @@ func (s *Supervisor) backoffLocked(p *proc, uptime time.Duration) time.Duration 
 // Stop ends a server gracefully: Ctrl-C to its process group, then SIGTERM,
 // then SIGKILL. It returns when the process has exited.
 func (s *Supervisor) Stop(name string) error {
-	return s.stop(name, nil)
-}
-
-// errSuperseded is stop's error when only refused the stop.
-var errSuperseded = errors.New("superseded by a later start or stop")
-
-// stop is Stop; when only is set, it stops the server only if only, called
-// under the lock, accepts it.
-func (s *Supervisor) stop(name string, only func(*proc) bool) error {
 	s.mu.Lock()
 	p, ok := s.procs[name]
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("unknown server %q", name)
 	}
-	if only != nil && !only(p) {
+	// The servers and the state are already handed to the new daemon,
+	// which would not see this stop; like a start, it waits for the end.
+	if s.closing && s.handoff {
 		s.mu.Unlock()
-		return errSuperseded
+		return errors.New("the daemon is upgrading in place; try again in a moment")
 	}
 	p.want = false
 	p.restartPending = false

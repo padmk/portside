@@ -169,6 +169,11 @@ func outsideDeps(in map[string]bool, views []supervisor.View, name string) error
 				if len(via) > 0 {
 					through = " (through " + strings.Join(via, ", ") + ")"
 				}
+				if known && v.Oneshot {
+					// Starting the task would not help: a start of name runs
+					// it again.
+					return fmt.Errorf("%s needs the task %s%s, which is outside this scope and which starting %s runs again; ask the user to start %s", name, d, through, name, name)
+				}
 				return fmt.Errorf("%s needs %s%s, which is outside this scope and not running; ask the user to start it", name, d, through)
 			}
 			// The daemon also starts the dependencies of a running

@@ -98,8 +98,10 @@ type View struct {
 // and still answering), the rule behind monitoring checks. A server should run when it crashed, when it
 // exited although its restart policy is always (the policy gave up), and
 // while it is wanted (started and not stopped by the user). A task is
-// ready once done; done, it is not expected to run, so it counts only when
-// required, while it runs or is due to run again, and when it failed.
+// ready once done, and while it runs unless required (a monitor naming it
+// asks whether it is done); done, it is not expected to run, so it counts
+// only when required, while it runs or is due to run again, and when it
+// failed.
 // Reason explains a server that should run and is not ready: its note,
 // else its status.
 type Health struct {
@@ -119,7 +121,7 @@ func (v View) Health(required bool) Health {
 		Ready:    v.Status == Running && !v.Unready,
 	}
 	if v.Oneshot {
-		h.Ready = v.Done
+		h.Ready = v.Done || (v.Status == Starting && !required)
 	}
 	if h.Degraded() {
 		h.Reason = v.Note

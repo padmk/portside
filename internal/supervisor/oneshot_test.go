@@ -106,6 +106,36 @@ func TestTaskFailureBlocksTheDependent(t *testing.T) {
 	}
 }
 
+// A task that failed in a run since the request fails the next server of
+// the same request that depends on it, without running again; each server
+// reports it under its own start, whatever the task's start number.
+func TestFailedTaskRunIsShared(t *testing.T) {
+	s, files := taskSupervisor(t, `echo run >> "$RUNS"; exit 3`)
+	// Start numbers that differ from the task's.
+	for range 3 {
+		_ = s.Stop("api")
+		_ = s.Stop("api2")
+	}
+	since := time.Now() // one time for all, as a bulk start passes
+	const want = "dependency migrate failed: exited with code 3"
+	for _, name := range []string{"api", "api2"} {
+		if err := s.Start(name, StartOptions{Since: since}); err != nil {
+			t.Fatal(err)
+		}
+		err := s.WaitReady(context.Background(), name, since, 10*time.Second)
+		if f, ok := errors.AsType[*waitFailure](err); !ok || f.reason != want {
+			t.Fatalf("WaitReady(%s) = %v, want %q", name, err, want)
+		}
+	}
+	if err := s.Start("migrate", StartOptions{Since: since}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(files, "runs"))
+	if n := strings.Count(string(data), "run"); n != 1 {
+		t.Fatalf("the task ran %d times in one request", n)
+	}
+}
+
 // Servers started together share one run of the task they depend on, and
 // an explicit start of the task runs it again.
 func TestStartsShareOneTaskRun(t *testing.T) {

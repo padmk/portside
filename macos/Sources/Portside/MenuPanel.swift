@@ -384,11 +384,13 @@ struct MenuPanel: View {
     }
 
     private func sectionHeader(_ group: String?, _ servers: [Server]) -> some View {
-        let running = servers.filter { $0.status == "running" }.count
+        // Servers only, as the dashboard counts them: tasks run to completion.
+        let counted = servers.filter { $0.oneshot != true }
+        let running = counted.filter { $0.status == "running" }.count
         let title = group ?? L.t("Other", "Pozostałe")
         return HStack(spacing: 6) {
             Text(title.uppercased()).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
-            Text(verbatim: "\(running)/\(servers.count)").font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.tertiary)
+            Text(verbatim: "\(running)/\(counted.count)").font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.tertiary)
             Spacer()
             if let group {
                 Button {

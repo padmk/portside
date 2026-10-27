@@ -38,9 +38,12 @@ export function formatRunTime(at: string, now: number): string {
   const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
-  const days = (d.getTime() - today.getTime()) / 86_400_000
-  if (days >= 0 && days < 1) return time
-  if (days >= 0 && days < 7) return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+  const day = new Date(d)
+  day.setHours(0, 0, 0, 0)
+  // Calendar days: rounding absorbs the 23 and 25 hour days of clock changes.
+  const days = Math.round((day.getTime() - today.getTime()) / 86_400_000)
+  if (days === 0) return time
+  if (days > 0 && days < 7) return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
   const year = d.getFullYear() === today.getFullYear() ? undefined : 'numeric'
   return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year })} ${time}`
 }

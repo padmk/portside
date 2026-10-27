@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -238,10 +239,15 @@ func TestWatchTask(t *testing.T) {
 	s.mu.Lock()
 	s.procs["web"].cfg.Oneshot = true
 	s.mu.Unlock()
-	if err := s.Start("web", StartOptions{}); err != nil {
+	since := time.Now()
+	if err := s.Start("web", StartOptions{Since: since}); err != nil {
 		t.Fatal(err)
 	}
 	waitRuns(t, runs, 1)
+	// Something waiting for the task (a dependent, ensure) is never told
+	// it stopped: the restart keeps it wanted and the next run satisfies it.
+	waited := make(chan error, 1)
+	go func() { waited <- s.WaitReady(context.Background(), "web", since, 10*time.Second) }()
 	t0 := time.Now()
 	s.checkWatches(t0)
 	writeFile(t, runs+".go", "") // the next run ends at once
@@ -250,6 +256,12 @@ func TestWatchTask(t *testing.T) {
 	s.checkWatches(t0.Add(2 * time.Second))
 	waitRuns(t, runs, 2)
 	waitStatus(t, s, "web", Exited)
+	if err := <-waited; err != nil {
+		t.Fatalf("a waiter failed across the watch restart: %v", err)
+	}
+	if tr := triggerOf(s); tr != triggerWatch {
+		t.Errorf("trigger %q", tr)
+	}
 	waitWatchIdle(t, s)
 	writeFile(t, filepath.Join(dir, "src", "app.py"), "again")
 	for i := 3; i < 6; i++ {

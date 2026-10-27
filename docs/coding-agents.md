@@ -96,7 +96,7 @@ A server's line times are when the daemon received the output, to the second. Re
 
 The instructions match the mode: in `start` mode they tell the agent to ask you to restart or stop servers and containers, in `read-only` mode also to start them.
 
-`start` and `full` run code the agent can edit: a server's command runs the project's own code (its scripts, sources and build files), so starting or restarting a server runs whatever the agent changed there. Only `read-only` keeps an agent from running code it changed through MCP.
+`start` and `full` run code the agent can edit: a server's command runs the project's own code (its scripts, sources and build files), so starting or restarting a server runs whatever the agent changed there. Only `read-only` keeps an agent from running code it changed through MCP, and only for servers without [`watch`](configuration.md#restart-on-file-changes), which restart (or start again after a crash, with their dependencies) when any watched file is saved, whatever the mode or `--dir` scope.
 
 `--dir <path>` limits every tool to the projects under that path; repeat it for several. Each path must be an existing directory; it may be relative or start with `~`, and is compared with symlinks resolved (on macOS `/tmp` is `/private/tmp`). The tools then see:
 

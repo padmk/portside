@@ -26,10 +26,15 @@ func TestViewHealth(t *testing.T) {
 		{"disabled, never started", View{Status: Stopped, Restart: config.RestartNo}, Health{}},
 		{"temporary copy crashed", View{Status: Crashed, Temporary: true, Note: "exited with code 2", Restart: config.RestartNo}, Health{Expected: true, Reason: "exited with code 2"}},
 		{"task done", View{Status: Exited, Oneshot: true, Done: true, Note: "done", Restart: config.RestartNo}, Health{Ready: true}},
-		{"task running", View{Status: Starting, Oneshot: true, Wanted: true, Restart: config.RestartNo}, Health{Expected: true, Reason: "starting"}},
+		{"task running", View{Status: Starting, Oneshot: true, Wanted: true, Restart: config.RestartNo}, Health{Expected: true, Ready: true}},
 		{"task failed", View{Status: Crashed, Oneshot: true, Note: "exited with code 1", Restart: config.RestartOnFailure}, Health{Expected: true, Reason: "exited with code 1"}},
 		{"task ended during an upgrade", View{Status: Exited, Oneshot: true, Note: "ended during the upgrade; exit code unknown", Restart: config.RestartNo}, Health{}},
 		{"temporary copy running", View{Status: Running, Temporary: true, Wanted: true, Restart: config.RestartNo}, Health{Expected: true, Ready: true}},
+	}
+	// A monitor naming a running task asks whether it is done.
+	running := View{Status: Starting, Oneshot: true, Wanted: true, Restart: config.RestartNo}
+	if h := running.Health(true); !h.Degraded() || h.Reason != "starting" {
+		t.Errorf("required running task: %+v", h)
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
