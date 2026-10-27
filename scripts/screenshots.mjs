@@ -35,9 +35,12 @@ const ws = new WebSocket(targets[0].webSocketDebuggerUrl)
 await new Promise((r) => (ws.onopen = r))
 let id = 0
 const pending = new Map()
+// Handlers for protocol events, by method.
+const events = new Map()
 ws.onmessage = (ev) => {
   const m = JSON.parse(ev.data)
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id) }
+  else if (m.method && events.has(m.method)) events.get(m.method)(m.params)
 }
 const send = (method, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })) })
 const evaluate = (expression) => Promise.race([
@@ -49,7 +52,8 @@ const shot = async (name) => {
   writeFileSync(join(out, name), Buffer.from(r.data, 'base64'))
   console.log('wrote', name)
 }
-const locale = set === 'portfolio' ? 'pl' : 'en'
+// The portfolio is Polish unless SHOT_LANG asks for another language, as for the menu bar panel.
+const locale = process.env.SHOT_LANG ?? (set === 'portfolio' ? 'pl' : 'en')
 const theme = async (family, mode) => {
   await evaluate(`localStorage.setItem('portside.themeFamily', ${JSON.stringify(family)}); localStorage.setItem('portside.themeMode', ${JSON.stringify(mode)}); localStorage.setItem('portside.locale', ${JSON.stringify(locale)})`)
 }
@@ -77,6 +81,78 @@ const settingsDialog = async () => {
 // Settings on the coding agents, as the menu bar app's Connect Coding Agents opens it.
 const agentsDialog = async () => {
   await open('#settings/agents', 3000)
+}
+
+// The coding agents section of that dialog alone, with a margin of the dialog around it.
+const agentsSection = async (name) => {
+  // Centered in the dialog's scrolling body, so the footer covers none of it.
+  await evaluate("document.getElementById('set-agents').scrollIntoView({ block: 'center' })")
+  await sleep(500)
+  const box = (await evaluate("(() => { const b = document.getElementById('set-agents').getBoundingClientRect(); return [b.x, b.y, b.width, b.height] })()")).result.value
+  const pad = 16
+  const clip = { x: box[0] - pad, y: box[1] - pad, width: box[2] + 2 * pad, height: box[3] + 2 * pad, scale: 1 }
+  const r = await send('Page.captureScreenshot', { format: 'png', clip })
+  writeFileSync(join(out, name), Buffer.from(r.data, 'base64'))
+  console.log('wrote', name)
+}
+
+// A staged connection to another computer, for the portfolio's remote shots: the
+// page sees the demo daemon as "desktop", a Linux machine reached over Tailscale.
+// Chrome reroutes the peer routes (and the icons behind them) to the demo daemon
+// and answers the remote routes; the event streams, which it cannot reroute, get
+// the connection added in the page. The dashboard itself is unchanged.
+const staged = {
+  peer: { name: 'desktop', label: 'desktop', dnsName: 'desktop.tail0a1b2c.ts.net', os: 'linux' },
+  status: 'open', version: '0.10.2', localPort: Number(port), since: new Date(Date.now() - 42 * 60000).toISOString(),
+  mirrors: [
+    { port: 3101, server: 'web', state: 'mirrored' }, { port: 3102, server: 'api', state: 'mirrored' },
+    { port: 3104, server: 'studio', state: 'mirrored' }, { port: 55432, container: 'acme-db-1', state: 'mirrored' },
+  ],
+}
+const stagedReplies = {
+  '/api/remote': { share: { enabled: false, active: false, devices: [] }, connection: staged },
+  '/api/remote/peers': { tailnet: { available: true, self: 'macbook' }, peers: [] },
+}
+const peerRoute = /\/api\/peer\/[^/]+/
+const stagedSocket = `(() => {
+  const remote = ${JSON.stringify(staged)}
+  const NativeSocket = window.WebSocket
+  window.WebSocket = class extends NativeSocket {
+    constructor(url, protocols) { super(String(url).replace(${peerRoute}, '/api'), protocols) }
+    get onmessage() { return super.onmessage }
+    set onmessage(fn) {
+      super.onmessage = (ev) => {
+        let data = ev.data
+        try { const m = JSON.parse(data); if (m && typeof m === 'object' && 'servers' in m) data = JSON.stringify({ ...m, remote }) } catch {}
+        fn.call(this, new MessageEvent('message', { data }))
+      }
+    }
+  }
+})()`
+const onRequestPaused = ({ requestId, request }) => {
+  const url = new URL(request.url)
+  const reply = stagedReplies[url.pathname]
+  if (reply) {
+    const body = Buffer.from(JSON.stringify(reply)).toString('base64')
+    send('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body })
+  } else {
+    send('Fetch.continueRequest', { requestId, url: request.url.replace(peerRoute, '/api') })
+  }
+}
+
+// The dashboard showing the staged remote computer, then its connection in the computers dialog.
+const remoteShots = async (suffix) => {
+  events.set('Fetch.requestPaused', onRequestPaused)
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/peer/*' }, { urlPattern: '*/api/remote' }, { urlPattern: '*/api/remote/peers' }] })
+  const { identifier } = await send('Page.addScriptToEvaluateOnNewDocument', { source: stagedSocket })
+  await evaluate("localStorage.setItem('portside.layout', 'list')")
+  await open('', 3500); await shot(`portside-remote${suffix}.png`)
+  await evaluate("document.querySelector('.remote-pill-main')?.click()")
+  await sleep(1500); await shot(`portside-remote-dialog${suffix}.png`)
+  await send('Page.removeScriptToEvaluateOnNewDocument', { identifier })
+  await send('Fetch.disable')
+  events.delete('Fetch.requestPaused')
+  await evaluate("localStorage.removeItem('portside.layout')")
 }
 
 await send('Page.enable')
@@ -109,6 +185,12 @@ if (set === 'portfolio') {
     await containersTab('api'); await shot(`portside-containers${suffix}.png`)
     await settingsDialog(); await shot(`portside-settings${suffix}.png`)
     await agentsDialog(); await shot(`portside-agents${suffix}.png`)
+    await agentsSection(`portside-agents-section${suffix}.png`)
+    await remoteShots(suffix)
+    // The Add dialog, which scans the projects folder as it opens.
+    await open('', 2500)
+    await evaluate("document.querySelector('.top-add')?.click()")
+    await sleep(3000); await shot(`portside-discover${suffix}.png`)
   }
 } else {
   await evaluate(`localStorage.setItem('portside.collapsed', '["shop"]')`)

@@ -34,6 +34,19 @@ else
 fi
 
 for p in acme/web acme/api acme/worker shop/storefront shop/admin studio/app blog landing; do mkdir -p "$HOMEDIR/code/$p"; done
+# Projects not added yet, one per stack, for the Add dialog's detection shot.
+mkdir -p "$HOMEDIR/code/docs" "$HOMEDIR/code/billing" "$HOMEDIR/code/mailer/bin" "$HOMEDIR/code/search" "$HOMEDIR/code/insights" "$HOMEDIR/code/payments"
+printf '{"name":"docs","scripts":{"dev":"astro dev"},"devDependencies":{"astro":"^5.0.0"}}\n' > "$HOMEDIR/code/docs/package.json"
+printf 'Django>=5.1\n' > "$HOMEDIR/code/billing/requirements.txt"
+printf '#!/usr/bin/env python\nfrom django.core.management import execute_from_command_line\n' > "$HOMEDIR/code/billing/manage.py"
+printf "source 'https://rubygems.org'\ngem 'rails', '~> 8.0'\n" > "$HOMEDIR/code/mailer/Gemfile"
+printf '#!/usr/bin/env ruby\n' > "$HOMEDIR/code/mailer/bin/rails"
+printf 'module example.com/search\n\ngo 1.26\n' > "$HOMEDIR/code/search/go.mod"
+printf 'package main\n\nimport (\n\t"net/http"\n\t"os"\n)\n\nfunc main() { http.ListenAndServe(":"+os.Getenv("PORT"), nil) }\n' > "$HOMEDIR/code/search/main.go"
+printf '[project]\nname = "insights"\ndependencies = ["fastapi", "uvicorn"]\n' > "$HOMEDIR/code/insights/pyproject.toml"
+printf 'from fastapi import FastAPI\n\napp = FastAPI()\n' > "$HOMEDIR/code/insights/main.py"
+printf '{"require":{"laravel/framework":"^12.0"}}\n' > "$HOMEDIR/code/payments/composer.json"
+printf '#!/usr/bin/env php\n' > "$HOMEDIR/code/payments/artisan"
 # The coding agents count as installed, with nothing connected yet, for the Settings shot.
 mkdir -p "$HOMEDIR/.claude" "$HOMEDIR/.codex"
 # Simple project logos, picked up as favicons.
