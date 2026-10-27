@@ -15,7 +15,7 @@ On macOS, when those variables point elsewhere and the default location does not
 
 The first run writes a commented starter file. Its `root` is your projects folder: of the folders people commonly keep code in, directly in your home folder or in `~/Documents` (such as `~/Developer`, `~/dev`, `~/code`, `~/projects`, `~/src`, `~/repos`, `~/workspace`, `~/Documents/GitHub` or the JetBrains `~/IdeaProjects`, in any letter case), the one with the most projects one or two levels down, else your home folder.
 
-The daemon reloads the file when it changes, at the latest when the next command or request reaches it, so `portside up` right after `portside add` or an edit in your editor sees the new server. Edits from the dashboard keep your comments and formatting. A server added or edited with a missing working directory is saved with a warning; create the directory before starting it. Unknown keys are ignored with a warning.
+The daemon reloads the file when it changes, at the latest when the next command or request reaches it, so `portside up` right after `portside add` or an edit in your editor sees the new server. Edits from the dashboard keep your comments and formatting. A server added or edited with a missing working directory is saved with a warning; create the directory before starting it. Unknown keys are ignored with a warning. Two keys in one table that differ only in case, such as `cmd` and `Cmd`, would set the same setting, so the file is refused; keys under `env` keep their case.
 
 When the file is invalid:
 
@@ -112,7 +112,7 @@ Paths in `root`, `dir`, `path` and `icon` may start with `~`.
 | `enabled` | `false` leaves the server out of `--all` and restore; it can still be started by name or group. |
 | `icon` | Icon for the dashboard, relative to `dir` or absolute; by default a project favicon is detected. |
 | `open` | Path appended to the URL when opening the server, such as `/admin`. |
-| `projects` | Compose project names attached to this server, overriding directory matching for those projects ([Containers](containers.md)). Names must be unique within the list, start with a lowercase letter or digit, and contain only lowercase letters, digits, dashes or underscores. |
+| `projects` | Compose project names (or Supabase CLI project IDs) attached to this server, overriding directory matching for those projects ([Containers](containers.md)). Names must be unique within the list, start with a lowercase letter or digit, and contain only lowercase letters, digits, dashes or underscores. |
 | `lan` | `true` when the server is meant to be reachable from other devices: listening on the network is then not pointed out, for it or for the containers it owns ([Security](security.md#servers-reachable-from-the-network)). |
 | `wrap` | How the command enters the project's tool environment ([Version managers](#version-managers)): `auto` (default) detects it, `none` runs the command as is, anything else is a command prefix such as `nix develop -c` (words separated by spaces). |
 
@@ -162,7 +162,7 @@ The command runs with `sh -c` in your home directory. Its environment is what se
 | `PORTSIDE_LOG_TAIL` | The last 20 non-empty lines of the log (at most 8 KiB, without colors), with the start and exit lines Portside writes there. Output can hold secrets, so treat it as you treat the logs. |
 | `PORTSIDE_LOG_FILE` | The server's full log file. |
 
-The daemon does not wait for the command and runs at most four at once. One still running after 30 seconds is stopped; either result is in the daemon log (`portside daemon logs`). Delivery is best effort: a failed command is not retried, and a report is lost when the daemon stops while it runs, so let your monitoring also check the daemon itself ([Linux server](linux-server.md#reading-state-from-scripts)). `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but no notification can be shown (no `notify-send`, or a daemon without a display), because a crash would then notify no one.
+The daemon does not wait for the command and runs at most four at once. One still running after 30 seconds is stopped, and a background process it leaves holding its output does not keep it running; either result is in the daemon log (`portside daemon logs`). Delivery is best effort: a failed command is not retried, and a report is lost when the daemon stops while it runs, so let your monitoring also check the daemon itself ([Linux server](linux-server.md#reading-state-from-scripts)). `portside doctor` shows how many servers have a crash command, and on Linux warns when `notify` is on but no notification can be shown (no `notify-send`, or a daemon without a display), because a crash would then notify no one.
 
 ## Editor, terminal, shell and Docker
 

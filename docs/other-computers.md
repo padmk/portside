@@ -10,12 +10,12 @@ Work on one computer while the projects run on another, for example a laptop dri
 
 Until Tailscale is ready, the **Computers** window says what is missing: Tailscale not installed, not connected, or waiting for a sign-in.
 
-A coding agent can do the whole setup with you: **Copy prompt for your agent** in the **Computers** window, or `portside computers --print-prompt`, gives a request that walks it through installing and connecting Tailscale, turning sharing on, pairing and checking the connection, and asks you for the steps only you can do (signing in, enabling HTTPS certificates, entering the pairing code).
+A coding agent can do the whole setup with you: **Copy prompt for your agent** in the **Computers** window, or `portside computers --print-prompt`, gives a request that walks it through installing and connecting Tailscale, turning sharing on, pairing and checking the connection, and asks you for the steps only you can do (signing in, enabling HTTPS certificates, typing the pairing code into `portside pair`).
 
 ## Pair
 
 1. On the computer that runs the projects, turn sharing on: **Computers** in the top bar, then **Let my other devices connect**, or `portside share on` (it sets `share = true` in the config). Either shows a one-time pairing code, valid for 10 minutes.
-2. On the computer you work on, open **Computers**, choose **Pair** next to the other computer and enter the code, or run `portside pair <computer> <code>`. Pairing connects at once.
+2. On the computer you work on, open **Computers**, choose **Pair** next to the other computer and enter the code, or run `portside pair <computer>` and type the code when it asks (it also reads it from a pipe). The code is never an argument, since other accounts on the computer can read command lines. Pairing connects at once.
 
 Pairing is needed once per device; afterwards **Connect** or `portside connect <computer>` is enough.
 
@@ -33,10 +33,11 @@ Coding agents act on the connected computer through the `computer` argument of t
 
 While connected, the port of each running remote server, and each port published by a running container (such as a database), is forwarded to the same port on this computer, so `http://127.0.0.1:5173` and `psql -p 5432` reach the other computer. Every such port is forwarded until you turn it off, including ports of containers that belong to no configured project.
 
-- **Busy ports.** A port a local process listens on (on loopback or all addresses) is left alone and listed as busy, then forwarded within a few seconds once it is free again; connections still closing on it do not count. The same happens to a forwarded port once a local process starts listening on it, for example a local `docker compose` publishing the same database port: macOS notices within a few seconds, and Linux refuses that local bind while the port is forwarded.
+- **Busy ports.** A port a local process listens on (on loopback or all addresses) is left alone and listed as busy, then forwarded within a few seconds once it is free again; connections still closing on it do not count. The same happens to a forwarded port once a local process starts listening on it, for example a local `docker compose` publishing the same database port: macOS notices within a few seconds, and Linux refuses that local bind while the port is forwarded. The daemon binds and checks up to 64 forwarded ports a second, so with thousands of them these steps take longer: about a minute per 4,000 ports.
 - **Local servers.** Starting a local server on a forwarded port takes the port back for as long as that server is starting or running. A local server whose port is forwarded shows **forwarded from** that computer instead of a foreign process.
 - **Another local port.** For a busy port, **Use another port** in the **Computers** window forwards it to a local port you choose, for example 5432 to 15432, remembered for that computer.
 - **Turning a port off.** The switch next to each forwarded port, or `portside forward off <port>`, stops forwarding it, remembered for that computer: the port no longer listens here, its open connections end, and `<name>.<computer>.localhost` for a server on it says that forwarding is off. `portside forward on <port>` or the switch turns it on again. A port the other computer does not forward is refused, with the ports it does forward.
+- **Ports not forwarded.** Forwarded ports may hold at most a quarter of the daemon's open-file limit, two descriptors per port, so the rest is left for connections, servers and the dashboard: about 11,000 ports on a Mac (an eighth of `kern.maxfilesperproc`) and all of them on Linux with systemd's default. Servers come first, then containers; ports turned off do not count, and the rest are listed as over the limit. This computer never listens for a forwarded port on its daemon's own port, 7878 or the ports a daemon moves to when 7878 is taken (7879 to 7899, 17879 to 17899): a remote port among them is listed as busy, and **Use another port** forwards it to another local port.
 - **Lost connection.** When the connection is down for about a minute, the forwarded ports are released until it is back.
 
 Like any local server, a forwarded port can be reached by every program and account on this computer ([Security](security.md#sharing)).

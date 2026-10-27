@@ -1,6 +1,6 @@
 # CLI
 
-Any command starts the daemon when none runs. `portside` without a command runs `status` once a config file exists, and prints the help otherwise. `portside help <command>` prints a command's arguments.
+Commands start the daemon when none runs, except those that only report on it: `check`, `daemon status`, `daemon stop` and `daemon info --no-start`. `portside` without a command runs `status` once a config file exists, and prints the help otherwise. `portside help <command>` prints a command's arguments.
 
 Global flags go before the command:
 
@@ -55,8 +55,9 @@ portside daemon restart [--in-place] [--allow-downgrade]
                                          --in-place fails instead of restarting the servers,
                                          --allow-downgrade replaces a newer daemon
 portside daemon info [--no-start]        JSON for the macOS app; with --no-start exit 3
-                                         when no daemon runs; exit 4 when the config
-                                         does not load
+                                         when no daemon runs; exit 4 when none runs and
+                                         the config does not load (a running daemon keeps
+                                         its last good config: exit 0 with configError)
 portside daemon logs [-n 100] [-f]       print or follow its log, from the user journal
                                          when systemd runs it
 portside service install|uninstall|status
@@ -70,7 +71,8 @@ portside computers [--json] | --print-prompt
                                          your other computers that share, and the
                                          connection; --print-prompt prints a setup
                                          request for your coding agent
-portside pair <computer> <code>          pair with a computer using its code, then connect
+portside pair <computer>                 pair with a computer using its code, read from
+                                         standard input (typed or piped), then connect
 portside connect <computer> | disconnect connect to a paired computer, or end the connection
 portside forward on|off <port>           forward a port of the connected computer, or stop;
                                          kept for that computer
@@ -107,7 +109,7 @@ Under WSL the browser runs on Windows and reaches the daemon through the WSL net
 
 ## Stopping and readiness
 
-`down` refuses to run without a name or `--all`. Stopping a server also cancels a pending automatic restart, which `status --json` shows as `restartPending`.
+`down` refuses to run without a name or `--all`. Stopping a server also cancels a pending automatic restart, which `status --json` shows as `restartPending`. Starting a server that is still stopping (`ensure` or `up` right after `down`) starts it again once it and every process it started have exited, unless another stop follows.
 
 A server that is still starting after 10 seconds reports the port or health check it is waiting for. When its process tree listens on another port, `listenPorts` and the status note name that port.
 

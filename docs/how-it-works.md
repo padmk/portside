@@ -10,14 +10,14 @@ Each server runs as `<shell> -c <cmd>` (`bash` unless the config sets [`shell`](
 
 Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log`, rotated at 10 MiB. When the daemon restarts or upgrades, it reloads the last 256 KiB of the current and rotated files into scrollback, followed by a `daemon restarted` separator. Restored output has no line timestamps.
 
-`~/.local/state/portside/state.json` holds which servers you want running, the process groups in flight and the last exit codes, times and notes. `last-good-config.json` beside it is a validated copy of the config, used when the file stops loading.
+`~/.local/state/portside/state.json` holds which servers you want running, the process groups in flight and the last exit codes, times and notes. A daemon that stops removes the groups once its servers have exited. `last-good-config.json` beside it is a validated copy of the config, used when the file stops loading.
 
 The config and server logs can hold environment values and credentials, so:
 
 - files in the state directory and the config file are created with mode `0600`, directories with `0700`;
 - each daemon start removes group and other access from the config file, from `~/.config/portside` and `~/.local/state/portside` with their contents, and, for a state directory set with `PORTSIDE_STATE_DIR`, from that directory, its `logs` and the files Portside keeps in it. Parent directories and other files are never changed.
 
-When the daemon itself crashed, the next one checks each leftover process group by its start time (read from `ps` in the C locale, so a daemon started under another locale still recognizes it) and stops it before restoring servers.
+When the daemon itself crashed, the next one stops each leftover process group before restoring servers, but only one it can tie to a server: its main process must have the saved start time (read from `ps` in the C locale, so a daemon started under another locale still recognizes it), or, when that process is gone, every process left in the group must have started between it and the last time the previous daemon saved its state or wrote the server's log. Any other group, such as one whose id another program got since, is left alone and named in the daemon log.
 
 ## Periodic checks
 
@@ -51,13 +51,13 @@ Reading listening addresses adds about 2 `lsof` calls a minute while servers run
 
 1. The command asks the daemon to run the command's own binary.
 2. The daemon checks that binary (`<binary> version`), writes `handoff.json` to the state directory with each server's process, start time, terminal and state, and re-executes the binary in the same process.
-3. The new daemon takes each server over and resumes its output; anything it cannot take over is ended and restored as after a crash. It removes `handoff.json`.
+3. The new daemon takes each server over and resumes its output; anything it cannot take over is ended and restored as after a crash. A server that exited during the switch counts as crashed: its restart policy restarts it, or its `on_crash` command runs and it stays down, whatever `restore` says. It removes `handoff.json`.
 
 Servers stay children of the daemon and their terminals stay open, the listening sockets carry over (requests made meanwhile wait instead of failing), and launchd or systemd see no exit. Output a server writes during the switch waits in its terminal for the new daemon.
 
 The daemon refuses the upgrade, and keeps running the old binary, while:
 
-- a server is stopping;
+- a server is stopping, until every process it started has exited;
 - a Compose job runs;
 - the terminal of a server still waiting for its `ready_log` line cannot be paused, since that line could otherwise slip between the two daemons.
 
