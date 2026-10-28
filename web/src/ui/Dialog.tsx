@@ -45,6 +45,8 @@ export function Dialog({ title, onClose, children, footer, size = 'md', bare, pl
       className={`dialog dialog--${size} ${className}`}
       aria-label={title}
       onCancel={(e) => {
+        // React passes a nested dialog's cancel on to this one; that dialog handles its own.
+        if (e.target !== ref.current) return
         e.preventDefault()
         onClose()
       }}

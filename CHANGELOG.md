@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.3
+
+- **Settings:** Escape closes the "Discard changes?" prompt and leaves Settings open (the same for the config editor); before, it opened the prompt again.
+- **Settings:** in the macOS app, Appearance shows the app icon chosen in the menu bar app's menu, also when it changed while the dashboard was open.
+
 ## 0.11.2
 
 - **Settings, reorganized:** a larger window whose sections fit without scrolling in the app's window, each a few groups of rows (label and explanation on the left, control on the right): General (startup, projects folder, editor, terminal, language), Appearance (mode, a one-row palette, layout and, in the macOS app, the app icon), Servers, Events, Environment, Coding agents and Advanced. **Save** stays in the footer on every section and says when there are unsaved changes, and closing with unsaved changes asks first.

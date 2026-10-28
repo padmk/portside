@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, LayoutGrid, List, Monitor, Moon, Sun } from 'lucide-react'
 import { swatches } from 'virtual:theme-swatches'
 import { appIcon, APP_ICONS, type AppIconStyle } from '../../app/appBridge'
@@ -96,6 +96,9 @@ export function AppearanceSection() {
 function AppIconRow() {
   const t = useT()
   const [style, setStyle] = useState(() => appIcon!.current())
+  useEffect(() => {
+    appIcon!.refresh().then(setStyle, () => {})
+  }, [])
   const choose = (next: AppIconStyle) => {
     setStyle(next)
     appIcon!.set(next).then(setStyle, (e) => {

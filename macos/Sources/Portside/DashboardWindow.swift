@@ -305,7 +305,8 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate, WKN
 /// flipped its switch) or to `loginItemProposal` (the user went on with the
 /// page's proposal, which applies only while no choice has been made, so a
 /// page loaded before a change in the menu never undoes it), or an icon style
-/// to `appIcon`, and gets the resulting state back, or an error.
+/// to `appIcon` (`null` asks for the current one), and gets the resulting
+/// state back, or an error.
 @MainActor
 private final class AppBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let loginItemMessage = "loginItem"
@@ -324,6 +325,7 @@ private final class AppBridge: NSObject, WKScriptMessageHandlerWithReply {
                                replyHandler: @escaping @MainActor (Any?, String?) -> Void) {
         guard let owner, owner.fromDashboard(message) else { return replyHandler(nil, "not allowed") }
         if message.name == Self.appIconMessage {
+            if message.body is NSNull { return replyHandler(AppIconStyle.current.rawValue, nil) }
             guard let name = message.body as? String, let style = AppIconStyle(rawValue: name) else {
                 return replyHandler(nil, "expected an icon style")
             }

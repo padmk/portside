@@ -1,7 +1,7 @@
 /**
  * What the macOS app's dashboard window offers the page: its launch-at-login setting and its Dock
  * icon. The window sets `window.appBridge` at document start and handles the `loginItem`,
- * `loginItemProposal` and `appIcon` messages; a browser has neither, so `loginItem` and `appIcon`
+ * `loginItemProposal` and `appIcon` messages (`null` to `appIcon` asks for the current icon); a browser has neither, so `loginItem` and `appIcon`
  * are null there.
  */
 declare global {
@@ -61,20 +61,24 @@ interface AppIcon {
   current(): AppIconStyle
   /** Switches the Dock icon and resolves with the one shown. */
   set(style: AppIconStyle): Promise<AppIconStyle>
+  /** Asks the app for the icon it shows now, which its menu may have changed since the page loaded. */
+  refresh(): Promise<AppIconStyle>
 }
 
 function readIcon(): AppIcon | null {
   const handler = window.webkit?.messageHandlers?.appIcon
   let current = window.appBridge?.appIcon
   if (!isIcon(current) || !handler) return null
+  const send = async (body: AppIconStyle | null) => {
+    const reply = await handler.postMessage(body)
+    if (!isIcon(reply)) throw new Error('unexpected reply from the app')
+    current = reply
+    return reply
+  }
   return {
     current: () => current as AppIconStyle,
-    set: async (style) => {
-      const reply = await handler.postMessage(style)
-      if (!isIcon(reply)) throw new Error('unexpected reply from the app')
-      current = reply
-      return reply
-    },
+    set: (style) => send(style),
+    refresh: () => send(null),
   }
 }
 
