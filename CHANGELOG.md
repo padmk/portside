@@ -2,7 +2,7 @@
 
 ## 0.11.3
 
-- **Settings:** Escape closes the "Discard changes?" prompt and leaves Settings open (the same for the config editor); before, it opened the prompt again.
+- **Dialogs:** Escape closes the "Discard changes?" prompt and leaves Settings open (the same for the config editor); before, it opened the prompt again. In Chrome and other Chromium browsers, pressing Escape again without a click no longer hides a dialog the dashboard still showed as open, which left the page unresponsive.
 - **Settings:** in the macOS app, Appearance shows the app icon chosen in the menu bar app's menu, also when it changed while the dashboard was open.
 
 ## 0.11.2

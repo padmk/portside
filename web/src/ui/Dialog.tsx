@@ -50,6 +50,14 @@ export function Dialog({ title, onClose, children, footer, size = 'md', bare, pl
         e.preventDefault()
         onClose()
       }}
+      onKeyDown={(e) => {
+        // Escape is handled here rather than by the browser, which closes the dialog without a
+        // cancelable `cancel` event when there was no click since the previous Escape. A nested
+        // dialog's handler has already prevented the default.
+        if (e.key !== 'Escape' || e.defaultPrevented || e.nativeEvent.isComposing) return
+        e.preventDefault()
+        onClose()
+      }}
       onMouseDown={(e) => {
         if (e.target === ref.current) onClose()
       }}
