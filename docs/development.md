@@ -15,7 +15,7 @@ make app-install    # build the app, install it in /Applications and upgrade the
 make install        # copy bin/portside to ~/.local/bin
 ```
 
-`AGENTS.md` maps the code and lists the constraints changes must keep.
+[Code map](code-map.md) maps the code and lists what the tests cover; `AGENTS.md` lists the commands and the constraints changes must keep.
 
 ## Next to an installed Portside
 
@@ -66,4 +66,4 @@ The app is signed ad hoc unless `SIGN_IDENTITY` is set for `scripts/build-macos-
 
 ## Third-party licenses
 
-`THIRD_PARTY_NOTICES.txt` lists the Go modules, dashboard packages and fonts, and the color themes the palettes come from. It ships in the release archives and in `Portside.app/Contents/Resources` and is served by the dashboard at `/licenses.txt` (Settings, "Open source licenses"). `make notices` regenerates it after a dependency change; `make check`, CI and the release build fail while it is stale.
+`THIRD_PARTY_NOTICES.txt` lists the Go modules, dashboard packages and fonts, and the color themes the palettes come from. It ships in the release archives and in `Portside.app/Contents/Resources` and is served by the dashboard at `/licenses.txt` (through a Vite plugin in `web/vite.config.ts`; Settings, "Open source licenses"). `make notices` regenerates it after a dependency change; `make check`, CI and the release build fail while it is stale.
