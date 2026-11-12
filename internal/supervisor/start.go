@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -67,6 +68,7 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		// does a dependency.
 		if !p.cfg.Oneshot || opt.Since.IsZero() {
 			p.againTrigger = opt.trigger
+			s.markStartAfterExitLocked(p)
 		}
 		s.reserveLocked(p)
 		s.mu.Unlock()
@@ -178,7 +180,20 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 		}
 	}
 	p.retries = 0
+	if !p.cfg.Oneshot {
+		s.markStartAfterExitLocked(p) // a task's ended run serves it
+	}
 	return dependency{task: p.cfg.Oneshot, token: s.reserveLocked(p)}
+}
+
+// markStartAfterExitLocked records that a start of p, whose pid is still
+// set, comes after its process ended on its own and was reaped, so wait
+// runs it once it has recorded the exit. A stopping server starts again
+// through its own path in wait.
+func (s *Supervisor) markStartAfterExitLocked(p *proc) {
+	if p.pid != 0 && !s.requestedExitLocked(p) && p.overMemory == "" && syscall.Kill(p.pid, 0) == syscall.ESRCH {
+		p.startAfterExit = true
+	}
 }
 
 // reserveStartLocked records a start of p, which is down, for launch with

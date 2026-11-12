@@ -190,6 +190,9 @@ final class Store {
             var wait = delay
             do {
                 var info = try await DaemonCLI.info(start: false)
+                // A Stop or Restart cancels this loop; a Start meanwhile is
+                // for the loop that resumes after it.
+                if Task.isCancelled { return }
                 if info.running == true {
                     startRequested = false // already running: nothing left to start
                 } else if shouldStart(info) {

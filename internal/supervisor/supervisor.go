@@ -60,23 +60,26 @@ type proc struct {
 	scheduleReserved bool
 	// againTrigger is the trigger of a start asked for while the server
 	// was still running or stopping, which wait launches once it exits.
-	againTrigger  string
-	listenPorts   []int
-	listenHost    string
-	missingSince  time.Time
-	externalStart string
-	running       config.Server // configuration the live process was started with
-	status        Status
-	note          string // short human explanation of the status
-	process       *os.Process
-	pty           *os.File
-	pid           int
-	pidStart      string
-	startedAt     time.Time
-	readyAt       time.Time
-	logReady      atomic.Bool   // a line of this generation's output matched ready_log
-	readyMatch    *readyMatcher // matches ready_log while waiting for it; nil otherwise
-	exitedAt      time.Time
+	againTrigger string
+	// startAfterExit marks a start asked for once the process had ended on
+	// its own, while wait still drains its output: wait runs it.
+	startAfterExit bool
+	listenPorts    []int
+	listenHost     string
+	missingSince   time.Time
+	externalStart  string
+	running        config.Server // configuration the live process was started with
+	status         Status
+	note           string // short human explanation of the status
+	process        *os.Process
+	pty            *os.File
+	pid            int
+	pidStart       string
+	startedAt      time.Time
+	readyAt        time.Time
+	logReady       atomic.Bool   // a line of this generation's output matched ready_log
+	readyMatch     *readyMatcher // matches ready_log while waiting for it; nil otherwise
+	exitedAt       time.Time
 	// settledAt is when the latest run or start attempt ended: an exit, a
 	// failed start or a stop of a server waiting to start. A task's waiters
 	// compare it with when they asked (see taskStateLocked).
