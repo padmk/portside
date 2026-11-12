@@ -25,7 +25,7 @@ async function signInLink(next = '/') {
 const debugPort = 9444
 const chrome = spawn(CHROME, [`--remote-debugging-port=${debugPort}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'ps-chrome-'))}`,
   // The mock keychain keeps the throwaway profile away from macOS keychains, so no keychain prompt appears.
-  '--headless=new', '--use-mock-keychain', '--no-first-run', '--disable-gpu', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' })
+  '--headless=new', '--disable-features=MacAppCodeSignClone', '--use-mock-keychain', '--no-first-run', '--disable-gpu', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' })
 let targets = []
 for (let i = 0; i < 50 && !targets.length; i++) {
   try { targets = (await (await fetch(`http://127.0.0.1:${debugPort}/json`)).json()).filter((t) => t.type === 'page') } catch {}
