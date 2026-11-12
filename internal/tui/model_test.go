@@ -260,7 +260,7 @@ func TestGroupHeaderMenuCountsEligibleMembers(t *testing.T) {
 	}
 	// worker is the only enabled member without a process; mailer is
 	// disabled.
-	want := "Restart group (2)|Start group (1)|Stop group (2)"
+	want := "Restart group (2)|Start group (1)|Stop group (2)|All actions"
 	if got := strings.Join(labels, "|"); got != want {
 		t.Errorf("menu %q, want %q", got, want)
 	}
@@ -399,7 +399,7 @@ func TestDetailTabsMenuActsOnTheShownServer(t *testing.T) {
 		t.Fatalf("details menu %+v", m.menu)
 	}
 	for _, it := range m.menu.Items {
-		if !strings.HasPrefix(it.Key, ":") {
+		if !strings.HasPrefix(it.Key, ":") && it.ActionID != "palette" {
 			t.Errorf("details menu item %s shows key %q, which the tab does not bind", it.ActionID, it.Key)
 		}
 		if it.ActionID == "attach" && it.Off != "not running" {
@@ -581,10 +581,20 @@ func TestServerMenuFitsTheSmallestScreen(t *testing.T) {
 	if m.menu.Cursor != len(m.menu.Items)-1 || !strings.Contains(ansi.Strip(m.screen()), last.Label) {
 		t.Errorf("the last item %q is not on screen with the cursor on it", last.Label)
 	}
-	for _, section := range []string{"Server", "Group", "Daemon"} {
+	// The menu holds the server's and its group's actions, then the
+	// palette, which has the rest.
+	for _, section := range []string{"Server", "Group"} {
 		if !slices.ContainsFunc(m.menu.Items, func(it overlay.MenuItem) bool { return it.Section == section }) {
 			t.Errorf("no %s section in the server menu", section)
 		}
+	}
+	for _, it := range m.menu.Items {
+		if it.Section != "Server" && it.Section != "Group" && it.ActionID != "palette" {
+			t.Errorf("the server menu holds %s (%s)", it.ActionID, it.Section)
+		}
+	}
+	if last.ActionID != "palette" {
+		t.Errorf("the last item is %s, want the palette", last.ActionID)
 	}
 }
 

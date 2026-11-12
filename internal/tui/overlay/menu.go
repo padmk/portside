@@ -251,20 +251,15 @@ func (m Menu) reasonLines(i, w int, tail string) []string {
 	return lines
 }
 
-// reasonHeight is the rows kept under the list for the highlighted item's
-// reason: a blank row, then as many lines as the longest reason takes;
-// none when no item is off. The box keeps its height as the cursor moves.
+// reasonHeight is the rows under the list for the highlighted item's
+// reason: a blank row and the reason's lines while that item is off, else
+// none.
 func (m Menu) reasonHeight(inner int) int {
-	n := 0
-	for i, it := range m.Items {
-		if it.Off != "" {
-			n = max(n, len(m.reasonLines(i, inner, "~")))
-		}
-	}
-	if n == 0 {
+	c := m.Cursor
+	if c < 0 || c >= len(m.Items) || m.Items[c].Off == "" {
 		return 0
 	}
-	return n + 1
+	return len(m.reasonLines(c, inner, "~")) + 1
 }
 
 func b2i(b bool) int {
@@ -335,18 +330,10 @@ func (m Menu) View(s theme.Styles, g theme.Glyphs) string {
 	if down {
 		rows = append(rows, more(arrowDown, end, len(lines)))
 	}
-	if n := m.reasonHeight(inner); n > 0 {
-		var why []string
-		if c := m.Cursor; c >= 0 && c < len(m.Items) && m.Items[c].Off != "" {
-			why = m.reasonLines(c, inner, g.Ellipsis)
-		}
+	if m.reasonHeight(inner) > 0 {
 		rows = append(rows, "")
-		for k := range n - 1 {
-			l := ""
-			if k < len(why) {
-				l = pn.s.Text2.Render(why[k])
-			}
-			rows = append(rows, l)
+		for _, l := range m.reasonLines(m.Cursor, inner, g.Ellipsis) {
+			rows = append(rows, pn.s.Text2.Render(l))
 		}
 	}
 	return pn.box(m.Title, rows, inner)

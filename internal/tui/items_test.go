@@ -270,7 +270,7 @@ func TestMenusResolveForTheShownSource(t *testing.T) {
 	if m.menu == nil || m.menu.Title != "Logs of container shop-cache-1" {
 		t.Fatalf("the container's logs menu: %+v", m.menu)
 	}
-	if sh := item("attach"); sh.Label != "Shell in the container" || sh.Off == "" {
+	if sh := item("attach"); sh.Label != "Shell" || sh.Off == "" {
 		t.Errorf("the exited container's shell item %+v", sh)
 	}
 	press(m, "esc", "]", "x") // Details

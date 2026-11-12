@@ -236,9 +236,9 @@ func (m *model) View() tea.View {
 }
 
 // screen renders exactly the terminal's size: the bars and the panes,
-// sized around the footer's rows; under a modal overlay that screen is
-// dimmed once (overlay.Dimmed), then the toasts and the overlays are drawn
-// over it.
+// sized around the footer's rows; under a modal overlay all but the
+// footer is dimmed once (overlay.Dimmed), then the toasts and the overlays
+// are drawn over it.
 func (m *model) screen() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
@@ -267,10 +267,12 @@ func (m *model) screen() string {
 		}
 		lines[i] = ui.Fit(lines[i], m.width)
 	}
-	out := strings.Join(lines, "\n")
 	if m.modal() {
-		out = overlay.Dimmed(m.env.Styles, out, m.width)
+		// The footer stays as it is: it holds the overlay's keys.
+		dim := strings.Split(overlay.Dimmed(m.env.Styles, strings.Join(lines[:body], "\n"), m.width), "\n")
+		lines = append(dim, lines[body:]...)
 	}
+	out := strings.Join(lines, "\n")
 	out = m.withOverlays(out)
 	if m.edit.Open() {
 		out = m.edit.View(&m.env, out, m.width, m.height)

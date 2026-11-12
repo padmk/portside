@@ -1,12 +1,8 @@
 package tui
 
 import (
-	"slices"
-
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/padmk/portside/internal/tui/keymap"
-	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/ui"
 )
 
@@ -60,25 +56,4 @@ func (m *model) takeEditMode() {
 	if !m.edit.Open() && m.mode == ui.ModeInsert && m.modeOwner < 0 {
 		m.setMode(ui.ModeNormal, -1)
 	}
-}
-
-// withFormMenu adds the config editing to the servers' menu on a server
-// or an empty list: a new server, then the config file and the settings.
-// A group header's menu keeps to the group.
-func (m *model) withFormMenu(menu overlay.Menu, t ui.Selection) overlay.Menu {
-	if t.Kind == ui.SelectGroup {
-		return menu
-	}
-	for _, id := range []string{"new", "config", "settings"} {
-		if slices.ContainsFunc(menu.Items, func(it overlay.MenuItem) bool { return it.ActionID == id }) {
-			continue
-		}
-		for _, a := range m.env.Keys.InScope(keymap.ScopeServers, keymap.ScopeGlobal) {
-			if a.ID == id {
-				menu.Items = append(menu.Items, overlay.ItemFor(a, m.ascii()))
-				break
-			}
-		}
-	}
-	return menu
 }

@@ -167,48 +167,95 @@ func (m *model) fitMenu(menu *overlay.Menu) {
 	menu.MaxHeight = max(5, m.height-m.bodyTop()-1)
 }
 
-// menuSections are the sections of the servers' menu in order, and
-// sectionOf files an action under one.
-var menuSections = []string{"Server", "Group", "Config", "Computers", "Daemon", "Agents"}
-
-func sectionOf(id string) string {
-	switch id {
-	case "start-group", "stop-group", "restart-group":
-		return "Group"
-	case "new", "config", "settings":
-		return "Config"
-	case "computers":
-		return "Computers"
-	case "daemon", "upgrade", "restart-daemon":
-		return "Daemon"
-	case "setup":
-		return "Agents"
-	}
-	return "Server"
+// menuLabels are the pane menus' short labels for the actions' longer
+// help texts; the help and the palette keep the long ones.
+var menuLabels = map[string]string{
+	"Attach to its terminal":                             "Attach",
+	"Edit its config entry":                              "Edit config entry",
+	"Shell in its folder":                                "Shell in folder",
+	"Open folder in editor":                              "Open in editor",
+	"Open a terminal app there":                          "Open in terminal app",
+	"Disable (skipped by --all and restore)":             "Disable",
+	"Start and take over the port":                       "Take over the port",
+	"Clear the daemon's scrollback":                      "Clear scrollback",
+	"Shell in the container":                             "Shell",
+	"Open the first published port in the browser":       "Open in browser",
+	"Copy the first published port's address":            "Copy address",
+	"Recreate the service":                               "Recreate",
+	"Rebuild the image and recreate":                     "Rebuild and recreate",
+	"Pull the image and recreate":                        "Pull and recreate",
+	"Start the project's containers":                     "Start project",
+	"Stop the project's containers":                      "Stop project",
+	"Remove the project's containers (volumes are kept)": "Remove project",
+	"Dismiss the finished compose job":                   "Dismiss job",
+	"Kill the process (asks first)":                      "Kill process",
+	"Start the blocked server, taking over the port":     "Take over the port",
+	"Copy the address":                                   "Copy address",
+	"Only matching lines":                                "Only matching",
+	"Follow new output":                                  "Follow",
 }
 
-// sectioned groups the servers' menu on a server by section, keeping the
-// order within each; a group header's menu is one section and stays as
-// it is.
-func sectioned(menu overlay.Menu) overlay.Menu {
+// menuSection files a menu item under the part of the target it acts on:
+// a server's group, a container's project, else the target itself.
+func menuSection(t ui.Selection, id string) string {
+	switch {
+	case t.Kind == ui.SelectServer && strings.HasSuffix(id, "-group"):
+		return "Group"
+	case t.Kind == ui.SelectServer:
+		return "Server"
+	case t.Kind == ui.SelectContainer && strings.HasSuffix(id, "-project"):
+		return "Project"
+	case t.Kind == ui.SelectContainer:
+		return "Container"
+	}
+	return ""
+}
+
+// finishMenu gives a pane menu its short labels and sections, the target's
+// own actions before its group's or project's, and the last entry, which
+// opens the palette with every action.
+func (m *model) finishMenu(menu overlay.Menu, t ui.Selection) overlay.Menu {
+	if len(menu.Items) == 0 {
+		return menu
+	}
 	for i := range menu.Items {
-		menu.Items[i].Section = sectionOf(menu.Items[i].ActionID)
+		it := &menu.Items[i]
+		if l, ok := menuLabels[it.Label]; ok {
+			it.Label = l
+		}
+		it.Section = menuSection(t, it.ActionID)
 	}
 	slices.SortStableFunc(menu.Items, func(a, b overlay.MenuItem) int {
-		return slices.Index(menuSections, a.Section) - slices.Index(menuSections, b.Section)
+		return b2i(a.Section == "Group" || a.Section == "Project") - b2i(b.Section == "Group" || b.Section == "Project")
 	})
+	if a, ok := m.env.Keys.ByID("palette"); ok {
+		it := overlay.ItemFor(a, m.ascii())
+		it.Label = "All actions"
+		menu.Items = append(menu.Items, it)
+	}
 	return menu
 }
 
 // paneMenu is the menu of the pane at index pane and the target its
 // actions take, resolved for what the pane shows: the servers' menu acts
-// on the cursor's target, the Details, Env and Metrics tabs' on the shown
-// server or container, and the logs' own actions on the shown source.
+// on the cursor's target (a server, with its group's actions, or a group),
+// the Details, Env and Metrics tabs' on the shown server or container, and
+// the logs' own actions on the shown source. Every menu ends with the
+// palette; the config, the computers, the daemon and the agents are
+// there, on the command line and in the help, not in a pane's menu.
 func (m *model) paneMenu(pane int) (overlay.Menu, ui.Selection) {
+	menu, t := m.paneActions(pane)
+	return m.finishMenu(menu, t), t
+}
+
+// paneActions are the actions of paneMenu before finishMenu.
+func (m *model) paneActions(pane int) (overlay.Menu, ui.Selection) {
 	switch scope := m.panes()[pane].Scope(); scope {
 	case keymap.ScopeServers:
 		t := m.cursorTarget()
-		return sectioned(m.withSystemMenu(m.withFormMenu(m.serverMenu(t), t), t)), t
+		menu := m.serverMenu(t)
+		menu.Items = slices.DeleteFunc(menu.Items, func(it overlay.MenuItem) bool { return it.ActionID == "new" })
+		return menu, t
 	case keymap.ScopeDetail:
 		if m.env.Selected.Kind == ui.SelectContainer {
 			return m.shownItemMenu(), m.env.Selected
@@ -302,7 +349,7 @@ func (m *model) menuRun(i int) tea.Cmd {
 	case ui.SelectContainer, ui.SelectProject, ui.SelectPort:
 		// Every container, project and port action of a menu runs on
 		// its target, from the list or from the main panel alike.
-		if it.ActionID != "start-docker" {
+		if it.ActionID != "start-docker" && it.ActionID != "palette" {
 			return m.act(it.ActionID, c.target)
 		}
 	case ui.SelectServer, ui.SelectGroup:
@@ -330,6 +377,10 @@ func (m *model) withOverlays(out string) string {
 		out = overlay.Place(out, t.View, m.width-w, m.bodyTop())
 	}
 	if c := m.menu; c != nil {
+		// The highlighted item's reason can make the box taller: it stays
+		// above the footer, and clicks follow it.
+		_, h := c.Size()
+		c.y = max(m.bodyTop(), min(c.y, m.height-1-h))
 		out = overlay.Place(out, c.View(s, g), c.x, c.y)
 	}
 	if p := m.palette; p != nil {
