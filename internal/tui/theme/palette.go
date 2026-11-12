@@ -58,7 +58,9 @@ func (f Family) Variant(dark bool) Palette {
 // TerminalFamily uses the terminal's 16 ANSI colors, so the UI matches the
 // user's terminal theme; Bg and Surface are the terminal's own background.
 // Raised is bright black (8) in dark terminals: black (0) is the
-// background itself in many of them.
+// background itself in many of them. Text on Accent is bright white (15):
+// bold black would render as bright black, or stay black, depending on
+// the terminal, and neither reads on magenta.
 var TerminalFamily = Family{
 	ID:    "terminal",
 	Label: "Terminal",
@@ -77,7 +79,7 @@ func terminal(dark bool) Palette {
 		ID: id, Dark: dark,
 		Bg: lipgloss.NoColor{}, Surface: lipgloss.NoColor{}, Raised: raised,
 		Text: text, Text2: text2, Muted: muted, Border: muted,
-		Accent: lipgloss.Color("5"), AccentText: lipgloss.Color("5"), AccentFg: lipgloss.Color("0"),
+		Accent: lipgloss.Color("5"), AccentText: lipgloss.Color("5"), AccentFg: lipgloss.Color("15"),
 		Running: lipgloss.Color("2"), Starting: lipgloss.Color("3"), Crashed: lipgloss.Color("1"),
 		External: lipgloss.Color("5"), Stopped: muted, Warn: lipgloss.Color("3"), Info: lipgloss.Color("6"),
 		Port: lipgloss.Color("4"),

@@ -240,11 +240,7 @@ func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
 		}
 	}
 	box := overlay.Frame(env.Styles, env.Glyphs, title, lines, inner)
-	dimmed := strings.Split(screen, "\n")
-	for i, r := range dimmed {
-		dimmed[i] = theme.Fill(env.Styles.Dim, ansi.Strip(r), w)
-	}
-	return overlay.Center(strings.Join(dimmed, "\n"), box)
+	return overlay.Center(overlay.Dimmed(env.Styles, screen, w), box)
 }
 
 // window keeps the cursor's line, or the scroll offset, inside rows lines

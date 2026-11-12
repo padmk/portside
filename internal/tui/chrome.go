@@ -258,6 +258,9 @@ func (m *model) fixedHints() (hints [][2]string, ok bool) {
 	case m.help != nil:
 		return [][2]string{{"j/k", "scroll"}, {"esc", "close"}}, true
 	case m.messages != nil:
+		if len(m.history) == 0 {
+			return [][2]string{{"esc", "close"}}, true
+		}
 		return [][2]string{{"j/k", "move"}, {enter, "select its server"}, {"esc", "close"}}, true
 	case m.menu != nil:
 		return [][2]string{{"j/k", "move"}, {enter, "run"}, {"esc", "close"}}, true

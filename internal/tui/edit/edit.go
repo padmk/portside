@@ -24,7 +24,6 @@ import (
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/tui/form"
 	"github.com/padmk/portside/internal/tui/overlay"
-	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
 )
 
@@ -519,16 +518,12 @@ func (e *Editor) View(env *ui.Env, screen string, w, h int) string {
 	default:
 		box = overlay.Frame(env.Styles, env.Glyphs, "", []string{env.Styles.OnRaised().Muted.Render(e.loading)}, max(20, ansi.StringWidth(e.loading)))
 	}
-	rows := strings.Split(screen, "\n")
-	for i, r := range rows {
-		rows[i] = theme.Fill(env.Styles.Dim, ansi.Strip(r), w)
-	}
 	bw, bh := 0, strings.Count(box, "\n")+1
 	for _, r := range strings.Split(box, "\n") {
 		bw = max(bw, ansi.StringWidth(r))
 	}
 	e.at = [2]int{max(0, (w-bw)/2), max(0, (h-bh)/2)}
-	return overlay.Place(strings.Join(rows, "\n"), box, e.at[0], e.at[1])
+	return overlay.Place(overlay.Dimmed(env.Styles, screen, w), box, e.at[0], e.at[1])
 }
 
 // Mouse handles the mouse while the overlay is open: a click on a field

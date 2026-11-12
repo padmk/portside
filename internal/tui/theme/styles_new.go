@@ -28,13 +28,19 @@ func (s Styles) OnRaised() Styles {
 
 func build(p Palette, surface color.Color, mono bool) Styles {
 	s := lipgloss.NewStyle().Background(surface)
-	text := s.Foreground(p.Text)
-	muted := s.Foreground(p.Muted)
-	if sameColor(p.Muted, surface) {
-		// Muted on itself, as on Terminal's dark Raised: lift it to Text2 so
-		// labels in overlays and the selected row stay visible.
-		muted = s.Foreground(p.Text2)
+	// A color equal to the surface, as Terminal's Muted (and Stopped and
+	// Border, which are Muted) on its dark Raised, would vanish: it is
+	// lifted to Text2 so labels, stopped states and frames stay visible in
+	// overlays and on the selected row.
+	visible := func(c color.Color) color.Color {
+		if sameColor(c, surface) {
+			return p.Text2
+		}
+		return c
 	}
+	text := s.Foreground(p.Text)
+	muted := s.Foreground(visible(p.Muted))
+	border := visible(p.Border)
 	accent := s.Foreground(p.AccentText)
 	port := s.Foreground(p.Port)
 	pane := s.Border(lipgloss.RoundedBorder()).BorderBackground(surface)
@@ -45,9 +51,9 @@ func build(p Palette, surface color.Color, mono bool) Styles {
 		Text: text, Text2: s.Foreground(p.Text2), Muted: muted, Bold: text.Bold(true),
 		Accent: accent, AccentBold: accent.Bold(true), Port: port, Link: port.Underline(true),
 		Warn: s.Foreground(p.Warn), Info: s.Foreground(p.Info), Error: s.Foreground(p.Crashed),
-		Running: s.Foreground(p.Running), Starting: s.Foreground(p.Starting), Crashed: s.Foreground(p.Crashed), External: s.Foreground(p.External), Stopped: s.Foreground(p.Stopped),
-		Pane: pane.BorderForeground(p.Border), PaneFocused: pane.BorderForeground(p.Accent),
-		Frame: s.Foreground(p.Border), FrameFocused: s.Foreground(p.Accent),
+		Running: s.Foreground(p.Running), Starting: s.Foreground(p.Starting), Crashed: s.Foreground(p.Crashed), External: s.Foreground(p.External), Stopped: s.Foreground(visible(p.Stopped)),
+		Pane: pane.BorderForeground(border), PaneFocused: pane.BorderForeground(p.Accent),
+		Frame: s.Foreground(border), FrameFocused: s.Foreground(p.Accent),
 		Title: muted, TitleFocused: accent.Bold(true),
 		Selected: s.Background(p.Raised), Match: s.Background(p.Raised).Foreground(p.AccentText).Bold(true),
 		Tab: muted.Padding(0, 1), TabActive: pill, Mode: pill, Key: accent.Bold(true), KeyHelp: muted,

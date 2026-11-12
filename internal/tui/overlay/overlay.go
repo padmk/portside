@@ -197,6 +197,18 @@ func Place(base, box string, x, y int) string {
 	return strings.Join(rows, "\n")
 }
 
+// Dimmed is screen as it lies under a modal overlay: every row stripped
+// of its own colors and drawn in Dim (muted, faint) on the screen's
+// background, w cells wide, so the overlay stands out and nothing behind
+// it competes for attention.
+func Dimmed(s theme.Styles, screen string, w int) string {
+	rows := strings.Split(screen, "\n")
+	for i, r := range rows {
+		rows[i] = theme.Fill(s.Screen, s.Dim.Render(ansi.Strip(r)), w)
+	}
+	return strings.Join(rows, "\n")
+}
+
 // Center draws box in the middle of base.
 func Center(base, box string) string {
 	baseW, boxW := 0, 0
