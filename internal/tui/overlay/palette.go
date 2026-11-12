@@ -263,6 +263,12 @@ func (p *Palette) row(pn pen, e shownItem, inner int, selected bool) string {
 		room -= rightText.width() + labelGap
 	}
 	labelText := marked{text: []rune(it.Label), at: e.label}
+	// A command that does not fit its column would show only the tail of
+	// a name the label already carries (":restart" plus a long container
+	// name): the label takes the row and the detail line shows the command.
+	if it.Key == "" && rightText.width() < ansi.StringWidth(right) {
+		rightText, room = marked{}, inner-2
+	}
 	if labelText.width() > room {
 		labelText = labelText.head(room-ansi.StringWidth(pn.g.Ellipsis), pn.g.Ellipsis)
 	}
