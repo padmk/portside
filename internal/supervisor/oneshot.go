@@ -49,8 +49,10 @@ const (
 func taskStateLocked(p *proc, since time.Time) taskState {
 	fresh := !p.settledAt.Before(since)
 	switch {
-	case !p.doneAt.IsZero() && !p.doneAt.Before(since):
-		return taskDone // also while a later start runs it again
+	case !since.IsZero() && !p.doneAt.IsZero() && !p.doneAt.Before(since):
+		// A run since the request succeeded, also while a later start runs
+		// it again. A wait without a request (zero since) is for the last run.
+		return taskDone
 	case p.status == Starting || p.status == Stopping || p.status == Running:
 		return taskPending
 	case fresh && p.succeeded():
