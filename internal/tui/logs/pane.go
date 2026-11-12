@@ -457,7 +457,7 @@ func centered(env *ui.Env, text string, w, h int, context ...string) []string {
 	line := func(y int, text string) {
 		text = ansi.Truncate(text, w, env.Glyphs.Ellipsis)
 		pad := max(0, (w-ansi.StringWidth(text))/2)
-		out[y] = ui.Fit(strings.Repeat(" ", pad)+env.Styles.Muted.Render(text), w)
+		out[y] = ui.Fit(strings.Repeat(" ", pad)+env.Styles.Text2.Render(text), w)
 	}
 	y := (h - 1) / 2
 	line(y, text)

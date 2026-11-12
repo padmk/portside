@@ -288,7 +288,7 @@ func (h *Host) daemonView(env *ui.Env, inner int) []string {
 	if !env.Session.Remote() {
 		add("")
 		for _, l := range wrap("u replaces the daemon with this binary when it is newer; r restarts it in place. Both keep servers running; a daemon too old to restart in place is stopped and started, which restarts its servers.", inner) {
-			add(s.Muted.Render(l))
+			add(s.Text2.Render(l))
 		}
 		add("")
 		out = append(out, actionLine(env.Styles, env.Glyphs, cl, [][2]string{{"u", "upgrade"}, {"r", "restart"}}))

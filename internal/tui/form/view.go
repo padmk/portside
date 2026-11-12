@@ -133,7 +133,7 @@ func (m *Model) View(env *ui.Env, w, h int) string {
 		}
 		if selected {
 			for _, l := range wrap(f.Help, valueW, helpRows, g.Ellipsis) {
-				rows = append(rows, row{text: s.Surface.Render(indent) + s.Muted.Render(l), field: i})
+				rows = append(rows, row{text: s.Surface.Render(indent) + s.Text2.Render(l), field: i})
 			}
 		}
 	}

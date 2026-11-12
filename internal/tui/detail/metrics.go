@@ -27,7 +27,7 @@ func Metrics(env *ui.Env, v supervisor.View, interval time.Duration, w, h int) [
 	if len(v.CPUHistory) == 0 && len(v.MemHistory) == 0 {
 		for _, l := range wrap(emptyMetrics(v, interval), w, g.Ellipsis) {
 			if len(out) < h {
-				out = append(out, s.Row(s.Muted.Render(l), w))
+				out = append(out, s.Row(s.Text2.Render(l), w))
 			}
 		}
 		for len(out) < h {

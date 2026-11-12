@@ -153,12 +153,13 @@ func Frame(s theme.Styles, g theme.Glyphs, title string, lines []string, inner i
 }
 
 // Hint is the closing line of the help and messages overlays: key and
-// word pairs separated by the glyph set's separator.
+// word pairs separated by the glyph set's separator. The words are
+// instructions, so they are Text2; only the separator is Muted.
 func Hint(s theme.Styles, g theme.Glyphs, pairs ...[2]string) string {
 	r := Styles(s)
 	parts := make([]string, len(pairs))
 	for i, p := range pairs {
-		parts[i] = r.Key.Render(p[0]) + r.Surface.Render(" ") + r.Muted.Render(p[1])
+		parts[i] = r.Key.Render(p[0]) + r.Surface.Render(" ") + r.Text2.Render(p[1])
 	}
 	return strings.Join(parts, r.Muted.Render(g.Separator))
 }
