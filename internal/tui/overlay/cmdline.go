@@ -208,7 +208,13 @@ func (c *CmdLine) candidates(s theme.Styles, w int) string {
 	if c.chosen >= 0 {
 		cue = s.Key.Render("tab") + s.Surface.Render(" ") + s.Muted.Render("next")
 	}
+	// The cue and a "+N more" after the last candidate that fits keep
+	// their room.
+	moreW := len("+ more") + len(strconv.Itoa(len(items))) + 1
 	cueW := ansi.StringWidth(cue) + 2
+	if w-cueW-moreW < w/2 {
+		cueW = 0
+	}
 	var parts []string
 	used := 0
 	for i := first; i < len(items); i++ {
@@ -220,9 +226,8 @@ func (c *CmdLine) candidates(s theme.Styles, w int) string {
 			part = s.AccentBold.Render(" " + items[i] + " ")
 		}
 		pw := ansi.StringWidth(part) + 1
-		if used+pw > w-cueW && len(parts) > 0 {
+		if used+pw > w-cueW-moreW && len(parts) > 0 {
 			parts = append(parts, s.Muted.Render("+"+strconv.Itoa(len(items)-i)+" more"))
-			used += ansi.StringWidth("+"+strconv.Itoa(len(items)-i)+" more") + 1
 			break
 		}
 		parts = append(parts, part)

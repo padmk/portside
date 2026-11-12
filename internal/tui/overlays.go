@@ -462,13 +462,19 @@ func boxSize(box string) (w, h int) {
 	return w, len(rows)
 }
 
-// messagesView renders the message history, newest last, at most 100 cells
-// wide and h-4 rows tall, with the highlighted message marked, and its
+// messagesView renders the message history, newest last, as wide as its
+// longest message (at least 40 cells, at most 100) and at most h-4 rows
+// tall, with the highlighted message marked, and its
 // keys: moving when there are messages, selecting the highlighted
 // message's server or container when enter can, closing.
 func (m *model) messagesView() string {
 	s := overlay.Styles(m.env.Styles)
+	widest := 0
+	for _, e := range m.history {
+		widest = max(widest, len("15:04:05  ")+ansi.StringWidth(plainText(e.Text)))
+	}
 	inner := max(min(100, m.width)-4, 1)
+	inner = min(inner, max(widest, 36))
 	l := m.messages
 	rows := max(min(m.height-4, len(m.history)+4)-4, 1)
 	l.cursor = max(0, min(l.cursor, len(m.history)-1))

@@ -45,9 +45,9 @@ var essentials = []struct {
 }{
 	{[]string{"down", "up"}, "Move down and up"},
 	{[]string{"focus-left", "focus-right"}, "Pane on the left and right"},
-	{[]string{"focus-servers", "focus-containers", "focus-ports", "focus-main"}, "Servers, Containers, Ports, main panel"},
+	{[]string{"focus-servers", "focus-containers", "focus-ports", "focus-main"}, "Jump to a pane"},
 	{[]string{"tab-prev", "tab-next"}, "Previous and next tab"},
-	{[]string{"open-detail"}, "Open the logs, or fold a group"},
+	{[]string{"open-detail"}, "Open logs, fold a group"},
 	{[]string{"back"}, "Back"},
 	{[]string{"menu"}, "Menu of the pane's actions"},
 	{[]string{"palette"}, "Find any action or server"},
