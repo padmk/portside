@@ -583,13 +583,14 @@ func TestServerMenuFitsTheSmallestScreen(t *testing.T) {
 	}
 	// The menu holds the server's and its group's actions, then the
 	// palette, which has the rest.
-	for _, section := range []string{"Server", "Group"} {
+	// The group's section names the group.
+	for _, section := range []string{"Server", "Group shop"} {
 		if !slices.ContainsFunc(m.menu.Items, func(it overlay.MenuItem) bool { return it.Section == section }) {
 			t.Errorf("no %s section in the server menu", section)
 		}
 	}
 	for _, it := range m.menu.Items {
-		if it.Section != "Server" && it.Section != "Group" && it.ActionID != "palette" {
+		if it.Section != "Server" && it.Section != "Group shop" && it.ActionID != "palette" {
 			t.Errorf("the server menu holds %s (%s)", it.ActionID, it.Section)
 		}
 	}

@@ -208,18 +208,42 @@ var menuLabels = map[string]string{
 	"Follow new output":                                  "Follow",
 }
 
-// menuSection files a menu item under the part of the target it acts on:
-// a server's group, a container's project, else the target itself.
-func menuSection(t ui.Selection, id string) string {
-	switch {
-	case t.Kind == ui.SelectServer && strings.HasSuffix(id, "-group"):
-		return "Group"
-	case t.Kind == ui.SelectServer:
-		return "Server"
-	case t.Kind == ui.SelectContainer && strings.HasSuffix(id, "-project"):
+// bulkAction reports whether a menu item of target t acts on the
+// target's group (a server's) or project (a container's) rather than on
+// the target itself.
+func bulkAction(t ui.Selection, id string) bool {
+	switch t.Kind {
+	case ui.SelectServer:
+		return strings.HasSuffix(id, "-group")
+	case ui.SelectContainer:
+		return strings.HasSuffix(id, "-project")
+	}
+	return false
+}
+
+// menuSection is the heading of a menu item of target t: the target's
+// kind, or for a bulk action (bulkAction) the group or project it acts on
+// by name ("Group shop", "Group other" for the ungrouped servers).
+func (m *model) menuSection(t ui.Selection, id string) string {
+	bulk := bulkAction(t, id)
+	switch t.Kind {
+	case ui.SelectServer:
+		if !bulk {
+			return "Server"
+		}
+		v, _ := m.server(t.Name)
+		if v.Group == "" {
+			return "Group other"
+		}
+		return "Group " + plainText(v.Group)
+	case ui.SelectContainer:
+		if !bulk {
+			return "Container"
+		}
+		if c, ok := containers.Find(m.env.State, t); ok && c.Project != "" {
+			return "Project " + plainText(c.Project)
+		}
 		return "Project"
-	case t.Kind == ui.SelectContainer:
-		return "Container"
 	}
 	return ""
 }
@@ -236,10 +260,10 @@ func (m *model) finishMenu(menu overlay.Menu, t ui.Selection) overlay.Menu {
 		if l, ok := menuLabels[it.Label]; ok {
 			it.Label = l
 		}
-		it.Section = menuSection(t, it.ActionID)
+		it.Section = m.menuSection(t, it.ActionID)
 	}
 	slices.SortStableFunc(menu.Items, func(a, b overlay.MenuItem) int {
-		return b2i(a.Section == "Group" || a.Section == "Project") - b2i(b.Section == "Group" || b.Section == "Project")
+		return b2i(bulkAction(t, a.ActionID)) - b2i(bulkAction(t, b.ActionID))
 	})
 	if a, ok := m.env.Keys.ByID("palette"); ok {
 		it := overlay.ItemFor(a, m.ascii())
