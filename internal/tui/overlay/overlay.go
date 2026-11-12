@@ -4,6 +4,7 @@
 package overlay
 
 import (
+	"image/color"
 	"slices"
 	"strings"
 
@@ -128,7 +129,8 @@ func (p pen) box(title string, lines []string, inner int) string {
 	w := inner + 2
 	head := ""
 	if title != "" {
-		head = p.space(1) + p.s.AccentBold.Render(title) + p.space(1)
+		// The title lies on the border, over the border's background.
+		head = p.border.Render(" ") + p.border.Foreground(p.s.Palette.AccentText).Bold(true).Render(title) + p.border.Render(" ")
 		if ansi.StringWidth(head) > w-1 {
 			head = ansi.Truncate(head, w-1, "")
 		}
@@ -220,12 +222,22 @@ func Place(base, box string, x, y int) string {
 }
 
 // Dimmed is screen as it lies under a modal overlay: every row stripped
-// of its own colors and drawn in Dim's foreground and faint attribute on
-// the screen's background, w cells wide, so the overlay stands out and
-// nothing behind it competes for attention. Without colors only the faint
-// attribute remains, which keeps the text legible.
+// of its own colors and drawn in a dim foreground on the screen's
+// background, w cells wide, so the overlay stands out and nothing behind
+// it competes for attention. A theme with its own background gets Dim's
+// color mixed halfway toward that background, since many terminals draw
+// the faint attribute of an exact color at full strength; the Terminal
+// family keeps Dim's ANSI color with the faint attribute, and without
+// colors only the faint attribute remains, which keeps the text legible.
 func Dimmed(s theme.Styles, screen string, w int) string {
-	dim := lipgloss.NewStyle().Foreground(s.Dim.GetForeground()).Background(s.Screen.GetBackground()).Faint(true)
+	bg := s.Screen.GetBackground()
+	fg := s.Dim.GetForeground()
+	dim := lipgloss.NewStyle().Background(bg)
+	if mixed, ok := mix(fg, bg); ok {
+		dim = dim.Foreground(mixed)
+	} else {
+		dim = dim.Foreground(fg).Faint(true)
+	}
 	rows := strings.Split(screen, "\n")
 	for i, r := range rows {
 		r = ansi.Strip(r)
@@ -237,6 +249,25 @@ func Dimmed(s theme.Styles, screen string, w int) string {
 		rows[i] = dim.Render(r)
 	}
 	return strings.Join(rows, "\n")
+}
+
+// mix is the color halfway between two exact colors; false when either is
+// an ANSI color or none, whose value the terminal decides.
+func mix(a, b color.Color) (color.Color, bool) {
+	exact := func(c color.Color) bool {
+		switch c.(type) {
+		case nil, lipgloss.NoColor, ansi.BasicColor, ansi.IndexedColor:
+			return false
+		}
+		return true
+	}
+	if !exact(a) || !exact(b) {
+		return nil, false
+	}
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	half := func(x, y uint32) uint8 { return uint8((x + y) / 2 >> 8) }
+	return color.RGBA{half(ar, br), half(ag, bg), half(ab, bb), 255}, true
 }
 
 // Center draws box in the middle of base.
