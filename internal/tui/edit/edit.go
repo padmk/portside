@@ -24,7 +24,6 @@ import (
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/tui/form"
 	"github.com/padmk/portside/internal/tui/overlay"
-	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
 )
 
@@ -496,19 +495,18 @@ func savedNotice(what string, st *server.State, skip []string) tea.Cmd {
 	return notice(level, text)
 }
 
-// Hints are the footer's key hints while the overlay is open.
-func (e *Editor) Hints(ascii bool) [][2]string {
-	switch {
-	case e.sheet != nil:
-		return e.sheet.form.Hints(ascii)
-	case e.picker != nil:
-		return e.picker.hints(ascii)
+// Hints are the footer's key hints while the overlay is open: none for
+// the form and the proposals picker, which draw theirs in their box, and
+// the way out while the overlay loads.
+func (e *Editor) Hints() [][2]string {
+	if e.sheet != nil || e.picker != nil {
+		return nil
 	}
 	return [][2]string{{"esc", "cancel"}}
 }
 
-// View draws the overlay centered over the screen, which is dimmed under
-// it, and keeps the box's place for clicks.
+// View draws the overlay centered over the screen (the root dims it) and
+// keeps the box's place for clicks.
 func (e *Editor) View(env *ui.Env, screen string, w, h int) string {
 	box := ""
 	switch {
@@ -517,18 +515,14 @@ func (e *Editor) View(env *ui.Env, screen string, w, h int) string {
 	case e.picker != nil:
 		box = e.picker.view(env, w, h)
 	default:
-		box = overlay.Frame(env.Styles, env.Glyphs, "", []string{env.Styles.OnRaised().Muted.Render(e.loading)}, max(20, ansi.StringWidth(e.loading)))
-	}
-	rows := strings.Split(screen, "\n")
-	for i, r := range rows {
-		rows[i] = theme.Fill(env.Styles.Dim, ansi.Strip(r), w)
+		box = overlay.Frame(env.Styles, env.Glyphs, "", []string{overlay.Styles(env.Styles).Muted.Render(e.loading)}, max(20, ansi.StringWidth(e.loading)))
 	}
 	bw, bh := 0, strings.Count(box, "\n")+1
 	for _, r := range strings.Split(box, "\n") {
 		bw = max(bw, ansi.StringWidth(r))
 	}
 	e.at = [2]int{max(0, (w-bw)/2), max(0, (h-bh)/2)}
-	return overlay.Place(strings.Join(rows, "\n"), box, e.at[0], e.at[1])
+	return overlay.Place(screen, box, e.at[0], e.at[1])
 }
 
 // Mouse handles the mouse while the overlay is open: a click on a field

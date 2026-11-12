@@ -15,9 +15,6 @@ import (
 	"github.com/padmk/portside/internal/viewfmt"
 )
 
-// cpuFloor is the lowest top of the CPU chart, in percent of a core.
-const cpuFloor = 1.0
-
 // Metrics renders CPU and memory histories in w x h: per chart a header
 // with the current value and the peak, the chart in the glyph set's
 // alphabet, a baseline and the span it covers.
@@ -28,7 +25,11 @@ func Metrics(env *ui.Env, v supervisor.View, interval time.Duration, w, h int) [
 	}
 	out := make([]string, 0, h)
 	if len(v.CPUHistory) == 0 && len(v.MemHistory) == 0 {
-		out = append(out, note(env, emptyMetrics(v, interval), s.Muted, w))
+		for _, l := range wrap(emptyMetrics(v, interval), w, g.Ellipsis) {
+			if len(out) < h {
+				out = append(out, s.Row(s.Text2.Render(l), w))
+			}
+		}
 		for len(out) < h {
 			out = append(out, s.Row("", w))
 		}
@@ -76,7 +77,7 @@ func Metrics(env *ui.Env, v supervisor.View, interval time.Duration, w, h int) [
 		out = append(out, s.Row("", w))
 	}
 	if first > 0 {
-		render("CPU", v.CPU, v.CPUHistory, cpuFloor, s.Running, percent, first)
+		render("CPU", v.CPU, v.CPUHistory, theme.CPUFloor, s.Running, percent, first)
 	}
 	for i := 0; i < padding/3; i++ {
 		out = append(out, s.Row("", w))
@@ -96,7 +97,7 @@ func emptyMetrics(v supervisor.View, interval time.Duration) string {
 	case supervisor.Running, supervisor.Starting:
 		return "Running; the first sample comes within " + durationLabel(interval)
 	}
-	return "Not running, so no samples; the daemon samples a server while it runs"
+	return "No samples yet. The daemon samples CPU and memory while the server runs."
 }
 
 // spread puts left at the start and right at the end of w cells, or both

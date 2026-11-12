@@ -13,7 +13,8 @@ import (
 // MenuItem is one row of a menu: the action it runs, its label and the
 // key that runs it (or its command when it has no key there). Off holds
 // why the action does nothing on the menu's target; the row is then muted
-// and running it shows the reason.
+// and marked (decorate), the reason shows under the list while the row is
+// highlighted, and running it shows the reason.
 type MenuItem struct {
 	ActionID, Label, Key string
 	Off                  string
@@ -87,7 +88,7 @@ func (m Menu) window() (start, end int, up, down bool) {
 	n := len(lines)
 	avail := n
 	if m.MaxHeight > 0 {
-		avail = max(3, m.MaxHeight-2)
+		avail = max(3, m.MaxHeight-2-m.reasonHeight(m.inner()))
 	}
 	if n <= avail {
 		return 0, n, false, false
@@ -176,12 +177,16 @@ func (m *Menu) Up() {
 	m.follow()
 }
 
-// menuMaxLabel caps a row's label and reason, so a long reason never
-// makes the menu wider than a small terminal.
-const menuMaxLabel = 44
+// menuMaxLabel caps a row's label, so a long label never makes the menu
+// wider than a small terminal; reasonRows caps the lines of the reason
+// under the list.
+const (
+	menuMaxLabel = 44
+	reasonRows   = 2
+)
 
-// label is an item's text: a toggle's mark (or room for it), its
-// label, then why it is off, cut to max cells with tail.
+// label is an item's text: a toggle's mark (or room for it) and its
+// label, cut to max cells with tail.
 func (it MenuItem) label(max int, tail, mark string) string {
 	l := it.Label
 	switch it.Check {
@@ -189,9 +194,6 @@ func (it MenuItem) label(max int, tail, mark string) string {
 		l = mark + " " + l
 	case CheckOff:
 		l = strings.Repeat(" ", ansi.StringWidth(mark)+1) + l
-	}
-	if it.Off != "" {
-		l += " (" + it.Off + ")"
 	}
 	if ansi.StringWidth(l) > max {
 		l = ansi.Truncate(l, max-1, "") + tail
@@ -218,7 +220,8 @@ func (m Menu) labelMax() int {
 func (m Menu) inner() int {
 	label, key := 0, 0
 	for _, it := range m.Items {
-		label = max(label, ansi.StringWidth(it.label(m.labelMax(), "~", "x")))
+		room := markRoom(it.Off != "", it.Destructive)
+		label = max(label, ansi.StringWidth(it.label(m.labelMax()-room, "~", "x"))+room)
 		key = max(key, ansi.StringWidth(it.Key))
 	}
 	w := max(2+label+3+key, ansi.StringWidth(m.Title)+1)
@@ -231,7 +234,33 @@ func (m Menu) inner() int {
 // Size is the box's width and height, border included.
 func (m Menu) Size() (w, h int) {
 	start, end, up, down := m.window()
-	return m.inner() + 4, end - start + b2i(up) + b2i(down) + 2
+	inner := m.inner()
+	return inner + 4, end - start + b2i(up) + b2i(down) + m.reasonHeight(inner) + 2
+}
+
+// reason is why item i is off, as a line under the list says it.
+func (m Menu) reason(i int) string { return m.Items[i].Label + ": " + m.Items[i].Off }
+
+// reasonLines wraps item i's reason into at most reasonRows lines of w
+// cells, the last one cut with tail.
+func (m Menu) reasonLines(i, w int, tail string) []string {
+	lines := strings.Split(ansi.Wrap(m.reason(i), max(1, w), ""), "\n")
+	if len(lines) > reasonRows {
+		lines = lines[:reasonRows]
+		lines[reasonRows-1] = ansi.Truncate(lines[reasonRows-1], w-ansi.StringWidth(tail), "") + tail
+	}
+	return lines
+}
+
+// reasonHeight is the rows under the list for the highlighted item's
+// reason: a blank row and the reason's lines while that item is off, else
+// none.
+func (m Menu) reasonHeight(inner int) int {
+	c := m.Cursor
+	if c < 0 || c >= len(m.Items) || m.Items[c].Off == "" {
+		return 0
+	}
+	return len(m.reasonLines(c, inner, "~")) + 1
 }
 
 func b2i(b bool) int {
@@ -253,9 +282,10 @@ func (m Menu) Hit(y int) int {
 }
 
 // View renders the menu with the cursor row marked and highlighted;
-// destructive items are in the error color, items that are off muted,
-// section headers muted, and a scrolled menu says how many items are
-// above and below what it shows.
+// destructive items are in the error color, items that are off muted with
+// the highlighted one's reason under the list, both with decorate's
+// marker where color does not tell them apart, section headers muted, and
+// a scrolled menu says how many items are above and below what it shows.
 func (m Menu) View(s theme.Styles, g theme.Glyphs) string {
 	pn := newPen(s, g)
 	inner := m.inner()
@@ -284,25 +314,23 @@ func (m Menu) View(s theme.Styles, g theme.Glyphs) string {
 			continue
 		}
 		i, it := l.item, m.Items[l.item]
-		label, key := pn.s.Text, pn.s.Muted
-		switch {
-		case it.Off != "":
-			label = pn.s.Muted
-		case it.Destructive:
-			label = pn.s.Error
-		}
-		text := it.label(m.labelMax(), g.Ellipsis, check)
-		gap := max(0, inner-2-ansi.StringWidth(text)-ansi.StringWidth(it.Key))
+		label, mark := decorate(pn.s, it.Off != "", it.Destructive, i == m.Cursor)
+		text := it.label(m.labelMax()-markRoom(it.Off != "", it.Destructive), g.Ellipsis, check)
+		gap := max(0, inner-2-ansi.StringWidth(text)-ansi.StringWidth(mark)-ansi.StringWidth(it.Key))
 		if i == m.Cursor {
-			sel := pn.selected()
-			row := sel.Render(g.Cursor+" "+text) + sel.Render(strings.Repeat(" ", gap)+it.Key)
-			rows = append(rows, theme.Fill(sel, row, inner))
+			rows = append(rows, Highlight(pn.s, g.Cursor+" "+text+mark+strings.Repeat(" ", gap)+it.Key, inner))
 			continue
 		}
-		rows = append(rows, pn.space(2)+label.Render(text)+pn.space(gap)+key.Render(it.Key))
+		rows = append(rows, pn.space(2)+label.Render(text)+pn.s.Muted.Render(mark)+pn.space(gap)+pn.s.Muted.Render(it.Key))
 	}
 	if down {
 		rows = append(rows, more(arrowDown, end, len(lines)))
+	}
+	if m.reasonHeight(inner) > 0 {
+		rows = append(rows, "")
+		for _, l := range m.reasonLines(m.Cursor, inner, g.Ellipsis) {
+			rows = append(rows, pn.s.Text2.Render(l))
+		}
 	}
 	return pn.box(m.Title, rows, inner)
 }

@@ -51,7 +51,8 @@ func containerActions(add adder, list lister) {
 			a.Arg = ArgProject
 		}
 	}
-	add(ScopeContainers, "Containers", "open-detail", "enter", "Show logs, or fold a project")
+	open := add(ScopeContainers, "Containers", "open-detail", "enter", "Show logs, or fold a project")
+	open.Footer, open.Short = true, "logs"
 }
 
 // portActions are the ports pane's actions; open and copy-url mean the
@@ -59,7 +60,7 @@ func containerActions(add adder, list lister) {
 func portActions(add adder, list lister) {
 	list(ScopePorts)
 	for _, v := range [][3]string{
-		{"kill", "d", "Kill the process (asks first)"},
+		{"kill", "d", "Kill the process"},
 		{"takeover", "t", "Start the blocked server, taking over the port"},
 		{"open", "o", "Open in browser"},
 		{"copy-url", "y", "Copy the address"},
@@ -75,6 +76,8 @@ func portActions(add adder, list lister) {
 		switch v[0] {
 		case "kill", "open", "filter":
 			a.Footer = true
+		case "open-detail":
+			a.Footer, a.Short = true, "select"
 		case "back":
 			a.Short = "close"
 		}

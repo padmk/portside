@@ -4,6 +4,7 @@
 package overlay
 
 import (
+	"image/color"
 	"slices"
 	"strings"
 
@@ -65,9 +66,23 @@ func keyName(k string, ascii bool) string {
 	return k
 }
 
-// pen draws inside an overlay: its styles are the theme's on Raised
-// (Styles.OnRaised), so styled runs never punch holes into the overlay's
-// background, and its borders come from the glyph set.
+// Styles are the styles of what an overlay draws inside its box: the
+// theme's own where the panes show the terminal's background (the
+// Terminal family, whose overlays are the terminal's background inside one
+// accent border), else the theme's on Raised (Styles.OnRaised), so styled
+// runs never punch holes into the overlay's background.
+func Styles(s theme.Styles) theme.Styles {
+	if _, plain := s.Palette.Surface.(lipgloss.NoColor); plain {
+		return s
+	}
+	return s.OnRaised()
+}
+
+// pen draws inside an overlay with Styles, and its borders with the glyph
+// set's lines in Accent. The border's cells carry the background around
+// the box (the screen's, under a modal overlay), so the box is exactly its
+// border and its interior, with no band of the interior's color around
+// the lines.
 type pen struct {
 	s      theme.Styles
 	g      theme.Glyphs
@@ -75,18 +90,26 @@ type pen struct {
 }
 
 func newPen(s theme.Styles, g theme.Glyphs) pen {
-	r := s.OnRaised()
-	return pen{s: r, g: g, border: r.FrameFocused}
+	return pen{s: Styles(s), g: g, border: edge(s, s.Screen)}
 }
 
-// selected is the style of the highlighted row in a list inside an
-// overlay (theme.Styles.OverlaySelected), since the Raised background of
-// a selected pane row is the overlay's own.
+// edge is the border's style over the background of around.
+func edge(s theme.Styles, around lipgloss.Style) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(s.Palette.Accent).Background(around.GetBackground())
+}
+
+// selected is OverlaySelected, for a highlighted run that is not a whole
+// row (a dialog's button); rows use Highlight.
 func (p pen) selected() lipgloss.Style { return p.s.OverlaySelected }
 
-// Highlight is the highlighted row's style inside an overlay drawn with
-// s.
-func Highlight(s theme.Styles) lipgloss.Style { return s.OverlaySelected }
+// Highlight draws text as the highlighted row of a list inside an overlay,
+// w cells wide (cut or padded): the text's own colors give way to
+// OverlaySelected's foreground on its background (reverse and bold when
+// Mono). Every selected row of an overlay is drawn this way.
+func Highlight(s theme.Styles, text string, w int) string {
+	sel := s.OverlaySelected
+	return theme.Fill(sel, sel.Render(ansi.Strip(text)), w)
+}
 
 func (p pen) space(n int) string {
 	if n <= 0 {
@@ -106,7 +129,8 @@ func (p pen) box(title string, lines []string, inner int) string {
 	w := inner + 2
 	head := ""
 	if title != "" {
-		head = p.space(1) + p.s.AccentBold.Render(title) + p.space(1)
+		// The title lies on the border, over the border's background.
+		head = p.border.Render(" ") + p.border.Foreground(p.s.Palette.AccentText).Bold(true).Render(title) + p.border.Render(" ")
 		if ansi.StringWidth(head) > w-1 {
 			head = ansi.Truncate(head, w-1, "")
 		}
@@ -123,18 +147,19 @@ func (p pen) box(title string, lines []string, inner int) string {
 
 // Frame draws lines inner cells wide in an overlay box with the title in
 // its top border, as the help and the menus are drawn; lines are drawn
-// with styles from s.OnRaised().
+// with Styles(s).
 func Frame(s theme.Styles, g theme.Glyphs, title string, lines []string, inner int) string {
 	return newPen(s, g).box(title, lines, inner)
 }
 
 // Hint is the closing line of the help and messages overlays: key and
-// word pairs separated by the glyph set's separator.
+// word pairs separated by the glyph set's separator. The words are
+// instructions, so they are Text2; only the separator is Muted.
 func Hint(s theme.Styles, g theme.Glyphs, pairs ...[2]string) string {
-	r := s.OnRaised()
+	r := Styles(s)
 	parts := make([]string, len(pairs))
 	for i, p := range pairs {
-		parts[i] = r.Key.Render(p[0]) + r.Surface.Render(" ") + r.Muted.Render(p[1])
+		parts[i] = r.Key.Render(p[0]) + r.Surface.Render(" ") + r.Text2.Render(p[1])
 	}
 	return strings.Join(parts, r.Muted.Render(g.Separator))
 }
@@ -197,6 +222,55 @@ func Place(base, box string, x, y int) string {
 	return strings.Join(rows, "\n")
 }
 
+// Dimmed is screen as it lies under a modal overlay: every row stripped
+// of its own colors and drawn in a dim foreground on the screen's
+// background, w cells wide, so the overlay stands out and nothing behind
+// it competes for attention. A theme with its own background gets Dim's
+// color mixed halfway toward that background, since many terminals draw
+// the faint attribute of an exact color at full strength; the Terminal
+// family keeps Dim's ANSI color with the faint attribute, and without
+// colors only the faint attribute remains, which keeps the text legible.
+func Dimmed(s theme.Styles, screen string, w int) string {
+	bg := s.Screen.GetBackground()
+	fg := s.Dim.GetForeground()
+	dim := lipgloss.NewStyle().Background(bg)
+	if mixed, ok := mix(fg, bg); ok {
+		dim = dim.Foreground(mixed)
+	} else {
+		dim = dim.Foreground(fg).Faint(true)
+	}
+	rows := strings.Split(screen, "\n")
+	for i, r := range rows {
+		r = ansi.Strip(r)
+		if rw := ansi.StringWidth(r); rw > w {
+			r = ansi.Truncate(r, w, "")
+		} else {
+			r += strings.Repeat(" ", w-rw)
+		}
+		rows[i] = dim.Render(r)
+	}
+	return strings.Join(rows, "\n")
+}
+
+// mix is the color halfway between two exact colors; false when either is
+// an ANSI color or none, whose value the terminal decides.
+func mix(a, b color.Color) (color.Color, bool) {
+	exact := func(c color.Color) bool {
+		switch c.(type) {
+		case nil, lipgloss.NoColor, ansi.BasicColor, ansi.IndexedColor:
+			return false
+		}
+		return true
+	}
+	if !exact(a) || !exact(b) {
+		return nil, false
+	}
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	half := func(x, y uint32) uint8 { return uint8((x + y) / 2 >> 8) }
+	return color.RGBA{half(ar, br), half(ag, bg), half(ab, bb), 255}, true
+}
+
 // Center draws box in the middle of base.
 func Center(base, box string) string {
 	baseW, boxW := 0, 0
@@ -209,4 +283,40 @@ func Center(base, box string) string {
 		boxW = max(boxW, ansi.StringWidth(r))
 	}
 	return Place(base, box, (baseW-boxW)/2, (len(rows)-len(boxRows))/2)
+}
+
+// Entry markers: the text after the label of a menu or palette entry that
+// does nothing now, and of a destructive one where its color does not
+// show (highlighted, or without colors). Both survive any color scheme.
+const (
+	offMark  = " (off)"
+	asksMark = " (asks first)"
+)
+
+// decorate is how a menu or palette entry's label is drawn: the label's
+// style off the highlight (Muted when off, Error when destructive, else
+// Text) and the marker after it (offMark, or asksMark when the
+// destructive color is not seen), or "".
+func decorate(s theme.Styles, off, destructive, highlighted bool) (lipgloss.Style, string) {
+	switch {
+	case off:
+		return s.Muted, offMark
+	case destructive && (highlighted || s.Mono):
+		return s.Error, asksMark
+	case destructive:
+		return s.Error, ""
+	}
+	return s.Text, ""
+}
+
+// markRoom is the most cells decorate's marker takes for an entry, in
+// any state, so the label is cut to leave room for it.
+func markRoom(off, destructive bool) int {
+	switch {
+	case off:
+		return len(offMark)
+	case destructive:
+		return len(asksMark)
+	}
+	return 0
 }

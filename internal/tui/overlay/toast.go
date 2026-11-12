@@ -57,7 +57,9 @@ func Toasts(s theme.Styles, g theme.Glyphs, ts []Toast, now time.Time, maxW int,
 		count, width, bodyLines = 1, 32, 1
 	}
 	live = live[:min(len(live), count)]
+	// Toasts lie over the panes, not over a dimmed screen.
 	pn := newPen(s, g)
+	pn.border = edge(s, s.Surface)
 	inner := max(min(maxW, width)-4, 4)
 	mark := g.Cursor
 	if g.ID == theme.ASCII.ID {

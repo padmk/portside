@@ -99,7 +99,7 @@ func (l layout) lines(env *ui.Env, fields []field, selected, w int) []line {
 				if row > 0 {
 					sep = strings.Repeat(" ", ansi.StringWidth(sep))
 				}
-				segs = append(segs, seg{text: label, style: s.Muted}, seg{text: sep, style: s.Muted})
+				segs = append(segs, seg{text: label, style: s.Text2}, seg{text: sep, style: s.Muted})
 			}
 			// A link spans each row's part of the address.
 			segs = append(segs, seg{value, f.style, f.link})
@@ -148,7 +148,8 @@ type seg struct {
 
 // paint joins segs into one row of exactly w cells on the pane's
 // background, or on the selection's when selected, which every piece then
-// carries so it spans the whole row.
+// carries (OnSelection, which keeps its color readable there) so it spans
+// the whole row.
 func paint(env *ui.Env, segs []seg, w int, selected bool) string {
 	s := env.Styles
 	var b strings.Builder
@@ -158,7 +159,7 @@ func paint(env *ui.Env, segs []seg, w int, selected bool) string {
 		}
 		st := sg.style
 		if selected {
-			st = st.Background(s.Selected.GetBackground())
+			st = s.OnSelection(st)
 		}
 		if sg.link != "" && safeLink(sg.link) {
 			b.WriteString(ansi.SetHyperlink(sg.link) + st.Render(sg.text) + ansi.ResetHyperlink())

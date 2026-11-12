@@ -8,6 +8,7 @@ import (
 
 	"github.com/padmk/portside/internal/supervisor"
 	"github.com/padmk/portside/internal/tui/act"
+	"github.com/padmk/portside/internal/tui/containers"
 	"github.com/padmk/portside/internal/tui/keymap"
 	"github.com/padmk/portside/internal/tui/logs"
 	"github.com/padmk/portside/internal/tui/overlay"
@@ -392,10 +393,35 @@ func (m *model) shownServerMenu() overlay.Menu {
 }
 
 // hintShort is a footer hint's word: space says whether it starts or
-// stops the server, and on a group header the server verbs name the group
-// and how many members they apply to.
+// stops the server, enter what it opens, and on a group header the server
+// verbs name the group and how many members they apply to.
 func (m *model) hintShort(a keymap.Action) string {
 	t := m.cursorTarget()
+	if a.ID == "open-detail" {
+		switch t.Kind {
+		case ui.SelectGroup, ui.SelectProject:
+			return "fold/unfold"
+		case ui.SelectPort:
+			if l, ok := m.listener(t); ok {
+				return "select " + ports.Describe(l)
+			}
+		}
+	}
+	if a.Scope == keymap.ScopeLogs && a.ID == "attach" && m.env.Selected.Kind == ui.SelectContainer {
+		return "shell"
+	}
+	if a.Scope == keymap.ScopeContainers && a.ID == "toggle" && m.env.State != nil {
+		switch t.Kind {
+		case ui.SelectContainer:
+			if c, ok := containers.Find(m.env.State, t); ok {
+				return containers.ToggleVerb(c)
+			}
+		case ui.SelectProject:
+			if p, ok := containers.FindProject(m.env.State, t.Name); ok {
+				return strings.ReplaceAll(containers.ProjectToggleVerb(p), "-", " ")
+			}
+		}
+	}
 	if a.Scope == keymap.ScopeServers && a.ID == "toggle" && t.Kind == ui.SelectServer {
 		if v, ok := m.server(t.Name); ok && v.CanStop() {
 			return "stop"
@@ -417,12 +443,47 @@ func (m *model) hintShort(a keymap.Action) string {
 	return fmt.Sprintf("%s group (%d)", verb, len(supervisor.GroupTargets(m.members(t.Name), verb)))
 }
 
-// applies reports whether a servers action does something on the cursor's
-// target: on a group header only the group verbs do.
-func (m *model) applies(a keymap.Action) bool {
-	if a.Scope != keymap.ScopeServers || !targetActions[a.ID] || m.cursorTarget().Kind != ui.SelectGroup {
-		return true
+// hintOff is why the footer leaves action a out: the rule the menus mark
+// it off with (off, logsOff) for the cursor's target, or the shown
+// source on the Logs tab. Actions on the pane itself (filter, search,
+// enter on a server) have no such rule and always show.
+func (m *model) hintOff(a keymap.Action) string {
+	t := m.cursorTarget()
+	switch a.Scope {
+	case keymap.ScopeServers:
+		if targetActions[a.ID] {
+			return m.off(a.ID, t)
+		}
+	case keymap.ScopeContainers:
+		if a.Menu || a.ID == "toggle" {
+			return m.off(a.ID, t)
+		}
+	case keymap.ScopePorts:
+		if a.Menu || a.ID == "open-detail" {
+			return m.off(a.ID, t)
+		}
+	case keymap.ScopeLogs:
+		return m.logsOff(a.ID)
 	}
-	_, ok := groupVerbs[a.ID]
-	return ok || a.ID == "toggle"
+	return ""
+}
+
+// logsOff is why a Logs tab action does nothing on the source it shows:
+// attach opens a container's shell (containers.Off's rule for shell) or a
+// server's terminal (off), and only a server has a scrollback to clear.
+func (m *model) logsOff(id string) string {
+	sel := m.env.Selected
+	switch id {
+	case "attach":
+		if sel.Kind == ui.SelectContainer {
+			return containers.Off(&m.env, "shell", sel)
+		}
+		return m.off("attach", sel)
+	case "clear-logs":
+		if sel.Kind == ui.SelectContainer {
+			return "the container engine keeps its logs"
+		}
+		return m.off("clear-logs", sel)
+	}
+	return ""
 }

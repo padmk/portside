@@ -1,10 +1,13 @@
 package overlay
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/padmk/portside/internal/tui/keymap"
@@ -16,12 +19,14 @@ import (
 // PaletteItem is one entry of the command palette: what it says, the key
 // that does the same from the current pane (if any) and the command line
 // it runs, or for a container, project or port, the action on it (Act.ID
-// set) that no command line names. Off holds why it does nothing now.
+// set) that no command line names. Off holds why it does nothing now;
+// Current is set when it acts on the cursor's target.
 type PaletteItem struct {
 	Label, Key, Command string
 	Act                 ui.ActMsg
 	Off                 string
 	Destructive         bool
+	Current             bool
 }
 
 // Palette is the command palette (ctrl+p): a query, the entries that
@@ -29,11 +34,19 @@ type PaletteItem struct {
 type Palette struct {
 	query  []rune
 	items  []PaletteItem
-	shown  []int // indexes into items, best match first
-	Cursor int   // index into shown
+	shown  []shownItem // best match first
+	Cursor int         // index into shown
 	offset int
 	// rows is the number of entries the last View showed, for clicks.
 	rows int
+}
+
+// shownItem is an entry that matches the query: its index into items and
+// the matched rune indexes of its label, or of its command when only the
+// command matches.
+type shownItem struct {
+	i              int
+	label, command []int
 }
 
 // NewPalette opens the palette over items, in their order until a query
@@ -92,40 +105,61 @@ func (p *Palette) Selected() (PaletteItem, bool) {
 	if p.Cursor < 0 || p.Cursor >= len(p.shown) {
 		return PaletteItem{}, false
 	}
-	return p.items[p.shown[p.Cursor]], true
+	return p.items[p.shown[p.Cursor].i], true
 }
 
-// filter ranks the entries against the query (keymap.Fuzzy on the label
-// and the command), keeping the given order between equal scores.
+// filter ranks the entries against the query with keymap.Fuzzy on the
+// label, falling back to the command as the loosest kind of match: by
+// kind of match, then score, then the cursor's target first, entries
+// that act before ones that are off, and the given order.
 func (p *Palette) filter() {
 	q := string(p.query)
-	type scored struct{ i, score int }
+	type scored struct {
+		shownItem
+		m keymap.FuzzyMatch
+	}
 	var hits []scored
 	for i, it := range p.items {
 		if strings.TrimSpace(q) == "" {
-			hits = append(hits, scored{i, 0})
+			hits = append(hits, scored{shownItem: shownItem{i: i}})
 			continue
 		}
-		a, okA := keymap.Fuzzy(q, it.Label)
-		b, okB := keymap.Fuzzy(q, it.Command)
-		if okA || okB {
-			hits = append(hits, scored{i, max(a, b)})
+		if m, ok := keymap.Fuzzy(q, it.Label); ok {
+			hits = append(hits, scored{shownItem{i: i, label: m.At}, m})
+		} else if m, ok := keymap.Fuzzy(q, it.Command); ok {
+			m.Rank = keymap.RankLoose
+			hits = append(hits, scored{shownItem{i: i, command: m.At}, m})
 		}
 	}
-	sort.SliceStable(hits, func(x, y int) bool { return hits[x].score > hits[y].score })
+	sort.SliceStable(hits, func(x, y int) bool {
+		a, b := hits[x], hits[y]
+		ia, ib := p.items[a.i], p.items[b.i]
+		switch {
+		case a.m.Rank != b.m.Rank:
+			return a.m.Rank > b.m.Rank
+		case a.m.Score != b.m.Score:
+			return a.m.Score > b.m.Score
+		case ia.Current != ib.Current:
+			return ia.Current
+		case (ia.Off == "") != (ib.Off == ""):
+			return ia.Off == ""
+		}
+		return false
+	})
 	p.shown = p.shown[:0]
 	for _, h := range hits {
-		p.shown = append(p.shown, h.i)
+		p.shown = append(p.shown, h.shownItem)
 	}
 	p.Cursor, p.offset = 0, 0
 }
 
 // Size is the box's width and height for a w x h screen: at most 72 cells
-// wide and 17 rows tall, leaving the top bar and the footer in view.
+// wide and 19 rows tall, leaving the top bar and the footer in view. Below
+// the list a rule and the selected entry's detail take two rows.
 func (p *Palette) Size(w, h int) (bw, bh int) {
 	bw = max(min(72, w-2), 20)
-	list := max(1, min(len(p.items), 14, h-8))
-	return bw, list + 3
+	list := max(1, min(len(p.items), 14, h-10))
+	return bw, list + 5
 }
 
 // Hit returns the index into the shown entries at row y of the box (0 is
@@ -149,14 +183,22 @@ func (p *Palette) Pick(i int) {
 }
 
 // View renders the palette for a w x h screen: the query with a cursor,
-// then the matching entries with the key or command at the right,
-// destructive ones in the error color and ones that are off muted with
-// the reason; the footer has the keys.
+// then the matching entries with their matched characters marked and the
+// key or command at the right, destructive ones in the error color and
+// ones that are off muted, each with decorate's marker where color does
+// not tell it; under a rule, the highlighted entry's detail.
 func (p *Palette) View(s theme.Styles, g theme.Glyphs, ascii bool, w, h int) string {
 	pn := newPen(s, g)
 	bw, bh := p.Size(w, h)
 	inner := bw - 4
-	list := bh - 3
+	var detail []string
+	if p.Cursor < len(p.shown) {
+		detail = p.detail(pn, p.shown[p.Cursor], inner)
+	}
+	if len(detail) == 0 {
+		detail = []string{""}
+	}
+	list := bh - 4 - len(detail)
 	p.rows = list
 	if p.Cursor < p.offset {
 		p.offset = p.Cursor
@@ -187,41 +229,183 @@ func (p *Palette) View(s theme.Styles, g theme.Glyphs, ascii bool, w, h int) str
 			}
 			continue
 		}
-		rows = append(rows, p.row(pn, p.items[p.shown[i]], inner, i == p.Cursor))
+		rows = append(rows, p.row(pn, p.shown[i], inner, i == p.Cursor))
 	}
+	rows = append(rows, p.rule(pn, inner, list))
+	rows = append(rows, detail...)
 	return pn.box("Find an action", rows, inner)
 }
 
-// row is one entry: its label (with the reason it is off) and, at the
-// right, its key, else its command.
-func (p *Palette) row(pn pen, it PaletteItem, inner int, selected bool) string {
-	right := it.Key
+// rule is the line between the list and the detail, with the window of
+// matching entries the list shows at its right ("1-14 of 37").
+func (p *Palette) rule(pn pen, inner, list int) string {
+	line := pn.g.Border.Top
+	if len(p.shown) == 0 {
+		return pn.s.Frame.Render(strings.Repeat(line, inner))
+	}
+	window := fmt.Sprintf(" %d-%d of %d ", p.offset+1, min(len(p.shown), p.offset+list), len(p.shown))
+	n := inner - ansi.StringWidth(window) - 1
+	if n < 1 {
+		return pn.s.Frame.Render(strings.Repeat(line, inner))
+	}
+	return pn.s.Frame.Render(strings.Repeat(line, n)) + pn.s.Muted.Render(window) + pn.s.Frame.Render(line)
+}
+
+// rightColumn is the most of the inner width the key or command at the
+// right of a row takes, so the label keeps the rest.
+func rightColumn(inner int) int { return max(8, inner/3) }
+
+// labelGap is the least space between a row's label and its key or
+// command.
+const labelGap = 2
+
+// row is one entry: its label and, at the right, its key, else its
+// command cut on the left to rightColumn; the label takes the rest of the
+// width.
+func (p *Palette) row(pn pen, e shownItem, inner int, selected bool) string {
+	it := p.items[e.i]
+	right, rightAt := it.Key, []int(nil)
 	if right == "" && it.Command != "" {
 		right = ":" + it.Command
+		for _, i := range e.command {
+			rightAt = append(rightAt, i+1)
+		}
 	}
-	label := it.Label
-	if it.Off != "" {
-		label += " (" + it.Off + ")"
+	rightText := marked{text: []rune(right), at: rightAt}
+	if limit := rightColumn(inner); ansi.StringWidth(right) > limit {
+		rightText = rightText.tail(limit-ansi.StringWidth(pn.g.Ellipsis), pn.g.Ellipsis)
 	}
-	room := max(1, inner-2-ansi.StringWidth(right)-2)
-	if ansi.StringWidth(label) > room {
-		label = ansi.Truncate(label, room-1, "") + pn.g.Ellipsis
+	_, mark := decorate(pn.s, it.Off != "", it.Destructive, selected)
+	room := inner - 2 - ansi.StringWidth(mark)
+	if right != "" {
+		room -= rightText.width() + labelGap
 	}
-	gap := max(1, inner-2-ansi.StringWidth(label)-ansi.StringWidth(right))
+	labelText := marked{text: []rune(it.Label), at: e.label}
+	// A command that does not fit its column would show only the tail of
+	// a name the label already carries (":restart" plus a long container
+	// name): the label takes the row and the detail line shows the command.
+	if it.Key == "" && rightText.width() < ansi.StringWidth(right) {
+		rightText, room = marked{}, inner-2-ansi.StringWidth(mark)
+	}
+	if labelText.width() > room {
+		labelText = labelText.head(room-ansi.StringWidth(pn.g.Ellipsis), pn.g.Ellipsis)
+	}
+	gap := max(1, inner-2-labelText.width()-ansi.StringWidth(mark)-rightText.width())
 	if selected {
 		sel := pn.selected()
-		return theme.Fill(sel, sel.Render(pn.g.Cursor+" "+label+strings.Repeat(" ", gap)+right), inner)
+		hl := sel.Underline(true)
+		line := sel.Render(pn.g.Cursor+" ") + labelText.render(sel, hl) + sel.Render(mark+strings.Repeat(" ", gap)) + rightText.render(sel, hl)
+		return theme.Fill(sel, line, inner)
 	}
-	st := pn.s.Text
-	switch {
-	case it.Off != "":
-		st = pn.s.Muted
-	case it.Destructive:
-		st = pn.s.Error
+	st, _ := decorate(pn.s, it.Off != "", it.Destructive, false)
+	match := pn.s.Accent.Bold(true).Underline(true)
+	if it.Off != "" {
+		match = pn.s.Muted.Bold(true).Underline(true)
 	}
 	rk := pn.s.Key
 	if it.Key == "" {
 		rk = pn.s.Muted
 	}
-	return pn.space(2) + st.Render(label) + pn.space(gap) + rk.Render(right)
+	return pn.space(2) + labelText.render(st, match) + pn.s.Muted.Render(mark) + pn.space(gap) + rightText.render(rk, match)
+}
+
+// detail is the highlighted entry's full label when its row cuts it, the
+// command it runs and why it is off, wrapped to at most two lines.
+func (p *Palette) detail(pn pen, e shownItem, inner int) []string {
+	it := p.items[e.i]
+	var parts []string
+	right := it.Key
+	if right == "" && it.Command != "" {
+		right = ":" + it.Command
+	}
+	_, mark := decorate(pn.s, it.Off != "", it.Destructive, true)
+	room := inner - 2 - ansi.StringWidth(mark)
+	if right != "" {
+		room -= min(ansi.StringWidth(right), rightColumn(inner)) + labelGap
+	}
+	if ansi.StringWidth(it.Label) > room {
+		parts = append(parts, pn.s.Text.Render(it.Label))
+	}
+	if it.Command != "" {
+		parts = append(parts, pn.s.Muted.Render(":"+it.Command))
+	}
+	if it.Off != "" {
+		parts = append(parts, pn.s.Warn.Render(it.Off))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	lines := strings.Split(ansi.Wrap(strings.Join(parts, pn.s.Muted.Render(pn.g.Separator)), inner, ""), "\n")
+	if len(lines) > 2 {
+		lines = lines[:2]
+		lines[1] = ansi.Truncate(lines[1], inner-ansi.StringWidth(pn.g.Ellipsis), "") + pn.s.Muted.Render(pn.g.Ellipsis)
+	}
+	return lines
+}
+
+// marked is a run of text with the rune indexes the query matched, cut to
+// a part of it (from) with an ellipsis before or after.
+type marked struct {
+	text      []rune
+	at        []int
+	from      int
+	pre, post string
+}
+
+func (m marked) width() int {
+	return ansi.StringWidth(m.pre) + ansi.StringWidth(string(m.text[m.from:])) + ansi.StringWidth(m.post)
+}
+
+// head keeps the first w cells of the text and an ellipsis after them.
+func (m marked) head(w int, ellipsis string) marked {
+	n, used := 0, 0
+	for n < len(m.text) && used+ansi.StringWidth(string(m.text[n])) <= w {
+		used += ansi.StringWidth(string(m.text[n]))
+		n++
+	}
+	m.text, m.post = m.text[:n], ellipsis
+	return m
+}
+
+// tail keeps the last w cells of the text and an ellipsis before them.
+func (m marked) tail(w int, ellipsis string) marked {
+	from, used := len(m.text), 0
+	for from > 0 && used+ansi.StringWidth(string(m.text[from-1])) <= w {
+		from--
+		used += ansi.StringWidth(string(m.text[from]))
+	}
+	m.from, m.pre = from, ellipsis
+	return m
+}
+
+// render draws the text with base and its matched runes with mark.
+func (m marked) render(base, mark lipgloss.Style) string {
+	var b strings.Builder
+	if m.pre != "" {
+		b.WriteString(base.Render(m.pre))
+	}
+	run, on := []rune(nil), false
+	flush := func() {
+		if len(run) > 0 {
+			st := base
+			if on {
+				st = mark
+			}
+			b.WriteString(st.Render(string(run)))
+			run = run[:0]
+		}
+	}
+	for i := m.from; i < len(m.text); i++ {
+		hit := slices.Contains(m.at, i)
+		if hit != on {
+			flush()
+			on = hit
+		}
+		run = append(run, m.text[i])
+	}
+	flush()
+	if m.post != "" {
+		b.WriteString(base.Render(m.post))
+	}
+	return b.String()
 }

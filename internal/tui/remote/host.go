@@ -10,7 +10,6 @@ import (
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/tui/overlay"
-	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
 )
 
@@ -199,21 +198,8 @@ func (h *Host) Key(env *ui.Env, msg tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-// Hints are the footer's keys while an overlay is open.
-func (h *Host) Hints(env *ui.Env, ascii bool) [][2]string {
-	enter := overlay.KeyLabel("enter", ascii)
-	switch h.open {
-	case viewComputers:
-		return h.comp.hints(env, enter)
-	case viewAgents:
-		return h.agents.hints(enter)
-	case viewDaemon:
-		return [][2]string{{"u", "upgrade"}, {"r", "restart"}, {"esc", "close"}}
-	}
-	return nil
-}
-
-// View draws the open overlay centered over the dimmed screen.
+// View draws the open overlay centered over the screen (the root dims
+// it).
 func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
 	inner := max(20, min(96, w-8))
 	title, lines, cursor := "", []string(nil), -1
@@ -223,7 +209,7 @@ func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
 		lines, cursor = h.comp.lines(env, inner, env.Now())
 	case viewAgents:
 		title = "Coding agents"
-		lines, cursor = h.agents.lines(env)
+		lines, cursor = h.agents.lines(env, inner)
 	case viewDaemon:
 		title = "Daemon"
 		lines = h.daemonView(env, inner)
@@ -233,18 +219,11 @@ func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
 	rows := max(1, hgt-4)
 	lines = h.window(lines, cursor, rows)
 	h.placed(env, w, hgt, inner, h.scroll, len(lines))
-	s := env.Styles.OnRaised()
-	for i, l := range lines {
-		if i == h.cursorAt {
-			lines[i] = theme.Fill(overlay.Highlight(s), ansi.Strip(l), inner)
-		}
+	if h.cursorAt >= 0 && h.cursorAt < len(lines) {
+		lines[h.cursorAt] = overlay.Highlight(env.Styles, lines[h.cursorAt], inner)
 	}
 	box := overlay.Frame(env.Styles, env.Glyphs, title, lines, inner)
-	dimmed := strings.Split(screen, "\n")
-	for i, r := range dimmed {
-		dimmed[i] = theme.Fill(env.Styles.Dim, ansi.Strip(r), w)
-	}
-	return overlay.Center(strings.Join(dimmed, "\n"), box)
+	return overlay.Center(screen, box)
 }
 
 // window keeps the cursor's line, or the scroll offset, inside rows lines
@@ -270,7 +249,7 @@ func (h *Host) window(lines []string, cursor, rows int) []string {
 // daemonView is the daemon's details as label and value rows, long
 // values wrapped under their value column.
 func (h *Host) daemonView(env *ui.Env, inner int) []string {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	const labelW = 11
 	var out []string
 	cl := &h.daemonClicks
@@ -295,12 +274,20 @@ func (h *Host) daemonView(env *ui.Env, inner int) []string {
 	if !env.Session.Remote() {
 		add("")
 		for _, l := range wrap("u replaces the daemon with this binary when it is newer; r restarts it in place. Both keep servers running; a daemon too old to restart in place is stopped and started, which restarts its servers.", inner) {
-			add(s.Muted.Render(l))
+			add(s.Text2.Render(l))
 		}
-		add("")
-		out = append(out, actionLine(env.Styles, env.Glyphs, cl, [][2]string{{"u", "upgrade"}, {"r", "restart"}}))
 	}
-	return out
+	add("")
+	return append(out, actionLines(env.Styles, env.Glyphs, cl, inner, h.daemonHints(env))...)
+}
+
+// daemonHints are the Daemon overlay's keys: upgrade and restart on this
+// computer, and the way out.
+func (h *Host) daemonHints(env *ui.Env) [][2]string {
+	if env.Session.Remote() {
+		return [][2]string{{"esc", "close"}}
+	}
+	return [][2]string{{"u", "upgrade"}, {"r", "restart"}, {"esc", "close"}}
 }
 
 // wrap breaks text into lines of at most w cells, at spaces and slashes

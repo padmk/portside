@@ -161,7 +161,7 @@ func (c *Pane) Update(env *ui.Env, msg tea.Msg) tea.Cmd {
 			return tea.Batch(cmds...)
 		}
 		m.X, m.Y = m.X-2, m.Y-1
-		msg = tea.MouseClickMsg(m)
+		return tea.Batch(append(cmds, c.logs.Update(env, tea.MouseClickMsg(m)))...)
 	case tea.MouseWheelMsg:
 		if c.tab != tabLogs {
 			delta := wheelRows
@@ -173,7 +173,7 @@ func (c *Pane) Update(env *ui.Env, msg tea.Msg) tea.Cmd {
 		}
 		m := msg.Mouse()
 		m.X, m.Y = m.X-2, m.Y-1
-		msg = tea.MouseWheelMsg(m)
+		return tea.Batch(append(cmds, c.logs.Update(env, tea.MouseWheelMsg(m)))...)
 	case tea.MouseMsg:
 		if c.tab != tabLogs {
 			return tea.Batch(cmds...)
@@ -294,7 +294,7 @@ func (c *Pane) View(env *ui.Env, w, h int, focused bool) string {
 func (c *Pane) content(env *ui.Env, v supervisor.View, ok bool, cw, ch int, focused bool) ([]string, string) {
 	s := env.Styles
 	if c.tab == tabLogs {
-		return strings.Split(c.logs.View(env, cw, ch, false), "\n"), c.logs.Status()
+		return strings.Split(c.logs.View(env, cw, ch, focused), "\n"), c.logs.Status()
 	}
 	if !ok {
 		return []string{note(env, "Select a server to see its details", s.Muted, cw)}, ""

@@ -9,7 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/padmk/portside/internal/app"
-	"github.com/padmk/portside/internal/tui/keymap"
+	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
 )
@@ -59,6 +59,19 @@ func (m *model) bodyTop() int {
 	return 1
 }
 
+// footHeight is the rows the footer takes: two while the command line
+// shows completions, else one.
+func (m *model) footHeight() int {
+	if m.cmdLine != nil {
+		return m.cmdLine.Rows()
+	}
+	return 1
+}
+
+// bodyHeight is the rows between the top bar (and the banner) and the
+// footer.
+func (m *model) bodyHeight() int { return max(0, m.height-m.bodyTop()-m.footHeight()) }
+
 // layout places the panes between the bars: one pane over the whole body
 // when narrow, in the full screen mode, or for the main panel in the half
 // one, else the left column next to the right pane. In the left column the
@@ -67,7 +80,7 @@ func (m *model) bodyTop() int {
 // lazygit collapses side panels, until the column has room for them all.
 func (m *model) layout() {
 	top := m.bodyTop()
-	h := max(0, m.height-top-1)
+	h := m.bodyHeight()
 	m.rects = m.rects[:0]
 	alone := m.screenMode == screenFull || (m.screenMode == screenHalf && m.focus == len(m.left))
 	if alone || m.narrow() {
@@ -221,21 +234,24 @@ func (m *model) View() tea.View {
 	return v
 }
 
-// screen renders exactly the terminal's size.
+// screen renders exactly the terminal's size: the bars and the panes,
+// sized around the footer's rows; under a modal overlay all but the
+// footer is dimmed once (overlay.Dimmed), then the toasts and the overlays
+// are drawn over it.
 func (m *model) screen() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
 	}
 	top := m.bodyTop()
+	// The command line's completions take a row from the body, so the
+	// panes are laid out again around the footer.
+	m.layout()
+	foot := m.footerRows()
 	lines := []string{m.topBar()}
 	if b, ok := m.banner(); ok {
 		lines = append(lines, b)
 	}
 	lines = append(lines, m.body()...)
-	foot := m.footerRows()
-	if len(foot) > 1 && len(lines) > 1 {
-		lines = lines[:len(lines)-len(foot)+1]
-	}
 	lines = append(lines, foot...)
 	if len(lines) > m.height {
 		keep := max(0, m.height-len(foot))
@@ -250,7 +266,13 @@ func (m *model) screen() string {
 		}
 		lines[i] = ui.Fit(lines[i], m.width)
 	}
-	out := m.withOverlays(strings.Join(lines, "\n"))
+	if m.modal() {
+		// The footer stays as it is: it holds the overlay's keys.
+		dim := strings.Split(overlay.Dimmed(m.env.Styles, strings.Join(lines[:body], "\n"), m.width), "\n")
+		lines = append(dim, lines[body:]...)
+	}
+	out := strings.Join(lines, "\n")
+	out = m.withOverlays(out)
 	if m.edit.Open() {
 		out = m.edit.View(&m.env, out, m.width, m.height)
 	}
@@ -261,6 +283,14 @@ func (m *model) screen() string {
 		out = m.withDialog(out)
 	}
 	return out
+}
+
+// modal reports whether an overlay that takes the keys is open: the menu,
+// the palette, help, messages, a confirmation, a form or a system overlay.
+// The command line and the toasts are not modal.
+func (m *model) modal() bool {
+	return m.menu != nil || m.palette != nil || m.help != nil || m.messages != nil ||
+		m.confirm != nil || m.edit.Open() || m.sys.Open()
 }
 
 // body renders the panes row by row.
@@ -277,7 +307,7 @@ func (m *model) body() []string {
 		views[r.pane] = strings.Split(panes[r.pane].View(&m.env, r.w, r.h, r.pane == m.focus), "\n")
 	}
 	top := m.bodyTop()
-	h := max(0, m.height-top-1)
+	h := m.bodyHeight()
 	rows := make([]string, h)
 	for y := range h {
 		var b strings.Builder
@@ -304,13 +334,7 @@ func (m *model) compactHeader(r rect) string {
 	if t, ok := p.(ui.Titled); ok {
 		title, count = t.Title(&m.env)
 	}
-	key := ""
-	for _, a := range m.env.Keys.InScope(keymap.ScopeGlobal) {
-		if a.ID == "focus-"+string(p.Scope()) && len(a.Keys) > 0 {
-			key = a.Keys[0]
-		}
-	}
-	return ui.HeaderRow(&m.env, r.w, key, title, count)
+	return ui.HeaderRow(&m.env, r.w, ui.JumpKey(&m.env, p.Scope()), title, count)
 }
 
 // withDialog draws the confirmation dialog centered over the screen and

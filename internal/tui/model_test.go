@@ -260,7 +260,7 @@ func TestGroupHeaderMenuCountsEligibleMembers(t *testing.T) {
 	}
 	// worker is the only enabled member without a process; mailer is
 	// disabled.
-	want := "Restart group (2)|Start group (1)|Stop group (2)"
+	want := "Restart group (2)|Start group (1)|Stop group (2)|All actions"
 	if got := strings.Join(labels, "|"); got != want {
 		t.Errorf("menu %q, want %q", got, want)
 	}
@@ -371,6 +371,11 @@ func TestFooterKeepsMenuAndHelpAtEveryWidth(t *testing.T) {
 	if f := ansi.Strip(m.footer()); !strings.Contains(f, "␣ start") || strings.Contains(f, "start/stop") {
 		t.Errorf("footer on worker %q, want ␣ start", f)
 	}
+	// Actions the menu marks off for the crashed worker are not offered;
+	// the next useful ones take their place.
+	if f := ansi.Strip(m.footer()); strings.Contains(f, "a attach") || strings.Contains(f, "o open") || !strings.Contains(f, "e edit") || !strings.Contains(f, "logs") {
+		t.Errorf("footer on worker %q offers what is off or lacks edit and logs", f)
+	}
 	// Narrow, the main panel says how to go back.
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 	m.focusPane(len(m.left))
@@ -394,7 +399,7 @@ func TestDetailTabsMenuActsOnTheShownServer(t *testing.T) {
 		t.Fatalf("details menu %+v", m.menu)
 	}
 	for _, it := range m.menu.Items {
-		if !strings.HasPrefix(it.Key, ":") {
+		if !strings.HasPrefix(it.Key, ":") && it.ActionID != "palette" {
 			t.Errorf("details menu item %s shows key %q, which the tab does not bind", it.ActionID, it.Key)
 		}
 		if it.ActionID == "attach" && it.Off != "not running" {
@@ -576,10 +581,21 @@ func TestServerMenuFitsTheSmallestScreen(t *testing.T) {
 	if m.menu.Cursor != len(m.menu.Items)-1 || !strings.Contains(ansi.Strip(m.screen()), last.Label) {
 		t.Errorf("the last item %q is not on screen with the cursor on it", last.Label)
 	}
-	for _, section := range []string{"Server", "Group", "Daemon"} {
+	// The menu holds the server's and its group's actions, then the
+	// palette, which has the rest.
+	// The group's section names the group.
+	for _, section := range []string{"Server", "Group shop"} {
 		if !slices.ContainsFunc(m.menu.Items, func(it overlay.MenuItem) bool { return it.Section == section }) {
 			t.Errorf("no %s section in the server menu", section)
 		}
+	}
+	for _, it := range m.menu.Items {
+		if it.Section != "Server" && it.Section != "Group shop" && it.ActionID != "palette" {
+			t.Errorf("the server menu holds %s (%s)", it.ActionID, it.Section)
+		}
+	}
+	if last.ActionID != "palette" {
+		t.Errorf("the last item is %s, want the palette", last.ActionID)
 	}
 }
 
@@ -610,5 +626,25 @@ func TestCtrlCQuitsOverADialogAndQClosesOverlays(t *testing.T) {
 	press(m, "ctrl+p", "q")
 	if m.palette == nil || m.palette.Query() != "q" {
 		t.Error("q in the palette is not typed")
+	}
+}
+
+// TestCompletionsKeepThePaneFrames checks that while the command line
+// shows completions the panes end above both footer rows, so their
+// bottom borders stay on screen.
+func TestCompletionsKeepThePaneFrames(t *testing.T) {
+	m := testModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 38})
+	press(m, ":")
+	press(m, typed("st")...)
+	if m.cmdLine == nil || m.cmdLine.Rows() != 2 {
+		t.Fatal("no completions under :st")
+	}
+	rows := strings.Split(ansi.Strip(m.screen()), "\n")
+	if len(rows) != 38 {
+		t.Fatalf("the screen has %d rows", len(rows))
+	}
+	if !strings.Contains(rows[35], "╯") {
+		t.Errorf("the row above the completions is not the panes' bottom border: %q", rows[35])
 	}
 }

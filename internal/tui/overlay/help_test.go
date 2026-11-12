@@ -12,8 +12,8 @@ import (
 
 func TestHelpListsEachScopeWithItsMeaning(t *testing.T) {
 	secs := sections(keymap.Default(), []keymap.Scope{keymap.ScopeServers, keymap.ScopeGlobal, keymap.ScopeLogs, keymap.ScopeDetail}, false)
-	if secs[0].title != "Servers (this pane)" || secs[1].title != "Lists and the main panel" {
-		t.Fatalf("first sections %q, %q", secs[0].title, secs[1].title)
+	if secs[0].title != "Essentials" || secs[1].title != "Servers (this pane)" || secs[2].title != "Lists and the main panel" {
+		t.Fatalf("first sections %q, %q, %q", secs[0].title, secs[1].title, secs[2].title)
 	}
 	where := map[string][]string{}
 	for _, s := range secs {

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"slices"
 	"strings"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/padmk/portside/internal/tui/edit"
 	"github.com/padmk/portside/internal/tui/keymap"
 	"github.com/padmk/portside/internal/tui/live"
-	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/remote"
 	"github.com/padmk/portside/internal/tui/ui"
 )
@@ -56,26 +54,6 @@ func (m *model) systemOff(id string) string {
 		return remote.SetupOff(&m.env)
 	}
 	return ""
-}
-
-// withSystemMenu adds the computers, the daemon and the agent setup to
-// the servers' menu on a server or an empty list, after the config.
-func (m *model) withSystemMenu(menu overlay.Menu, t ui.Selection) overlay.Menu {
-	if t.Kind == ui.SelectGroup {
-		return menu
-	}
-	for _, a := range m.env.Keys.InScope(keymap.ScopeGlobal) {
-		if a.Group != "Computers and daemon" || !a.Menu {
-			continue
-		}
-		if slices.ContainsFunc(menu.Items, func(it overlay.MenuItem) bool { return it.ActionID == a.ID }) {
-			continue
-		}
-		it := overlay.ItemFor(a, m.ascii())
-		it.Off = m.systemOff(a.ID)
-		menu.Items = append(menu.Items, it)
-	}
-	return menu
 }
 
 // switchTo switches the session to the computer called name, or to this

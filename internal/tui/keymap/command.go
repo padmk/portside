@@ -286,38 +286,146 @@ func (r *Registry) Complete(line string, cursor int, n Names) Completion {
 	return c
 }
 
-// Fuzzy scores how well query matches text, ignoring case: every word of
-// query must appear in text as a subsequence; runs of matched characters
-// and matches at the start of a word score higher, and a word found whole
-// higher still. ok is false when a word
-// does not match.
-func Fuzzy(query, text string) (score int, ok bool) {
-	lower := strings.ToLower(text)
-	t := []rune(lower)
-	for _, w := range strings.Fields(strings.ToLower(query)) {
-		s, ok := subsequence([]rune(w), t)
+// FuzzyMatch is how a query matches a text: Rank is the kind of match,
+// Score orders matches of one kind and At holds the matched rune indexes
+// of the text, ascending, for highlighting.
+type FuzzyMatch struct {
+	Rank, Score int
+	At          []int
+}
+
+// The kinds of match, best first: the query's first word is the text's
+// first word ("restart" for Restart web), begins it ("res"), begins a
+// later word of it ("web"), or only appears in it as a subsequence ("rw").
+const (
+	RankLoose = iota
+	RankWordStart
+	RankPrefix
+	RankExact
+)
+
+// Fuzzy matches query against text, ignoring case: every word of query
+// must appear in text as a subsequence, else ok is false. Rank comes from
+// the query's first word and the text's words (FuzzyMatch). Score adds,
+// per query word, its matched runes with bonuses for runs and word starts
+// and more for a word found whole; it loses two points for every
+// space-separated word of text that no match touches, so of two equally
+// matched texts the one the query explains better wins ("res" ranks
+// Restart web above Restart the daemon in place).
+func Fuzzy(query, text string) (m FuzzyMatch, ok bool) {
+	t := []rune(text)
+	for i, r := range t {
+		t[i] = unicode.ToLower(r)
+	}
+	words := strings.Fields(strings.ToLower(query))
+	if len(words) == 0 {
+		return m, false
+	}
+	hit := map[int]bool{}
+	for _, w := range words {
+		s, at, ok := subsequence([]rune(w), t)
 		if !ok {
-			return 0, false
+			return FuzzyMatch{}, false
 		}
 		// A word typed whole beats the same letters spread over a long
 		// name: "restart" ranks Restart above Recreate ... tarot-tests.
-		if strings.Contains(lower, w) {
+		if whole := wholeWord([]rune(w), t); whole >= 0 {
 			s += 2 * len([]rune(w))
+			at = at[:0]
+			for i := range len([]rune(w)) {
+				at = append(at, whole+i)
+			}
 		}
-		score += s
+		m.Score += s
+		for _, i := range at {
+			hit[i] = true
+		}
 	}
-	return score, true
+	for i := range t {
+		if hit[i] {
+			m.At = append(m.At, i)
+		}
+	}
+	m.Rank = rank(words[0], t)
+	// Words of text that no match touches.
+	in, touched := false, false
+	for i, r := range t {
+		switch {
+		case unicode.IsSpace(r):
+			if in && !touched {
+				m.Score -= 2
+			}
+			in, touched = false, false
+		default:
+			in = true
+			touched = touched || hit[i]
+		}
+	}
+	if in && !touched {
+		m.Score -= 2
+	}
+	return m, true
 }
 
+// rank is the kind of match of the query's first word w on the lowered
+// text t, whose words are its runs of letters and digits.
+func rank(w string, t []rune) int {
+	best, first := RankLoose, true
+	for i := 0; i < len(t); {
+		if !isWordRune(t[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(t) && isWordRune(t[j]) {
+			j++
+		}
+		word, rest := string(t[i:j]), string(t[i:])
+		switch {
+		case first && word == w:
+			return RankExact
+		case first && strings.HasPrefix(word, w):
+			best = RankPrefix
+		case strings.HasPrefix(rest, w):
+			best = max(best, RankWordStart)
+		}
+		first, i = false, j
+	}
+	return best
+}
+
+// wholeWord is where w occurs in t as one run, at a word start when it
+// does anywhere, else first; -1 when it does not occur.
+func wholeWord(w, t []rune) int {
+	first := -1
+	for i := 0; i+len(w) <= len(t); i++ {
+		if string(t[i:i+len(w)]) != string(w) {
+			continue
+		}
+		if i == 0 || !isWordRune(t[i-1]) {
+			return i
+		}
+		if first < 0 {
+			first = i
+		}
+	}
+	return first
+}
+
+func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+
 // subsequence scores the best left-to-right match of q in t, trying each
-// place where its first rune occurs.
-func subsequence(q, t []rune) (int, bool) {
+// place where its first rune occurs, and returns the runes it matched.
+func subsequence(q, t []rune) (int, []int, bool) {
 	best, found := 0, false
+	var bestAt []int
+	at := make([]int, 0, len(q))
 	for start := range t {
 		if t[start] != q[0] {
 			continue
 		}
 		score, j, last := 0, 0, -2
+		at = at[:0]
 		for i := start; i < len(t) && j < len(q); i++ {
 			if t[i] != q[j] {
 				continue
@@ -326,9 +434,10 @@ func subsequence(q, t []rune) (int, bool) {
 			if i == last+1 {
 				score += 3
 			}
-			if i == 0 || !unicode.IsLetter(t[i-1]) && !unicode.IsDigit(t[i-1]) {
+			if i == 0 || !isWordRune(t[i-1]) {
 				score += 5
 			}
+			at = append(at, i)
 			last = i
 			j++
 		}
@@ -336,8 +445,9 @@ func subsequence(q, t []rune) (int, bool) {
 			score -= start / 4
 			if !found || score > best {
 				best, found = score, true
+				bestAt = append(bestAt[:0], at...)
 			}
 		}
 	}
-	return best, found
+	return best, bestAt, found
 }

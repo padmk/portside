@@ -153,7 +153,8 @@ func TestTabStripWidths(t *testing.T) {
 		{100, "storefront", []string{"● storefront", "Logs", "Details", "Env", "Metrics", "running · 5 min"}, nil},
 		{60, "storefront", []string{"● storefront", "Logs", "Details", "Env", "Metrics", "running"}, []string{"5 min"}},
 		{40, "web", []string{"● web", "Logs", "Details", "Env", "Metrics"}, nil},
-		{40, "storefront", []string{"● storefront", "Log", "Det", "Met"}, []string{"Details"}},
+		{40, "storefront", []string{"● storefro", " Details Env Metrics "}, nil},
+		{36, "storefront", []string{"● storefr", "Log", "Det", "Met"}, []string{"Details"}},
 		{24, "storefront", []string{"‹", "Details", "›"}, []string{"Metrics"}},
 	} {
 		started := now.Add(-5 * time.Minute)
@@ -223,9 +224,11 @@ func TestMetricsCharts(t *testing.T) {
 	for _, tc := range []struct {
 		status supervisor.Status
 		want   string
-	}{{supervisor.Running, "first sample comes within 2 sec"}, {supervisor.Stopped, "Not running, so no samples"}} {
+	}{{supervisor.Running, "first sample comes within 2 sec"}, {supervisor.Stopped, "No samples yet. The daemon samples CPU and memory while the server runs."}} {
 		v := supervisor.View{Name: "web", Status: tc.status}
-		if got := plain(Metrics(testEnv(v), v, 2*time.Second, 80, 3)[0]); !strings.Contains(got, tc.want) {
+		// The note wraps in a narrow tab instead of being cut.
+		lines := Metrics(testEnv(v), v, 2*time.Second, 30, 6)
+		if got := strings.Join(strings.Fields(plain(strings.Join(lines, " "))), " "); !strings.Contains(got, tc.want) {
 			t.Errorf("%s: empty metrics = %q", tc.status, got)
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/padmk/portside/internal/remote"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/share"
+	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/ui"
 	"github.com/padmk/portside/internal/viewfmt"
 )
@@ -344,7 +345,7 @@ func (c *computers) names() []string {
 
 // lines draws the overlay's content inner cells wide.
 func (c *computers) lines(env *ui.Env, inner int, now time.Time) (lines []string, cursorLine int) {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	g := env.Glyphs
 	cursorLine = -1
 	rows := c.rows()
@@ -494,34 +495,14 @@ func (c *computers) lines(env *ui.Env, inner int, now time.Time) (lines []string
 	if c.busy != "" {
 		add(s.Muted.Render(plain(c.busy) + g.Ellipsis))
 	}
-	if c.pair == nil {
-		add("")
-		lines = append(lines, actionLine(env.Styles, g, cl, c.actions()))
-	}
 	if c.pair != nil {
 		add("")
 		add(s.Text.Render(plain(c.pair.label)+": ") + s.AccentBold.Render(c.pair.masked(g.ID == "ascii")) + s.Accent.Render(g.Cursor))
 		add(s.Muted.Render("Get a code on " + plain(c.pairPeer.Name) + ": open Computers there, or run `" + app.ID + " share code`."))
 	}
+	add("")
+	lines = append(lines, actionLines(env.Styles, g, cl, inner, c.hints(env))...)
 	return lines, cursorLine
-}
-
-// actions are the Computers overlay's actions that need no row, as
-// clickable labels: sharing, a pairing code, disconnect and a new scan.
-// The row actions run on a double click (enter) or a click on their part
-// of the row.
-func (c *computers) actions() [][2]string {
-	share := [2]string{"s", "share on"}
-	var out [][2]string
-	if c.ov != nil && c.ov.Share.Enabled {
-		out = append(out, [2]string{"s", "share off"}, [2]string{"n", "pairing code"})
-	} else {
-		out = append(out, share)
-	}
-	if c.conn() != nil {
-		out = append(out, [2]string{"d", "disconnect"})
-	}
-	return append(out, [2]string{"R", "scan"})
 }
 
 // peerState is a computer's paired, connected, version and servers.
@@ -567,8 +548,11 @@ func mirrorState(muted lipgloss.Style, m remote.Mirror) string {
 	return muted.Render(m.State)
 }
 
-// hints are the footer's keys for the row under the cursor.
-func (c *computers) hints(env *ui.Env, enter string) [][2]string {
+// hints are the overlay's keys, drawn in its box as clickable actions:
+// the row under the cursor's, then sharing, a pairing code, disconnect, a
+// new scan and the way out; while a code is typed, pairing's.
+func (c *computers) hints(env *ui.Env) [][2]string {
+	enter := "enter"
 	if c.pair != nil {
 		return [][2]string{{"type", "the code"}, {enter, "pair and connect"}, {"esc", "cancel"}}
 	}

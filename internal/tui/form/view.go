@@ -24,6 +24,8 @@ const (
 	// errRows and helpRows cap the wrapped error and help under a field.
 	errRows  = 3
 	helpRows = 2
+	// fullRows caps the full value under the highlighted field.
+	fullRows = 6
 )
 
 // Hints are the key hints for the footer while the form is open; esc is
@@ -71,7 +73,7 @@ func Size(w int) int { return max(20, min(maxInner, w-8)) }
 // names, the busy line and the hints. The fields scroll to keep the
 // cursor's field, its help and its error in view.
 func (m *Model) View(env *ui.Env, w, h int) string {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	g := env.Glyphs
 	inner := Size(w)
 	labelW := 0
@@ -109,7 +111,7 @@ func (m *Model) View(env *ui.Env, w, h int) string {
 		first := ""
 		switch {
 		case selected && !m.editing:
-			first = theme.Fill(s.OverlaySelected, ansi.Strip(g.Cursor+" "+label+pad+values[0]), inner)
+			first = overlay.Highlight(s, g.Cursor+" "+label+pad+values[0], inner)
 		case selected:
 			first = s.OverlaySelected.Render(g.Cursor+" "+label) + s.Surface.Render(pad) + values[0]
 		default:
@@ -124,9 +126,14 @@ func (m *Model) View(env *ui.Env, w, h int) string {
 				rows = append(rows, row{text: s.Surface.Render(indent) + s.Error.Render(l), field: i})
 			}
 		}
+		if selected && !m.editing {
+			for _, l := range m.fullValue(i, valueW, g.Ellipsis) {
+				rows = append(rows, row{text: s.Surface.Render(indent) + s.Text2.Render(l), field: i})
+			}
+		}
 		if selected {
 			for _, l := range wrap(f.Help, valueW, helpRows, g.Ellipsis) {
-				rows = append(rows, row{text: s.Surface.Render(indent) + s.Muted.Render(l), field: i})
+				rows = append(rows, row{text: s.Surface.Render(indent) + s.Text2.Render(l), field: i})
 			}
 		}
 	}
@@ -270,6 +277,25 @@ func (m *Model) shownValue(env *ui.Env, s theme.Styles, i, w int) []string {
 		return []string{value.Render(cut(text, w-ansi.StringWidth(why), env.Glyphs.Ellipsis)) + s.Muted.Render(why)}
 	}
 	return []string{value.Render(cut(text, w, env.Glyphs.Ellipsis))}
+}
+
+// fullValue is field i's whole value wrapped in w cells, for the line
+// under the highlighted field, when its one-line value is cut to fit;
+// none when it fits or the field shows its value on several lines.
+func (m *Model) fullValue(i, w int, tail string) []string {
+	f := &m.Fields[i]
+	switch {
+	case f.Kind == Toggle || f.Kind == fold || (f.Kind == List && f.Lines) || f.Value == "":
+		return nil
+	}
+	room := w
+	if why := "  " + f.ReadOnly; f.ReadOnly != "" && w-ansi.StringWidth(why) >= 8 {
+		room -= ansi.StringWidth(why)
+	}
+	if ansi.StringWidth(viewfmt.PlainText(f.Value)) <= room {
+		return nil
+	}
+	return wrap(f.Value, w, fullRows, tail)
 }
 
 func placeholder(f *Field) string {

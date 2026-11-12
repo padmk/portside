@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/padmk/portside/internal/supervisor"
 	"github.com/padmk/portside/internal/tui/act"
 	"github.com/padmk/portside/internal/tui/keymap"
 	"github.com/padmk/portside/internal/tui/theme"
@@ -386,7 +387,8 @@ func (p *Pane) Status() string {
 }
 
 // View renders the lines that fit, newest at the bottom, and the search
-// prompt while it is open.
+// prompt while it is open; focused is whether the pane has the keys, which
+// decides what an empty log says to do.
 func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 	p.glyphs = env.Glyphs
 	if w <= 0 || h <= 0 {
@@ -409,7 +411,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 	case p.seqLen() == 0 && p.filtering():
 		out = centered(env, "No lines match "+p.search.query, w, rows)
 	case p.seqLen() == 0:
-		out = centered(env, "No output yet", w, rows)
+		out = centered(env, "No output yet", w, rows, p.emptyContext(env, focused))
 	default:
 		out = p.visibleRows(env, rows)
 	}
@@ -428,7 +430,29 @@ func (p *Pane) dots() string {
 	return "…"
 }
 
-func centered(env *ui.Env, text string, w, h int) []string {
+// emptyContext is the line under "No output yet" that says why and what
+// to do: a stopped server's state and how to start it from where the keys
+// are, space in the servers list (the pane is not focused) or its command
+// line here, where space does nothing; "" else.
+func (p *Pane) emptyContext(env *ui.Env, focused bool) string {
+	if env.State == nil {
+		return ""
+	}
+	for _, v := range env.State.Servers {
+		if v.Name == p.server && v.Display() == supervisor.Display(supervisor.Stopped) {
+			how := "space starts it"
+			if focused {
+				how = ":start " + keymap.Quote(p.server)
+			}
+			return "stopped" + env.Glyphs.Separator + how
+		}
+	}
+	return ""
+}
+
+// centered is text in the middle of w x h, and under it context when
+// there is one and room for it.
+func centered(env *ui.Env, text string, w, h int, context ...string) []string {
 	out := make([]string, h)
 	blank := strings.Repeat(" ", w)
 	for i := range out {
@@ -437,9 +461,18 @@ func centered(env *ui.Env, text string, w, h int) []string {
 	if h == 0 {
 		return out
 	}
-	text = ansi.Truncate(text, w, env.Glyphs.Ellipsis)
-	pad := max(0, (w-ansi.StringWidth(text))/2)
-	out[(h-1)/2] = ui.Fit(strings.Repeat(" ", pad)+env.Styles.Muted.Render(text), w)
+	line := func(y int, text string) {
+		text = ansi.Truncate(text, w, env.Glyphs.Ellipsis)
+		pad := max(0, (w-ansi.StringWidth(text))/2)
+		out[y] = ui.Fit(strings.Repeat(" ", pad)+env.Styles.Text2.Render(text), w)
+	}
+	y := (h - 1) / 2
+	line(y, text)
+	for _, c := range context {
+		if y++; c != "" && y < h {
+			line(y, c)
+		}
+	}
 	return out
 }
 

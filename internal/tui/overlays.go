@@ -110,20 +110,33 @@ func (m *model) messagesKey(k string) tea.Cmd {
 	case "esc", "q":
 		m.messages = nil
 	case "enter":
-		if l.cursor < len(m.history) {
-			if it := m.history[l.cursor].Item; it.Kind == ui.SelectServer && m.hasServer(it.Name) {
-				m.messages = nil
+		if it, ok := m.messageTarget(); ok {
+			m.messages = nil
+			if it.Kind == ui.SelectServer {
 				return m.selectServer(it)
 			}
-			if it := m.history[l.cursor].Item; it.Kind == ui.SelectContainer {
-				if _, ok := containers.Find(m.env.State, it); ok {
-					m.messages = nil
-					return m.selectContainer(it)
-				}
-			}
+			return m.selectContainer(it)
 		}
 	}
 	return nil
+}
+
+// messageTarget is the server or container the highlighted message is
+// about, when it still exists and enter can select it.
+func (m *model) messageTarget() (ui.Selection, bool) {
+	l := m.messages
+	if l == nil || l.cursor < 0 || l.cursor >= len(m.history) {
+		return ui.Selection{}, false
+	}
+	it := m.history[l.cursor].Item
+	switch it.Kind {
+	case ui.SelectServer:
+		return it, m.hasServer(it.Name)
+	case ui.SelectContainer:
+		_, ok := containers.Find(m.env.State, it)
+		return it, ok
+	}
+	return ui.Selection{}, false
 }
 
 func (l *messageList) move(n, total int) {
@@ -167,48 +180,119 @@ func (m *model) fitMenu(menu *overlay.Menu) {
 	menu.MaxHeight = max(5, m.height-m.bodyTop()-1)
 }
 
-// menuSections are the sections of the servers' menu in order, and
-// sectionOf files an action under one.
-var menuSections = []string{"Server", "Group", "Config", "Computers", "Daemon", "Agents"}
-
-func sectionOf(id string) string {
-	switch id {
-	case "start-group", "stop-group", "restart-group":
-		return "Group"
-	case "new", "config", "settings":
-		return "Config"
-	case "computers":
-		return "Computers"
-	case "daemon", "upgrade", "restart-daemon":
-		return "Daemon"
-	case "setup":
-		return "Agents"
-	}
-	return "Server"
+// menuLabels are the pane menus' short labels for the actions' longer
+// help texts; the help and the palette keep the long ones.
+var menuLabels = map[string]string{
+	"Attach to its terminal":                             "Attach",
+	"Edit its config entry":                              "Edit config entry",
+	"Shell in its folder":                                "Shell in folder",
+	"Open folder in editor":                              "Open in editor",
+	"Open a terminal app there":                          "Open in terminal app",
+	"Disable (skipped by --all and restore)":             "Disable",
+	"Start and take over the port":                       "Take over the port",
+	"Clear the daemon's scrollback":                      "Clear scrollback",
+	"Shell in the container":                             "Shell",
+	"Open the first published port in the browser":       "Open in browser",
+	"Copy the first published port's address":            "Copy address",
+	"Recreate the service":                               "Recreate",
+	"Rebuild the image and recreate":                     "Rebuild and recreate",
+	"Pull the image and recreate":                        "Pull and recreate",
+	"Start the project's containers":                     "Start project",
+	"Stop the project's containers":                      "Stop project",
+	"Remove the project's containers (volumes are kept)": "Remove project",
+	"Dismiss the finished compose job":                   "Dismiss job",
+	"Kill the process":                                   "Kill process",
+	"Start the blocked server, taking over the port":     "Take over the port",
+	"Copy the address":                                   "Copy address",
+	"Only matching lines":                                "Only matching",
+	"Follow new output":                                  "Follow",
 }
 
-// sectioned groups the servers' menu on a server by section, keeping the
-// order within each; a group header's menu is one section and stays as
-// it is.
-func sectioned(menu overlay.Menu) overlay.Menu {
+// bulkAction reports whether a menu item of target t acts on the
+// target's group (a server's) or project (a container's) rather than on
+// the target itself.
+func bulkAction(t ui.Selection, id string) bool {
+	switch t.Kind {
+	case ui.SelectServer:
+		return strings.HasSuffix(id, "-group")
+	case ui.SelectContainer:
+		return strings.HasSuffix(id, "-project")
+	}
+	return false
+}
+
+// menuSection is the heading of a menu item of target t: the target's
+// kind, or for a bulk action (bulkAction) the group or project it acts on
+// by name ("Group shop", "Group other" for the ungrouped servers).
+func (m *model) menuSection(t ui.Selection, id string) string {
+	bulk := bulkAction(t, id)
+	switch t.Kind {
+	case ui.SelectServer:
+		if !bulk {
+			return "Server"
+		}
+		v, _ := m.server(t.Name)
+		if v.Group == "" {
+			return "Group other"
+		}
+		return "Group " + plainText(v.Group)
+	case ui.SelectContainer:
+		if !bulk {
+			return "Container"
+		}
+		if c, ok := containers.Find(m.env.State, t); ok && c.Project != "" {
+			return "Project " + plainText(c.Project)
+		}
+		return "Project"
+	}
+	return ""
+}
+
+// finishMenu gives a pane menu its short labels and sections, the target's
+// own actions before its group's or project's, and the last entry, which
+// opens the palette with every action.
+func (m *model) finishMenu(menu overlay.Menu, t ui.Selection) overlay.Menu {
+	if len(menu.Items) == 0 {
+		return menu
+	}
 	for i := range menu.Items {
-		menu.Items[i].Section = sectionOf(menu.Items[i].ActionID)
+		it := &menu.Items[i]
+		if l, ok := menuLabels[it.Label]; ok {
+			it.Label = l
+		}
+		it.Section = m.menuSection(t, it.ActionID)
 	}
 	slices.SortStableFunc(menu.Items, func(a, b overlay.MenuItem) int {
-		return slices.Index(menuSections, a.Section) - slices.Index(menuSections, b.Section)
+		return b2i(bulkAction(t, a.ActionID)) - b2i(bulkAction(t, b.ActionID))
 	})
+	if a, ok := m.env.Keys.ByID("palette"); ok {
+		it := overlay.ItemFor(a, m.ascii())
+		it.Label = "All actions"
+		menu.Items = append(menu.Items, it)
+	}
 	return menu
 }
 
 // paneMenu is the menu of the pane at index pane and the target its
 // actions take, resolved for what the pane shows: the servers' menu acts
-// on the cursor's target, the Details, Env and Metrics tabs' on the shown
-// server or container, and the logs' own actions on the shown source.
+// on the cursor's target (a server, with its group's actions, or a group),
+// the Details, Env and Metrics tabs' on the shown server or container, and
+// the logs' own actions on the shown source. Every menu ends with the
+// palette; the config, the computers, the daemon and the agents are
+// there, on the command line and in the help, not in a pane's menu.
 func (m *model) paneMenu(pane int) (overlay.Menu, ui.Selection) {
+	menu, t := m.paneActions(pane)
+	return m.finishMenu(menu, t), t
+}
+
+// paneActions are the actions of paneMenu before finishMenu.
+func (m *model) paneActions(pane int) (overlay.Menu, ui.Selection) {
 	switch scope := m.panes()[pane].Scope(); scope {
 	case keymap.ScopeServers:
 		t := m.cursorTarget()
-		return sectioned(m.withSystemMenu(m.withFormMenu(m.serverMenu(t), t), t)), t
+		menu := m.serverMenu(t)
+		menu.Items = slices.DeleteFunc(menu.Items, func(it overlay.MenuItem) bool { return it.ActionID == "new" })
+		return menu, t
 	case keymap.ScopeDetail:
 		if m.env.Selected.Kind == ui.SelectContainer {
 			return m.shownItemMenu(), m.env.Selected
@@ -302,7 +386,7 @@ func (m *model) menuRun(i int) tea.Cmd {
 	case ui.SelectContainer, ui.SelectProject, ui.SelectPort:
 		// Every container, project and port action of a menu runs on
 		// its target, from the list or from the main panel alike.
-		if it.ActionID != "start-docker" {
+		if it.ActionID != "start-docker" && it.ActionID != "palette" {
 			return m.act(it.ActionID, c.target)
 		}
 	case ui.SelectServer, ui.SelectGroup:
@@ -330,6 +414,10 @@ func (m *model) withOverlays(out string) string {
 		out = overlay.Place(out, t.View, m.width-w, m.bodyTop())
 	}
 	if c := m.menu; c != nil {
+		// The highlighted item's reason can make the box taller: it stays
+		// above the footer, and clicks follow it.
+		_, h := c.Size()
+		c.y = max(m.bodyTop(), min(c.y, m.height-1-h))
 		out = overlay.Place(out, c.View(s, g), c.x, c.y)
 	}
 	if p := m.palette; p != nil {
@@ -398,14 +486,21 @@ func boxSize(box string) (w, h int) {
 	return w, len(rows)
 }
 
-// messagesView renders the message history, newest last, at most 100 cells
-// wide and h-4 rows tall, with the highlighted message marked; a message
-// about a server says enter selects it.
+// messagesView renders the message history, newest last, as wide as its
+// longest message (at least 40 cells, at most 100) and at most h-4 rows
+// tall, with the highlighted message marked, and its
+// keys: moving when there are messages, selecting the highlighted
+// message's server or container when enter can, closing.
 func (m *model) messagesView() string {
-	s := m.env.Styles.OnRaised()
+	s := overlay.Styles(m.env.Styles)
+	widest := 0
+	for _, e := range m.history {
+		widest = max(widest, len("15:04:05  ")+ansi.StringWidth(plainText(e.Text)))
+	}
 	inner := max(min(100, m.width)-4, 1)
+	inner = min(inner, max(widest, 36))
 	l := m.messages
-	rows := max(min(m.height-4, len(m.history)+3)-3, 1)
+	rows := max(min(m.height-4, len(m.history)+4)-4, 1)
 	l.cursor = max(0, min(l.cursor, len(m.history)-1))
 	if l.cursor < l.offset {
 		l.offset = l.cursor
@@ -419,18 +514,22 @@ func (m *model) messagesView() string {
 		e := m.history[i]
 		line := s.Muted.Render(e.At.Format("15:04:05")) + s.Surface.Render("  ") + levelStyle(s, e.Level).Render(plainText(e.Text))
 		if i == l.cursor {
-			line = theme.Fill(overlay.Highlight(s), ansi.Strip(line), inner)
+			line = overlay.Highlight(s, line, inner)
 		}
 		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
 		lines = append(lines, s.Muted.Render("No messages yet"))
 	}
-	pairs := [][2]string{{"j/k", "move"}, {"esc", "close"}}
-	if l.cursor < len(m.history) && m.history[l.cursor].Item.Kind == ui.SelectServer {
-		pairs = append([][2]string{{overlay.KeyLabel("enter", m.ascii()), "select " + m.history[l.cursor].Item.Name}}, pairs...)
+	var pairs [][2]string
+	if len(m.history) > 1 {
+		pairs = append(pairs, [2]string{"j/k", "move"})
 	}
-	lines = append(lines, overlay.Hint(m.env.Styles, m.env.Glyphs, pairs...))
+	if it, ok := m.messageTarget(); ok {
+		pairs = append(pairs, [2]string{overlay.KeyLabel("enter", m.ascii()), "select " + plainText(it.Name)})
+	}
+	pairs = append(pairs, [2]string{"esc", "close"})
+	lines = append(lines, "", overlay.HintFit(m.env.Styles, m.env.Glyphs, inner, pairs...))
 	return overlay.Frame(m.env.Styles, m.env.Glyphs, "Messages", lines, inner)
 }
 
@@ -498,20 +597,12 @@ func (m *model) logsMenu() overlay.Menu {
 				}
 			}
 		case "attach":
-			switch sel.Kind {
-			case ui.SelectContainer:
+			if sel.Kind == ui.SelectContainer {
 				it.Label = "Shell in the container"
-				it.Off = containers.Off(&m.env, "shell", sel)
-			default:
-				it.Off = m.off("attach", sel)
 			}
+			it.Off = m.logsOff(it.ActionID)
 		case "clear-logs":
-			switch sel.Kind {
-			case ui.SelectContainer:
-				it.Off = "the container engine keeps its logs"
-			default:
-				it.Off = m.off("clear-logs", sel)
-			}
+			it.Off = m.logsOff(it.ActionID)
 		}
 	}
 	return menu

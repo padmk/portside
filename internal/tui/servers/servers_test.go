@@ -127,9 +127,10 @@ func TestGroupCountKeepsTasksApart(t *testing.T) {
 		{"tasks", []supervisor.View{{Oneshot: true, Done: true, Status: supervisor.Exited}, {Oneshot: true, Status: supervisor.Stopped}}, "✓ 1/2"},
 		{"mixed", []supervisor.View{{Status: supervisor.Running}, {Oneshot: true, Done: true, Status: supervisor.Exited}}, "1/1 · ✓ 1/1"},
 		{"crash", []supervisor.View{{Status: supervisor.Crashed}, {Status: supervisor.Running}}, "◆ 1 · 1/2"},
+		{"long", []supervisor.View{{Status: supervisor.Crashed}, {Status: supervisor.Running}, {Oneshot: true, Done: true, Status: supervisor.Exited}}, "◆ 1 · 1/2 up · ✓ 1/1"},
 	} {
 		var b strings.Builder
-		for _, s := range groupCount(env, env.Styles, c.servers) {
+		for _, s := range groupCount(env, env.Styles, c.servers, c.name == "long") {
 			b.WriteString(s.text)
 		}
 		if got := b.String(); got != c.want {
@@ -152,13 +153,17 @@ func TestFilterMatchesTheDisplayedState(t *testing.T) {
 }
 
 func TestSparklineAlphabets(t *testing.T) {
-	if got := sparkline(theme.ASCII.Spark, []float64{0, 1, 2, 4}, 4); got != "_.-#" {
+	if got := sparkline(theme.ASCII.Spark, []float64{0, 1, 2, 4}, 4, 0); got != "_.-#" {
 		t.Errorf("levels = %q", got)
 	}
-	if got := sparkline(theme.ASCII.Spark, []float64{2, 4}, 4); got != "  -#" {
+	if got := sparkline(theme.ASCII.Spark, []float64{2, 4}, 4, 0); got != "  -#" {
 		t.Errorf("short levels = %q", got)
 	}
-	got := sparkline(theme.Unicode.Spark, []float64{1}, 4)
+	// A flat line at 1 percent of a core stays low under the CPU floor.
+	if got := sparkline(theme.ASCII.Spark, []float64{1, 1, 1, 1}, 4, theme.CPUFloor); got != "...." {
+		t.Errorf("idle levels = %q, want low steps", got)
+	}
+	got := sparkline(theme.Unicode.Spark, []float64{1}, 4, 0)
 	if strings.ContainsRune(got, '⠀') || ansi.StringWidth(got) != 4 {
 		t.Errorf("braille = %q, want spaces before the first sample", got)
 	}
