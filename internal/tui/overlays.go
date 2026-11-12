@@ -402,7 +402,7 @@ func boxSize(box string) (w, h int) {
 // wide and h-4 rows tall, with the highlighted message marked; a message
 // about a server says enter selects it.
 func (m *model) messagesView() string {
-	s := m.env.Styles.OnRaised()
+	s := overlay.Styles(m.env.Styles)
 	inner := max(min(100, m.width)-4, 1)
 	l := m.messages
 	rows := max(min(m.height-4, len(m.history)+3)-3, 1)
@@ -419,7 +419,7 @@ func (m *model) messagesView() string {
 		e := m.history[i]
 		line := s.Muted.Render(e.At.Format("15:04:05")) + s.Surface.Render("  ") + levelStyle(s, e.Level).Render(plainText(e.Text))
 		if i == l.cursor {
-			line = theme.Fill(overlay.Highlight(s), ansi.Strip(line), inner)
+			line = overlay.Highlight(s, line, inner)
 		}
 		lines = append(lines, line)
 	}

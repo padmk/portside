@@ -65,9 +65,23 @@ func keyName(k string, ascii bool) string {
 	return k
 }
 
-// pen draws inside an overlay: its styles are the theme's on Raised
-// (Styles.OnRaised), so styled runs never punch holes into the overlay's
-// background, and its borders come from the glyph set.
+// Styles are the styles of what an overlay draws inside its box: the
+// theme's own where the panes show the terminal's background (the
+// Terminal family, whose overlays are the terminal's background inside one
+// accent border), else the theme's on Raised (Styles.OnRaised), so styled
+// runs never punch holes into the overlay's background.
+func Styles(s theme.Styles) theme.Styles {
+	if _, plain := s.Palette.Surface.(lipgloss.NoColor); plain {
+		return s
+	}
+	return s.OnRaised()
+}
+
+// pen draws inside an overlay with Styles, and its borders with the glyph
+// set's lines in Accent. The border's cells carry the background around
+// the box (the screen's, under a modal overlay), so the box is exactly its
+// border and its interior, with no band of the interior's color around
+// the lines.
 type pen struct {
 	s      theme.Styles
 	g      theme.Glyphs
@@ -75,18 +89,26 @@ type pen struct {
 }
 
 func newPen(s theme.Styles, g theme.Glyphs) pen {
-	r := s.OnRaised()
-	return pen{s: r, g: g, border: r.FrameFocused}
+	return pen{s: Styles(s), g: g, border: edge(s, s.Screen)}
 }
 
-// selected is the style of the highlighted row in a list inside an
-// overlay (theme.Styles.OverlaySelected), since the Raised background of
-// a selected pane row is the overlay's own.
+// edge is the border's style over the background of around.
+func edge(s theme.Styles, around lipgloss.Style) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(s.Palette.Accent).Background(around.GetBackground())
+}
+
+// selected is OverlaySelected, for a highlighted run that is not a whole
+// row (a dialog's button); rows use Highlight.
 func (p pen) selected() lipgloss.Style { return p.s.OverlaySelected }
 
-// Highlight is the highlighted row's style inside an overlay drawn with
-// s.
-func Highlight(s theme.Styles) lipgloss.Style { return s.OverlaySelected }
+// Highlight draws text as the highlighted row of a list inside an overlay,
+// w cells wide (cut or padded): the text's own colors give way to
+// OverlaySelected's foreground on its background (reverse and bold when
+// Mono). Every selected row of an overlay is drawn this way.
+func Highlight(s theme.Styles, text string, w int) string {
+	sel := s.OverlaySelected
+	return theme.Fill(sel, sel.Render(ansi.Strip(text)), w)
+}
 
 func (p pen) space(n int) string {
 	if n <= 0 {
@@ -123,7 +145,7 @@ func (p pen) box(title string, lines []string, inner int) string {
 
 // Frame draws lines inner cells wide in an overlay box with the title in
 // its top border, as the help and the menus are drawn; lines are drawn
-// with styles from s.OnRaised().
+// with Styles(s).
 func Frame(s theme.Styles, g theme.Glyphs, title string, lines []string, inner int) string {
 	return newPen(s, g).box(title, lines, inner)
 }
@@ -131,7 +153,7 @@ func Frame(s theme.Styles, g theme.Glyphs, title string, lines []string, inner i
 // Hint is the closing line of the help and messages overlays: key and
 // word pairs separated by the glyph set's separator.
 func Hint(s theme.Styles, g theme.Glyphs, pairs ...[2]string) string {
-	r := s.OnRaised()
+	r := Styles(s)
 	parts := make([]string, len(pairs))
 	for i, p := range pairs {
 		parts[i] = r.Key.Render(p[0]) + r.Surface.Render(" ") + r.Muted.Render(p[1])
@@ -198,13 +220,21 @@ func Place(base, box string, x, y int) string {
 }
 
 // Dimmed is screen as it lies under a modal overlay: every row stripped
-// of its own colors and drawn in Dim (muted, faint) on the screen's
-// background, w cells wide, so the overlay stands out and nothing behind
-// it competes for attention.
+// of its own colors and drawn in Dim's foreground and faint attribute on
+// the screen's background, w cells wide, so the overlay stands out and
+// nothing behind it competes for attention. Without colors only the faint
+// attribute remains, which keeps the text legible.
 func Dimmed(s theme.Styles, screen string, w int) string {
+	dim := lipgloss.NewStyle().Foreground(s.Dim.GetForeground()).Background(s.Screen.GetBackground()).Faint(true)
 	rows := strings.Split(screen, "\n")
 	for i, r := range rows {
-		rows[i] = theme.Fill(s.Screen, s.Dim.Render(ansi.Strip(r)), w)
+		r = ansi.Strip(r)
+		if rw := ansi.StringWidth(r); rw > w {
+			r = ansi.Truncate(r, w, "")
+		} else {
+			r += strings.Repeat(" ", w-rw)
+		}
+		rows[i] = dim.Render(r)
 	}
 	return strings.Join(rows, "\n")
 }

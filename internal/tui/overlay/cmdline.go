@@ -197,25 +197,40 @@ func (c *CmdLine) View(s theme.Styles, w int) string {
 }
 
 // candidates is the row of completions, from the chosen one's
-// neighborhood, as many as fit.
+// neighborhood, as many as fit: the one tab puts in the line highlighted
+// (the chosen one while cycling, else the first in the accent color),
+// how many more there are, and at the right a tab cue when it fits.
 func (c *CmdLine) candidates(s theme.Styles, w int) string {
 	items := c.comp.Items
+	next := c.chosen
 	first := max(0, c.chosen-2)
+	cue := s.Key.Render("tab") + s.Surface.Render(" ") + s.Muted.Render("complete")
+	if c.chosen >= 0 {
+		cue = s.Key.Render("tab") + s.Surface.Render(" ") + s.Muted.Render("next")
+	}
+	cueW := ansi.StringWidth(cue) + 2
 	var parts []string
 	used := 0
 	for i := first; i < len(items); i++ {
-		st := s.Text2
-		if i == c.chosen {
-			st = s.OverlaySelected
+		part := s.Text2.Render(" " + items[i] + " ")
+		switch {
+		case i == next:
+			part = s.OverlaySelected.Render(" " + items[i] + " ")
+		case next < 0 && i == 0:
+			part = s.AccentBold.Render(" " + items[i] + " ")
 		}
-		part := st.Render(" " + items[i] + " ")
 		pw := ansi.StringWidth(part) + 1
-		if used+pw > w && len(parts) > 0 {
-			parts = append(parts, s.Muted.Render("+"+strconv.Itoa(len(items)-i)))
+		if used+pw > w-cueW && len(parts) > 0 {
+			parts = append(parts, s.Muted.Render("+"+strconv.Itoa(len(items)-i)+" more"))
+			used += ansi.StringWidth("+"+strconv.Itoa(len(items)-i)+" more") + 1
 			break
 		}
 		parts = append(parts, part)
 		used += pw
 	}
-	return s.Row(strings.Join(parts, s.Surface.Render(" ")), w)
+	row := strings.Join(parts, s.Surface.Render(" "))
+	if gap := w - ansi.StringWidth(row) - ansi.StringWidth(cue) - 1; gap >= 2 {
+		row += s.Surface.Render(strings.Repeat(" ", gap)) + cue
+	}
+	return s.Row(row, w)
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/tui/overlay"
-	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
 )
 
@@ -213,7 +212,8 @@ func (h *Host) Hints(env *ui.Env, ascii bool) [][2]string {
 	return nil
 }
 
-// View draws the open overlay centered over the dimmed screen.
+// View draws the open overlay centered over the screen (the root dims
+// it).
 func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
 	inner := max(20, min(96, w-8))
 	title, lines, cursor := "", []string(nil), -1
@@ -233,14 +233,11 @@ func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
 	rows := max(1, hgt-4)
 	lines = h.window(lines, cursor, rows)
 	h.placed(env, w, hgt, inner, h.scroll, len(lines))
-	s := env.Styles.OnRaised()
-	for i, l := range lines {
-		if i == h.cursorAt {
-			lines[i] = theme.Fill(overlay.Highlight(s), ansi.Strip(l), inner)
-		}
+	if h.cursorAt >= 0 && h.cursorAt < len(lines) {
+		lines[h.cursorAt] = overlay.Highlight(env.Styles, lines[h.cursorAt], inner)
 	}
 	box := overlay.Frame(env.Styles, env.Glyphs, title, lines, inner)
-	return overlay.Center(overlay.Dimmed(env.Styles, screen, w), box)
+	return overlay.Center(screen, box)
 }
 
 // window keeps the cursor's line, or the scroll offset, inside rows lines
@@ -266,7 +263,7 @@ func (h *Host) window(lines []string, cursor, rows int) []string {
 // daemonView is the daemon's details as label and value rows, long
 // values wrapped under their value column.
 func (h *Host) daemonView(env *ui.Env, inner int) []string {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	const labelW = 11
 	var out []string
 	cl := &h.daemonClicks

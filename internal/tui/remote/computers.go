@@ -16,6 +16,7 @@ import (
 	"github.com/padmk/portside/internal/remote"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/share"
+	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/ui"
 	"github.com/padmk/portside/internal/viewfmt"
 )
@@ -344,7 +345,7 @@ func (c *computers) names() []string {
 
 // lines draws the overlay's content inner cells wide.
 func (c *computers) lines(env *ui.Env, inner int, now time.Time) (lines []string, cursorLine int) {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	g := env.Glyphs
 	cursorLine = -1
 	rows := c.rows()

@@ -43,7 +43,7 @@ func (c *clicks) on(x, end int, key string) {
 // actionLine draws key and label pairs as the overlay's clickable actions
 // (as overlay.Hint draws them) and records each pair's span.
 func actionLine(s theme.Styles, g theme.Glyphs, cl *clicks, pairs [][2]string) string {
-	r := s.OnRaised()
+	r := overlay.Styles(s)
 	out, x := "", 0
 	cl.line(-1)
 	for i, p := range pairs {

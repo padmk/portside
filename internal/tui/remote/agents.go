@@ -9,6 +9,7 @@ import (
 	"github.com/padmk/portside/internal/agentsetup"
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
+	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/ui"
 )
 
@@ -172,7 +173,7 @@ func stateWord(st agentsetup.State) string {
 }
 
 func (a *agents) lines(env *ui.Env) (lines []string, cursorLine int) {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	g := env.Glyphs
 	cursorLine = -1
 	cl := &a.clicks

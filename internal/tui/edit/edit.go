@@ -506,8 +506,8 @@ func (e *Editor) Hints(ascii bool) [][2]string {
 	return [][2]string{{"esc", "cancel"}}
 }
 
-// View draws the overlay centered over the screen, which is dimmed under
-// it, and keeps the box's place for clicks.
+// View draws the overlay centered over the screen (the root dims it) and
+// keeps the box's place for clicks.
 func (e *Editor) View(env *ui.Env, screen string, w, h int) string {
 	box := ""
 	switch {
@@ -516,14 +516,14 @@ func (e *Editor) View(env *ui.Env, screen string, w, h int) string {
 	case e.picker != nil:
 		box = e.picker.view(env, w, h)
 	default:
-		box = overlay.Frame(env.Styles, env.Glyphs, "", []string{env.Styles.OnRaised().Muted.Render(e.loading)}, max(20, ansi.StringWidth(e.loading)))
+		box = overlay.Frame(env.Styles, env.Glyphs, "", []string{overlay.Styles(env.Styles).Muted.Render(e.loading)}, max(20, ansi.StringWidth(e.loading)))
 	}
 	bw, bh := 0, strings.Count(box, "\n")+1
 	for _, r := range strings.Split(box, "\n") {
 		bw = max(bw, ansi.StringWidth(r))
 	}
 	e.at = [2]int{max(0, (w-bw)/2), max(0, (h-bh)/2)}
-	return overlay.Place(overlay.Dimmed(env.Styles, screen, w), box, e.at[0], e.at[1])
+	return overlay.Place(screen, box, e.at[0], e.at[1])
 }
 
 // Mouse handles the mouse while the overlay is open: a click on a field

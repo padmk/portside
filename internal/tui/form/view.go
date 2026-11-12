@@ -71,7 +71,7 @@ func Size(w int) int { return max(20, min(maxInner, w-8)) }
 // names, the busy line and the hints. The fields scroll to keep the
 // cursor's field, its help and its error in view.
 func (m *Model) View(env *ui.Env, w, h int) string {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	g := env.Glyphs
 	inner := Size(w)
 	labelW := 0
@@ -109,7 +109,7 @@ func (m *Model) View(env *ui.Env, w, h int) string {
 		first := ""
 		switch {
 		case selected && !m.editing:
-			first = theme.Fill(s.OverlaySelected, ansi.Strip(g.Cursor+" "+label+pad+values[0]), inner)
+			first = overlay.Highlight(s, g.Cursor+" "+label+pad+values[0], inner)
 		case selected:
 			first = s.OverlaySelected.Render(g.Cursor+" "+label) + s.Surface.Render(pad) + values[0]
 		default:

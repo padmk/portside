@@ -185,7 +185,7 @@ func (e *Editor) added(msg addedMsg) tea.Cmd {
 // folder on each row, the command under the cursor's row, then the row
 // for an empty form.
 func (p *picker) view(env *ui.Env, w, h int) string {
-	s := env.Styles.OnRaised()
+	s := overlay.Styles(env.Styles)
 	g := env.Glyphs
 	inner := form.Size(w)
 	nameW := 4
@@ -232,7 +232,7 @@ func (p *picker) view(env *ui.Env, w, h int) string {
 			}
 		}
 		if i == p.cursor {
-			rows = append(rows, line{theme.Fill(s.OverlaySelected, g.Cursor+" "+mark+head+dir, inner), i})
+			rows = append(rows, line{overlay.Highlight(s, g.Cursor+" "+mark+head+dir, inner), i})
 			rows = append(rows, line{s.Surface.Render("    ") + s.Muted.Render(cutTo(viewfmt.PlainText(it.Cmd), inner-4, g.Ellipsis)), i})
 			errRow()
 			continue
@@ -242,7 +242,7 @@ func (p *picker) view(env *ui.Env, w, h int) string {
 	}
 	manual := "Empty form (m): enter every key yourself"
 	if p.manual() {
-		rows = append(rows, line{theme.Fill(s.OverlaySelected, g.Cursor+" "+manual, inner), len(p.items)})
+		rows = append(rows, line{overlay.Highlight(s, g.Cursor+" "+manual, inner), len(p.items)})
 	} else {
 		rows = append(rows, line{s.Surface.Render("  ") + s.Accent.Render(manual), len(p.items)})
 	}
