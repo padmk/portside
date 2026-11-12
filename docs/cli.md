@@ -113,7 +113,7 @@ Under WSL the browser runs on Windows and reaches the daemon through the WSL net
 
 ## Stopping and readiness
 
-`down` refuses to run without a name or `--all`. Stopping a server also cancels a pending automatic restart, which `status --json` shows as `restartPending`. Starting a server that is still stopping (`ensure` or `up` right after `down`) starts it again once it and every process it started have exited, unless another stop follows.
+`down` refuses to run without a name or `--all`. Stopping a server also cancels a pending automatic restart, which `status --json` shows as `restartPending`. Starting a server that is still stopping (`ensure` or `up` right after `down`), or one that has just exited while its last output is still being read, starts it again once it and every process it started have exited, unless another stop follows.
 
 A server that is still starting after 10 seconds reports the port or health check it is waiting for. When its process tree listens on another port, `listenPorts` and the status note name that port.
 
