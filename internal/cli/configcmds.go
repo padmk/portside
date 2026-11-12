@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/discover"
+	"github.com/padmk/portside/internal/editor"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/ports"
 	"github.com/padmk/portside/internal/supervisor"
@@ -212,15 +212,7 @@ func cmdConfig(e *env, args []string) error {
 		if err := e.ensureConfig(); err != nil {
 			return err
 		}
-		ed := os.Getenv("VISUAL")
-		if ed == "" {
-			ed = os.Getenv("EDITOR")
-		}
-		if ed == "" {
-			ed = "vi"
-		}
-		parts := strings.Fields(ed)
-		c := exec.Command(parts[0], append(parts[1:], e.cfgPath)...)
+		c := editor.Command(e.cfgPath)
 		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 		return c.Run()
 	case "check":
