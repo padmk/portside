@@ -68,7 +68,7 @@ func Default() *Registry {
 			a.Arg = ArgServer
 		}
 		switch v[0] {
-		case "toggle", "restart", "attach", "open":
+		case "toggle", "restart", "attach", "open", "edit":
 			a.Footer = true
 		case "clear-logs", "delete":
 			a.Destructive = true
@@ -88,7 +88,10 @@ func Default() *Registry {
 		{"clear-filter", "esc", "Clear filter"},
 	} {
 		a := add(ScopeServers, "Servers", v[0], v[1], v[2])
-		if v[0] == "filter" {
+		switch v[0] {
+		case "open-detail":
+			a.Footer, a.Short = true, "logs"
+		case "filter":
 			a.Footer = true
 		}
 	}

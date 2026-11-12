@@ -371,6 +371,11 @@ func TestFooterKeepsMenuAndHelpAtEveryWidth(t *testing.T) {
 	if f := ansi.Strip(m.footer()); !strings.Contains(f, "␣ start") || strings.Contains(f, "start/stop") {
 		t.Errorf("footer on worker %q, want ␣ start", f)
 	}
+	// Actions the menu marks off for the crashed worker are not offered;
+	// the next useful ones take their place.
+	if f := ansi.Strip(m.footer()); strings.Contains(f, "a attach") || strings.Contains(f, "o open") || !strings.Contains(f, "e edit") || !strings.Contains(f, "logs") {
+		t.Errorf("footer on worker %q offers what is off or lacks edit and logs", f)
+	}
 	// Narrow, the main panel says how to go back.
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 	m.focusPane(len(m.left))

@@ -51,7 +51,8 @@ func containerActions(add adder, list lister) {
 			a.Arg = ArgProject
 		}
 	}
-	add(ScopeContainers, "Containers", "open-detail", "enter", "Show logs, or fold a project")
+	open := add(ScopeContainers, "Containers", "open-detail", "enter", "Show logs, or fold a project")
+	open.Footer, open.Short = true, "logs"
 }
 
 // portActions are the ports pane's actions; open and copy-url mean the
@@ -75,6 +76,8 @@ func portActions(add adder, list lister) {
 		switch v[0] {
 		case "kill", "open", "filter":
 			a.Footer = true
+		case "open-detail":
+			a.Footer, a.Short = true, "select"
 		case "back":
 			a.Short = "close"
 		}

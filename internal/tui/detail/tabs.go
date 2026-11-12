@@ -40,6 +40,7 @@ type stripLevel int
 
 const (
 	stripFull   stripLevel = iota // every title
+	stripTight                    // every title, one space between them
 	stripShort                    // every abbreviation
 	stripSingle                   // the active title between arrows
 )
@@ -65,8 +66,9 @@ type Strip struct {
 // without its corners) and returns ui.Box's title and right text. The
 // tabs keep their full titles longest: the right texts go first, tried in
 // the order given (the longest first), then the name shrinks to minName,
-// then the titles become abbreviations and last the strip shows only the
-// active tab between arrows.
+// then the space between titles narrows to one cell, then the titles
+// become abbreviations and last the strip shows only the active tab
+// between arrows.
 func (t *Strip) Header(env *ui.Env, glyph, name string, rights []string, inner int, focused bool) (string, string) {
 	type try struct {
 		level  stripLevel
@@ -79,15 +81,16 @@ func (t *Strip) Header(env *ui.Env, glyph, name string, rights []string, inner i
 			tries = append(tries, try{stripFull, r, false})
 		}
 	}
-	tries = append(tries, try{stripFull, "", false}, try{stripFull, "", true},
+	tries = append(tries, try{stripFull, "", false}, try{stripFull, "", true}, try{stripTight, "", false}, try{stripTight, "", true},
 		try{stripShort, "", false}, try{stripShort, "", true}, try{stripSingle, "", true})
 	for i, tr := range tries {
 		strip := t.measure(env, tr.level)
 		// Box puts a space either side of the title and of the right text;
-		// one rule cell stays between them.
-		fixed := 2 + ansi.StringWidth(strip) + 1
+		// one rule cell stays between them. Without a right text the title
+		// may reach the corner.
+		fixed := 2 + ansi.StringWidth(strip)
 		if tr.right != "" {
-			fixed += ansi.StringWidth(tr.right) + 2
+			fixed += 1 + ansi.StringWidth(tr.right) + 2
 		}
 		ident := 0
 		if glyph != "" {
@@ -170,11 +173,12 @@ func (t *Strip) compose(env *ui.Env, glyph, name string, nameW int, note string,
 		}
 		return b.String()
 	}
-	for i := range t.Names {
-		title := t.title(env, i, level)
-		w := lipgloss.Width(title)
-		t.hits = append(t.hits, hit{x: x, end: x + w, tab: i})
-		b.WriteString(title)
+	for _, p := range t.tabs(env, level) {
+		w := lipgloss.Width(p.text)
+		if p.tab >= 0 {
+			t.hits = append(t.hits, hit{x: x, end: x + w, tab: p.tab})
+		}
+		b.WriteString(p.text)
 		x += w
 	}
 	return b.String()
@@ -194,21 +198,42 @@ func (t *Strip) measure(env *ui.Env, level stripLevel) string {
 		return prev + env.Styles.TabActive.Render(t.Names[t.Active]) + next
 	}
 	var b strings.Builder
-	for i := range t.Names {
-		b.WriteString(t.title(env, i, level))
+	for _, p := range t.tabs(env, level) {
+		b.WriteString(p.text)
 	}
 	return b.String()
 }
 
-func (t *Strip) title(env *ui.Env, i int, level stripLevel) string {
-	name := t.Names[i]
-	if level == stripShort && i < len(t.Short) && t.Short[i] != "" {
-		name = t.Short[i]
+// tabPart is a rendered tab, or with tab -1 the space between two.
+type tabPart struct {
+	text string
+	tab  int
+}
+
+// tabs renders the strip's titles at level: padded a cell either side,
+// or in the tight level only the active pill is, and one space separates
+// two titles without a pill between them.
+func (t *Strip) tabs(env *ui.Env, level stripLevel) []tabPart {
+	s := env.Styles
+	var out []tabPart
+	for i := range t.Names {
+		name := t.Names[i]
+		if level == stripShort && i < len(t.Short) && t.Short[i] != "" {
+			name = t.Short[i]
+		}
+		switch {
+		case i == t.Active:
+			out = append(out, tabPart{s.TabActive.Render(name), i})
+		case level == stripTight:
+			if i > 0 && i-1 != t.Active {
+				out = append(out, tabPart{s.Surface.Render(" "), -1})
+			}
+			out = append(out, tabPart{s.Tab.UnsetPadding().Render(name), i})
+		default:
+			out = append(out, tabPart{s.Tab.Render(name), i})
+		}
 	}
-	if i == t.Active {
-		return env.Styles.TabActive.Render(name)
-	}
-	return env.Styles.Tab.Render(name)
+	return out
 }
 
 // header is the server's top border: its state glyph and name, the tab
@@ -234,18 +259,15 @@ func (c *Pane) header(env *ui.Env, v supervisor.View, ok bool, inner int, focuse
 	return c.strip.Header(env, glyph, name, []string{uptime, word}, inner, focused)
 }
 
-// previewLabel follows the server's name while the list's cursor is on a
-// group header or on no row: the pane still shows the last server, but
-// actions take the cursor's target.
+// previewLabel follows the server's name while the active list's cursor
+// is on something else (a group header, a port, no row): the pane still
+// shows the last server, but actions take the cursor's target.
 const previewLabel = "(preview)"
 
 // previewing reports whether the shown server is a preview: the target
-// is a group header or nothing.
+// is not the shown server.
 func previewing(env *ui.Env) bool {
-	if env.Selected.Kind != ui.SelectServer {
-		return false
-	}
-	return env.Target.Kind == ui.SelectGroup || env.Target.Kind == ui.SelectNone
+	return env.Selected.Kind == ui.SelectServer && env.Target != env.Selected
 }
 
 // bottom is the frame's bottom border with status at its right.

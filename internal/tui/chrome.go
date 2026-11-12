@@ -40,8 +40,8 @@ type hintHit struct {
 	action keymap.Action
 }
 
-// topBar is the mark, name and port, the counts per state, and the
-// computer and version or the reconnect countdown at the right.
+// topBar is the mark, name and port, the servers' counts per state, and
+// the computer and version or the reconnect countdown at the right.
 func (m *model) topBar() string {
 	s, g, st := m.env.Styles, m.env.Glyphs, m.env.State
 	left := " "
@@ -55,7 +55,6 @@ func (m *model) topBar() string {
 		}
 		left = mark + "   "
 	}
-	left += m.countsAt(lipgloss.Width(left))
 	var right string
 	switch {
 	case m.restartingLabel() != "":
@@ -82,6 +81,17 @@ func (m *model) topBar() string {
 		// The computer the session waits for, after :on or --on.
 		right = s.Text2.Render(plainText(c)) + s.Muted.Render(m.env.Glyphs.Separator) + right
 	}
+	// The counts are the servers': a muted word says so when it fits,
+	// since the Containers pane has states of its own.
+	word := ""
+	if st != nil && len(st.Servers) > 0 {
+		word = s.Muted.Render("servers") + " "
+	}
+	counts := m.countsAt(lipgloss.Width(left + word))
+	if word != "" && lipgloss.Width(left+word+counts)+1+lipgloss.Width(right)+1 > m.width {
+		word, counts = "", m.countsAt(lipgloss.Width(left))
+	}
+	left += word + counts
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 1
 	if right == "" || gap < 1 {
 		return left
@@ -168,8 +178,9 @@ func (m *model) footerRows() []string {
 // the hints of an open overlay or a mode, or the key hints, each kept with
 // its place for clicks. The hints always keep room for x (when the
 // focused pane has a menu) and ?, and in a narrow terminal for the way
-// back to the list; the focused pane's primary actions, then the global
-// ones, fill the rest in table order.
+// back to the list; the focused pane's primary actions that act on the
+// cursor's target (hintOff), then the global ones, fill the rest in table
+// order.
 func (m *model) footer() string {
 	s := m.env.Styles
 	line := ""
@@ -207,7 +218,7 @@ func (m *model) footer() string {
 		reserved = append(reserved, render(a, a.Short))
 	}
 	for _, a := range m.env.Keys.InScope(m.focused().Scope(), keymap.ScopeGlobal) {
-		if !a.Footer || len(a.Keys) == 0 || a.ID == "menu" || a.ID == "help" || !m.applies(a) {
+		if !a.Footer || len(a.Keys) == 0 || a.ID == "menu" || a.ID == "help" || m.hintOff(a) != "" {
 			continue
 		}
 		primary = append(primary, render(a, m.hintShort(a)))

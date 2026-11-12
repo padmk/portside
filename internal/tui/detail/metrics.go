@@ -25,7 +25,11 @@ func Metrics(env *ui.Env, v supervisor.View, interval time.Duration, w, h int) [
 	}
 	out := make([]string, 0, h)
 	if len(v.CPUHistory) == 0 && len(v.MemHistory) == 0 {
-		out = append(out, note(env, emptyMetrics(v, interval), s.Muted, w))
+		for _, l := range wrap(emptyMetrics(v, interval), w, g.Ellipsis) {
+			if len(out) < h {
+				out = append(out, s.Row(s.Muted.Render(l), w))
+			}
+		}
 		for len(out) < h {
 			out = append(out, s.Row("", w))
 		}
@@ -93,7 +97,7 @@ func emptyMetrics(v supervisor.View, interval time.Duration) string {
 	case supervisor.Running, supervisor.Starting:
 		return "Running; the first sample comes within " + durationLabel(interval)
 	}
-	return "Not running, so no samples; the daemon samples a server while it runs"
+	return "No samples yet. The daemon samples CPU and memory while the server runs."
 }
 
 // spread puts left at the start and right at the end of w cells, or both

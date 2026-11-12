@@ -498,20 +498,12 @@ func (m *model) logsMenu() overlay.Menu {
 				}
 			}
 		case "attach":
-			switch sel.Kind {
-			case ui.SelectContainer:
+			if sel.Kind == ui.SelectContainer {
 				it.Label = "Shell in the container"
-				it.Off = containers.Off(&m.env, "shell", sel)
-			default:
-				it.Off = m.off("attach", sel)
 			}
+			it.Off = m.logsOff(it.ActionID)
 		case "clear-logs":
-			switch sel.Kind {
-			case ui.SelectContainer:
-				it.Off = "the container engine keeps its logs"
-			default:
-				it.Off = m.off("clear-logs", sel)
-			}
+			it.Off = m.logsOff(it.ActionID)
 		}
 	}
 	return menu
