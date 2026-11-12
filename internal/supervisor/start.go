@@ -60,10 +60,14 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 	if p.pid != 0 {
 		// A server that is stopping, or whose process has ended and whose
 		// last output is still draining, starts again once wait has
-		// recorded the exit, unless a later Stop withdraws the request. The request is
-		// recorded under the same lock as the check, so an exit in between
-		// cannot miss it.
-		p.againTrigger = opt.trigger
+		// recorded the exit, unless a later Stop withdraws the request.
+		// The request is recorded under the same lock as the check, so an
+		// exit in between cannot miss it. A task's run in progress
+		// satisfies a start asked for together with others (Since), as it
+		// does a dependency.
+		if !p.cfg.Oneshot || opt.Since.IsZero() {
+			p.againTrigger = opt.trigger
+		}
 		s.reserveLocked(p)
 		s.mu.Unlock()
 		return nil

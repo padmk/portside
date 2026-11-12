@@ -94,6 +94,7 @@ func (s *Supervisor) scheduleRetryLocked(p *proc, now, at time.Time) {
 			return nil
 		}
 		p.retries = 0
+		p.restartPending = false // under way, also while its dependencies start
 		deps := s.cfg.WithDeps(p.cfg.DependsOn)
 		return func() { _ = s.launch(name, deps, StartOptions{trigger: triggerRetry}, token) }
 	})

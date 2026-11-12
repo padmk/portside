@@ -190,7 +190,9 @@ final class Store {
             var wait = delay
             do {
                 var info = try await DaemonCLI.info(start: false)
-                if info.running != true, shouldStart(info) {
+                if info.running == true {
+                    startRequested = false // already running: nothing left to start
+                } else if shouldStart(info) {
                     startRequested = false
                     info = try await DaemonCLI.info(start: true)
                     failedConfigDate = info.configError != nil ? Self.modificationDate(info.config) : nil

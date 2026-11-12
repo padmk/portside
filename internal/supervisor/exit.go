@@ -34,8 +34,12 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	s.mu.Lock()
 	stopping := s.requestedExitLocked(p) || p.overMemory != ""
 	// A start from here on (pid is still set) only reserves itself; the
-	// exit below runs it.
+	// exit below runs it. One from before, while the process still ran,
+	// asked for nothing more.
 	exitSeq := p.startSeq
+	if !stopping {
+		p.againTrigger = ""
+	}
 	s.mu.Unlock()
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
@@ -111,7 +115,10 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			restartIn = s.backoffLocked(p, uptime)
 		}
 	}
-	if !again && !s.requestedExitLocked(p) && p.want && p.startSeq != exitSeq && !p.removed && !s.closing {
+	// A task's run that just ended serves a dependent's request (no
+	// trigger) and a start asked for together with others (see start).
+	drainStart := p.startSeq != exitSeq && (!p.running.Oneshot || p.againTrigger != "")
+	if !again && !s.requestedExitLocked(p) && drainStart && p.want && !p.removed && !s.closing {
 		// Started again after it ended on its own, while its last output
 		// drained: run it now instead of what the exit alone would decide.
 		p.status = Starting

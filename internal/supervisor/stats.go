@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -290,6 +291,9 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 					if p.status == Blocked && !p.restartPending {
 						p.status = Stopped
 						p.note = ""
+					} else if p.status == Blocked {
+						_, at, _ := strings.Cut(p.note, restartingNote)
+						p.note = fmt.Sprintf("port %d is free now", c.port) + restartingNote + at
 					}
 					changed = true
 				}
