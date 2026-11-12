@@ -190,46 +190,28 @@ func mustFamily(t *testing.T, id string) Family {
 	return f
 }
 
-// contrast is the WCAG contrast ratio of two colors.
-func contrast(a, b color.Color) float64 {
-	lum := func(c color.Color) float64 {
-		r, g, bl, _ := c.RGBA()
-		ch := func(v uint32) float64 {
-			x := float64(v) / 0xffff
-			if x <= 0.03928 {
-				return x / 12.92
-			}
-			return math.Pow((x+0.055)/1.055, 2.4)
-		}
-		return 0.2126*ch(r) + 0.7152*ch(g) + 0.0722*ch(bl)
-	}
-	x, y := lum(a), lum(b)
-	return (math.Max(x, y) + 0.05) / (math.Min(x, y) + 0.05)
-}
-
 // TestNamedPalettesAreLegible mirrors the dashboard's contrast check for
-// the pairs the terminal UI draws: text on the background, on Raised
-// (overlays) and on Selected (the selected row) at 4.5:1, muted labels at
-// 3:1, the mode pill's AccentFg on Accent at 3:1, since it is bold, and
-// AccentText (key hints, the focused title, matches, the cursor) at 4.5:1
-// wherever it is drawn. On Selected, Text2 reads at 4.5:1 and every state,
-// the port and muted badges at 3:1. Raised must differ from Bg, and
-// Selected clearly from Surface, since it marks the selected row.
+// the pairs the terminal UI draws: text on the background and on Raised
+// (overlays) at 4.5:1, muted labels at 3:1, the mode pill's AccentFg on
+// Accent at 3:1, since it is bold, and AccentText (key hints, the focused
+// title, matches) at 4.5:1 wherever it is drawn. Raised must differ from
+// Bg; Selected must stand out from Surface, since it marks the selected
+// row, and every style drawn on it (OnSelected) must read there: text,
+// Text2 and the cursor at 4.5:1, labels, ports and states at 3:1.
 func TestNamedPalettesAreLegible(t *testing.T) {
 	for _, f := range Families()[1:] {
 		for _, p := range []Palette{f.Dark, f.Light} {
 			if contrast(p.Raised, p.Bg) < 1.04 {
 				t.Errorf("%s: Raised does not stand out from Bg", p.ID)
 			}
-			if contrast(p.Selected, p.Surface) < 1.1 {
-				t.Errorf("%s: Selected is %.2f:1 on Surface, so the selected row is faint", p.ID, contrast(p.Selected, p.Surface))
+			if r := contrast(p.Selected, p.Surface); r < 1.25 {
+				t.Errorf("%s: Selected is %.2f:1 on Surface, so the selected row is faint", p.ID, r)
 			}
-			type pair struct {
+			for _, c := range []struct {
 				name   string
 				fg, bg color.Color
 				min    float64
-			}
-			pairs := []pair{
+			}{
 				{"Text on Bg", p.Text, p.Bg, 4.5},
 				{"Text on Raised", p.Text, p.Raised, 4.5},
 				{"Muted on Bg", p.Muted, p.Bg, 3},
@@ -238,21 +220,24 @@ func TestNamedPalettesAreLegible(t *testing.T) {
 				{"AccentText on Bg", p.AccentText, p.Bg, 4.5},
 				{"AccentText on Surface", p.AccentText, p.Surface, 4.5},
 				{"AccentText on Raised", p.AccentText, p.Raised, 4.5},
-			}
-			for _, fg := range []struct {
-				name string
-				c    color.Color
-				min  float64
-			}{
-				{"Text", p.Text, 4.5}, {"Text2", p.Text2, 4.5}, {"AccentText", p.AccentText, 4.5},
-				{"Muted", p.Muted, 3}, {"Port", p.Port, 3}, {"Running", p.Running, 3}, {"Starting", p.Starting, 3},
-				{"Crashed", p.Crashed, 3}, {"External", p.External, 3}, {"Stopped", p.Stopped, 3}, {"Warn", p.Warn, 3}, {"Info", p.Info, 3},
 			} {
-				pairs = append(pairs, pair{fg.name + " on Selected", fg.c, p.Selected, fg.min})
-			}
-			for _, c := range pairs {
 				if r := contrast(c.fg, c.bg); r < c.min {
 					t.Errorf("%s: %s is %.2f:1, want %.1f:1", p.ID, c.name, r, c.min)
+				}
+			}
+			sel := New(p).OnSelected()
+			for _, c := range []struct {
+				name string
+				st   lipgloss.Style
+				min  float64
+			}{
+				{"Text", sel.Text, 4.5}, {"Text2", sel.Text2, 4.5}, {"Accent", sel.Accent, 4.5},
+				{"Muted", sel.Muted, 3}, {"Port", sel.Port, 3}, {"Running", sel.Running, 3}, {"Starting", sel.Starting, 3},
+				{"Crashed", sel.Crashed, 3}, {"External", sel.External, 3}, {"Stopped", sel.Stopped, 3}, {"Warn", sel.Warn, 3},
+				{"Info", sel.Info, 3}, {"a field's link", New(p).OnSelection(New(p).Link), 3},
+			} {
+				if r := contrast(c.st.GetForeground(), p.Selected); r < c.min {
+					t.Errorf("%s: %s on Selected is %.2f:1, want %.1f:1", p.ID, c.name, r, c.min)
 				}
 			}
 		}

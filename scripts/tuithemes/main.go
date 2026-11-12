@@ -143,30 +143,35 @@ func readable(fg, text rgb, bgs ...rgb) rgb {
 	}
 	return text
 }
-// maxTint is the most of Accent the selected row's background takes.
-const maxTint = 30
+// maxTint is the most of Accent the selected row's background takes, and
+// separation how far it stands out from Surface (WCAG contrast) in dark and
+// light themes.
+const maxTint = 40
+
+var separation = map[bool]float64{true: 1.5, false: 1.3}
 
 // selection is the selected row's background: Accent tinted into Surface
-// as strongly as up to maxTint percent while what a row draws on it stays
-// readable: text at 4.5:1, and labels, ports and states at 3:1.
-func selection(accent, surface rgb, text, others []rgb) rgb {
-	for p := maxTint; p > 0; p-- {
+// until it stands out by separation, at most maxTint percent, and only as
+// far as text stays at 4.5:1 on it. Labels, ports and states keep 3:1 there
+// by being darkened or lightened toward the text (theme.Styles.OnSelected).
+func selection(accent, surface rgb, dark bool, text []rgb) rgb {
+	best := surface
+	for p := 1; p <= maxTint; p++ {
 		var c rgb
 		for i := range c {
 			c[i] = (accent[i]*float64(p) + surface[i]*float64(100-p)) / 100
 		}
-		ok := true
 		for _, fg := range text {
-			ok = ok && contrast(fg, c) >= 4.5
+			if contrast(fg, c) < 4.5 {
+				return best
+			}
 		}
-		for _, fg := range others {
-			ok = ok && contrast(fg, c) >= 3
-		}
-		if ok {
-			return c
+		best = c
+		if contrast(c, surface) >= separation[dark] {
+			break
 		}
 	}
-	return surface
+	return best
 }
 
 func render() []byte {
@@ -221,18 +226,15 @@ func render() []byte {
 					fallback["--warn"] = "--warning"
 				}
 			}
-			fmt.Fprintf(&out, "%s: Palette{ID:%q, Dark:%t,", []string{"Dark", "Light"}[i], id, regexp.MustCompile(`color-scheme\s*:\s*dark\s*;`).MatchString(css))
+			dark := regexp.MustCompile(`color-scheme\s*:\s*dark\s*;`).MatchString(css)
+			fmt.Fprintf(&out, "%s: Palette{ID:%q, Dark:%t,", []string{"Dark", "Light"}[i], id, dark)
 			at := func(k string) rgb {
 				if _, ok := m[k]; !ok {
 					k = fallback[k]
 				}
 				return resolve(k, m, map[string]bool{})
 			}
-			var states []rgb
-			for _, k := range []string{"--text-3", "--tui-port", "--running", "--starting", "--crashed", "--external", "--stopped", "--warn", "--info"} {
-				states = append(states, at(k))
-			}
-			selected := selection(at("--primary"), at("--surface"), []rgb{at("--text"), at("--text-2")}, states)
+			selected := selection(at("--primary"), at("--surface"), dark, []rgb{at("--text"), at("--text-2")})
 			for _, field := range fields {
 				key := field[1]
 				switch key {
