@@ -77,3 +77,23 @@ func TestBoxBorderCarriesTheSurroundingBackground(t *testing.T) {
 		t.Errorf("the top border carries the interior's background: %q", top)
 	}
 }
+
+// TestEntriesMarkedWithoutColor checks that a menu tells an entry that
+// does nothing now and a destructive one by text, highlighted and without
+// colors, where their colors do not show.
+func TestEntriesMarkedWithoutColor(t *testing.T) {
+	m := Menu{Title: "web", Items: []MenuItem{
+		{ActionID: "stop", Label: "Stop", Key: "s", Off: "not running"},
+		{ActionID: "delete", Label: "Remove", Key: "d", Destructive: true},
+	}}
+	s := theme.NewMono(theme.TerminalFamily.Dark)
+	for cursor := range m.Items {
+		m.Cursor = cursor
+		view := ansi.Strip(m.View(s, theme.Unicode))
+		for _, want := range []string{"Stop (off)", "Remove (asks first)"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("cursor %d: no %q in\n%s", cursor, want, view)
+			}
+		}
+	}
+}

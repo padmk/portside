@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -184,7 +185,8 @@ func (p *Palette) Pick(i int) {
 // View renders the palette for a w x h screen: the query with a cursor,
 // then the matching entries with their matched characters marked and the
 // key or command at the right, destructive ones in the error color and
-// ones that are off muted; under a rule, the highlighted entry's detail.
+// ones that are off muted, each with decorate's marker where color does
+// not tell it; under a rule, the highlighted entry's detail.
 func (p *Palette) View(s theme.Styles, g theme.Glyphs, ascii bool, w, h int) string {
 	pn := newPen(s, g)
 	bw, bh := p.Size(w, h)
@@ -229,9 +231,24 @@ func (p *Palette) View(s theme.Styles, g theme.Glyphs, ascii bool, w, h int) str
 		}
 		rows = append(rows, p.row(pn, p.shown[i], inner, i == p.Cursor))
 	}
-	rows = append(rows, pn.s.Frame.Render(strings.Repeat(g.Border.Top, inner)))
+	rows = append(rows, p.rule(pn, inner, list))
 	rows = append(rows, detail...)
 	return pn.box("Find an action", rows, inner)
+}
+
+// rule is the line between the list and the detail, with the window of
+// matching entries the list shows at its right ("1-14 of 37").
+func (p *Palette) rule(pn pen, inner, list int) string {
+	line := pn.g.Border.Top
+	if len(p.shown) == 0 {
+		return pn.s.Frame.Render(strings.Repeat(line, inner))
+	}
+	window := fmt.Sprintf(" %d-%d of %d ", p.offset+1, min(len(p.shown), p.offset+list), len(p.shown))
+	n := inner - ansi.StringWidth(window) - 1
+	if n < 1 {
+		return pn.s.Frame.Render(strings.Repeat(line, inner))
+	}
+	return pn.s.Frame.Render(strings.Repeat(line, n)) + pn.s.Muted.Render(window) + pn.s.Frame.Render(line)
 }
 
 // rightColumn is the most of the inner width the key or command at the
@@ -258,7 +275,8 @@ func (p *Palette) row(pn pen, e shownItem, inner int, selected bool) string {
 	if limit := rightColumn(inner); ansi.StringWidth(right) > limit {
 		rightText = rightText.tail(limit-ansi.StringWidth(pn.g.Ellipsis), pn.g.Ellipsis)
 	}
-	room := inner - 2
+	_, mark := decorate(pn.s, it.Off != "", it.Destructive, selected)
+	room := inner - 2 - ansi.StringWidth(mark)
 	if right != "" {
 		room -= rightText.width() + labelGap
 	}
@@ -267,30 +285,28 @@ func (p *Palette) row(pn pen, e shownItem, inner int, selected bool) string {
 	// a name the label already carries (":restart" plus a long container
 	// name): the label takes the row and the detail line shows the command.
 	if it.Key == "" && rightText.width() < ansi.StringWidth(right) {
-		rightText, room = marked{}, inner-2
+		rightText, room = marked{}, inner-2-ansi.StringWidth(mark)
 	}
 	if labelText.width() > room {
 		labelText = labelText.head(room-ansi.StringWidth(pn.g.Ellipsis), pn.g.Ellipsis)
 	}
-	gap := max(1, inner-2-labelText.width()-rightText.width())
+	gap := max(1, inner-2-labelText.width()-ansi.StringWidth(mark)-rightText.width())
 	if selected {
 		sel := pn.selected()
 		hl := sel.Underline(true)
-		line := sel.Render(pn.g.Cursor+" ") + labelText.render(sel, hl) + sel.Render(strings.Repeat(" ", gap)) + rightText.render(sel, hl)
+		line := sel.Render(pn.g.Cursor+" ") + labelText.render(sel, hl) + sel.Render(mark+strings.Repeat(" ", gap)) + rightText.render(sel, hl)
 		return theme.Fill(sel, line, inner)
 	}
-	st := pn.s.Text
-	switch {
-	case it.Off != "":
-		st = pn.s.Muted
-	case it.Destructive:
-		st = pn.s.Error
+	st, _ := decorate(pn.s, it.Off != "", it.Destructive, false)
+	match := pn.s.Accent.Bold(true).Underline(true)
+	if it.Off != "" {
+		match = pn.s.Muted.Bold(true).Underline(true)
 	}
 	rk := pn.s.Key
 	if it.Key == "" {
 		rk = pn.s.Muted
 	}
-	return pn.space(2) + labelText.render(st, pn.s.Match) + pn.space(gap) + rightText.render(rk, pn.s.Match)
+	return pn.space(2) + labelText.render(st, match) + pn.s.Muted.Render(mark) + pn.space(gap) + rightText.render(rk, match)
 }
 
 // detail is the highlighted entry's full label when its row cuts it, the
@@ -302,7 +318,8 @@ func (p *Palette) detail(pn pen, e shownItem, inner int) []string {
 	if right == "" && it.Command != "" {
 		right = ":" + it.Command
 	}
-	room := inner - 2
+	_, mark := decorate(pn.s, it.Off != "", it.Destructive, true)
+	room := inner - 2 - ansi.StringWidth(mark)
 	if right != "" {
 		room -= min(ansi.StringWidth(right), rightColumn(inner)) + labelGap
 	}

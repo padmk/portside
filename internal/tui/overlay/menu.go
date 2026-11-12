@@ -220,7 +220,8 @@ func (m Menu) labelMax() int {
 func (m Menu) inner() int {
 	label, key := 0, 0
 	for _, it := range m.Items {
-		label = max(label, ansi.StringWidth(it.label(m.labelMax(), "~", "x")))
+		room := markRoom(it.Off != "", it.Destructive)
+		label = max(label, ansi.StringWidth(it.label(m.labelMax()-room, "~", "x"))+room)
 		key = max(key, ansi.StringWidth(it.Key))
 	}
 	w := max(2+label+3+key, ansi.StringWidth(m.Title)+1)
@@ -282,7 +283,8 @@ func (m Menu) Hit(y int) int {
 
 // View renders the menu with the cursor row marked and highlighted;
 // destructive items are in the error color, items that are off muted with
-// the highlighted one's reason under the list, section headers muted, and
+// the highlighted one's reason under the list, both with decorate's
+// marker where color does not tell them apart, section headers muted, and
 // a scrolled menu says how many items are above and below what it shows.
 func (m Menu) View(s theme.Styles, g theme.Glyphs) string {
 	pn := newPen(s, g)
@@ -312,20 +314,14 @@ func (m Menu) View(s theme.Styles, g theme.Glyphs) string {
 			continue
 		}
 		i, it := l.item, m.Items[l.item]
-		label, key := pn.s.Text, pn.s.Muted
-		switch {
-		case it.Off != "":
-			label = pn.s.Muted
-		case it.Destructive:
-			label = pn.s.Error
-		}
-		text := it.label(m.labelMax(), g.Ellipsis, check)
-		gap := max(0, inner-2-ansi.StringWidth(text)-ansi.StringWidth(it.Key))
+		label, mark := decorate(pn.s, it.Off != "", it.Destructive, i == m.Cursor)
+		text := it.label(m.labelMax()-markRoom(it.Off != "", it.Destructive), g.Ellipsis, check)
+		gap := max(0, inner-2-ansi.StringWidth(text)-ansi.StringWidth(mark)-ansi.StringWidth(it.Key))
 		if i == m.Cursor {
-			rows = append(rows, Highlight(pn.s, g.Cursor+" "+text+strings.Repeat(" ", gap)+it.Key, inner))
+			rows = append(rows, Highlight(pn.s, g.Cursor+" "+text+mark+strings.Repeat(" ", gap)+it.Key, inner))
 			continue
 		}
-		rows = append(rows, pn.space(2)+label.Render(text)+pn.space(gap)+key.Render(it.Key))
+		rows = append(rows, pn.space(2)+label.Render(text)+pn.s.Muted.Render(mark)+pn.space(gap)+pn.s.Muted.Render(it.Key))
 	}
 	if down {
 		rows = append(rows, more(arrowDown, end, len(lines)))

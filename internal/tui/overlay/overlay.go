@@ -284,3 +284,39 @@ func Center(base, box string) string {
 	}
 	return Place(base, box, (baseW-boxW)/2, (len(rows)-len(boxRows))/2)
 }
+
+// Entry markers: the text after the label of a menu or palette entry that
+// does nothing now, and of a destructive one where its color does not
+// show (highlighted, or without colors). Both survive any color scheme.
+const (
+	offMark  = " (off)"
+	asksMark = " (asks first)"
+)
+
+// decorate is how a menu or palette entry's label is drawn: the label's
+// style off the highlight (Muted when off, Error when destructive, else
+// Text) and the marker after it (offMark, or asksMark when the
+// destructive color is not seen), or "".
+func decorate(s theme.Styles, off, destructive, highlighted bool) (lipgloss.Style, string) {
+	switch {
+	case off:
+		return s.Muted, offMark
+	case destructive && (highlighted || s.Mono):
+		return s.Error, asksMark
+	case destructive:
+		return s.Error, ""
+	}
+	return s.Text, ""
+}
+
+// markRoom is the most cells decorate's marker takes for an entry, in
+// any state, so the label is cut to leave room for it.
+func markRoom(off, destructive bool) int {
+	switch {
+	case off:
+		return len(offMark)
+	case destructive:
+		return len(asksMark)
+	}
+	return 0
+}

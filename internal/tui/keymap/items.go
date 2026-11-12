@@ -60,7 +60,7 @@ func containerActions(add adder, list lister) {
 func portActions(add adder, list lister) {
 	list(ScopePorts)
 	for _, v := range [][3]string{
-		{"kill", "d", "Kill the process (asks first)"},
+		{"kill", "d", "Kill the process"},
 		{"takeover", "t", "Start the blocked server, taking over the port"},
 		{"open", "o", "Open in browser"},
 		{"copy-url", "y", "Copy the address"},

@@ -201,7 +201,7 @@ var menuLabels = map[string]string{
 	"Stop the project's containers":                      "Stop project",
 	"Remove the project's containers (volumes are kept)": "Remove project",
 	"Dismiss the finished compose job":                   "Dismiss job",
-	"Kill the process (asks first)":                      "Kill process",
+	"Kill the process":                                   "Kill process",
 	"Start the blocked server, taking over the port":     "Take over the port",
 	"Copy the address":                                   "Copy address",
 	"Only matching lines":                                "Only matching",
