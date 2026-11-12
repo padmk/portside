@@ -284,7 +284,10 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 			} else if !listening {
 				if p.external != nil {
 					p.external = nil
-					if p.status == Blocked {
+					// A blocked server with a retry pending stays blocked, so
+					// the retry (which now finds the port free) can still be
+					// stopped.
+					if p.status == Blocked && !p.restartPending {
 						p.status = Stopped
 						p.note = ""
 					}

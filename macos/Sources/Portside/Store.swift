@@ -91,6 +91,9 @@ final class Store {
         didSet { if showsUsage != oldValue { sendUsage() } }
     }
     private var loop: Task<Void, Never>?
+    /// Daemon commands running while the connection loop is paused for them;
+    /// the loop resumes once the last one ends.
+    private var pausedFor = 0
     /// The last crash reported per server (exit time and note).
     private var notifiedCrash: [String: String] = [:]
     /// Containers with an issue per server, as last seen.
@@ -556,13 +559,15 @@ final class Store {
         task?.cancel(with: .goingAway, reason: nil)
         let running = loop
         loop?.cancel()
+        pausedFor += 1
         before()
         Task {
             // Let the connection loop (and any `daemon info` that could start
             // a daemon) finish first, so it does not race the command.
             await running?.value
             do { _ = try await DaemonCLI.run(command) } catch { lastError = error.localizedDescription }
-            start()
+            pausedFor -= 1
+            if pausedFor == 0 { start() }
         }
     }
 
@@ -588,6 +593,8 @@ final class Store {
         failedConfigDate = nil
         connection = .connecting
         notifyChange()
-        start()
+        // During a stop or restart the loop resumes after it, and then
+        // starts the daemon for this request.
+        if pausedFor == 0 { start() }
     }
 }

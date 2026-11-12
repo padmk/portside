@@ -136,10 +136,19 @@ func (m *Manager) Info() *Info {
 // Disconnect ends the current connection, and the daemon no longer
 // resumes it when it starts.
 func (m *Manager) Disconnect() {
-	if err := m.store.setConnection(nil); err != nil {
+	// Forgotten under the lock that ends the connection, so a Connect
+	// finishing meanwhile cannot save it again (see Connect).
+	m.mu.Lock()
+	err := m.store.setConnection(nil)
+	c := m.c
+	m.c = nil
+	m.mu.Unlock()
+	if err != nil {
 		log.Printf("remote: %v", err)
 	}
-	m.Close()
+	if c != nil {
+		m.ended(c)
+	}
 }
 
 // Close ends the current connection as the daemon stops; the next daemon
@@ -159,6 +168,11 @@ func (m *Manager) disconnect(c *conn) {
 	}
 	m.c = nil
 	m.mu.Unlock()
+	m.ended(c)
+}
+
+// ended closes c, which is no longer the current connection.
+func (m *Manager) ended(c *conn) {
 	c.close()
 	log.Printf("remote: disconnected from %s", c.node.DNSName)
 	m.notify(true)

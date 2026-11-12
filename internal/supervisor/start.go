@@ -58,8 +58,9 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		p.retries = 0
 	}
 	if p.pid != 0 {
-		// A server that is stopping starts again once it has exited (see
-		// wait), unless a later Stop withdraws the request. The request is
+		// A server that is stopping, or whose process has ended and whose
+		// last output is still draining, starts again once wait has
+		// recorded the exit, unless a later Stop withdraws the request. The request is
 		// recorded under the same lock as the check, so an exit in between
 		// cannot miss it.
 		p.againTrigger = opt.trigger

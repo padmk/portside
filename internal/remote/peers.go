@@ -562,12 +562,17 @@ func (m *Manager) Connect(ctx context.Context, target string) (Info, error) {
 	go c.run()
 	m.notify(true)
 	log.Printf("remote: connected to %s", node.DNSName)
-	if err := m.store.setConnection(savedFrom(node, port)); err != nil {
-		log.Printf("remote: %v", err)
-	}
+	// Saved only while c is still the connection, under the lock that
+	// Disconnect forgets it with, so a disconnect meanwhile stays one.
 	m.mu.Lock()
+	if m.c == c {
+		err = m.store.setConnection(savedFrom(node, port))
+	}
 	info := c.infoLocked()
 	m.mu.Unlock()
+	if err != nil {
+		log.Printf("remote: %v", err)
+	}
 	return info, nil
 }
 

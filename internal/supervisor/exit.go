@@ -33,6 +33,9 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	pgid := p.pid
 	s.mu.Lock()
 	stopping := s.requestedExitLocked(p) || p.overMemory != ""
+	// A start from here on (pid is still set) only reserves itself; the
+	// exit below runs it.
+	exitSeq := p.startSeq
 	s.mu.Unlock()
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
@@ -107,6 +110,15 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		if p.cfg.Restart != config.RestartNo {
 			restartIn = s.backoffLocked(p, uptime)
 		}
+	}
+	if !again && !s.requestedExitLocked(p) && p.want && p.startSeq != exitSeq && !p.removed && !s.closing {
+		// Started again after it ended on its own, while its last output
+		// drained: run it now instead of what the exit alone would decide.
+		p.status = Starting
+		p.note = ""
+		p.retries = 0
+		restartIn = 0
+		again = true
 	}
 	p.restartPending, p.retryAt, p.restartAt = false, time.Time{}, time.Time{}
 	if p.status == Crashed || p.status == Exited {

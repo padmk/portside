@@ -202,12 +202,19 @@ func (s *Server) setShare(w http.ResponseWriter, r *http.Request) {
 	s.editMu.Lock()
 	err := config.SetTopLevel(s.opt.ConfigPath, "share", strconv.FormatBool(body.Enabled))
 	if err == nil {
-		// Applied below and waited for, so the reply carries the outcome.
+		// Marked as handed over, so reload hands it to Share without
+		// applying it in the background: it is applied below and waited
+		// for, so the reply carries the outcome. A reload that fails keeps
+		// the last good config, and Share the setting it had.
 		s.cfgMu.Lock()
+		was := s.shareWant
 		s.shareWant = body.Enabled
 		s.cfgMu.Unlock()
-		s.opt.Share.Set(body.Enabled)
-		err = s.reload()
+		if err = s.reload(); err != nil {
+			s.cfgMu.Lock()
+			s.shareWant = was
+			s.cfgMu.Unlock()
+		}
 	}
 	s.editMu.Unlock()
 	if err != nil {

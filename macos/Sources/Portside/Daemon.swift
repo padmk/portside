@@ -125,9 +125,8 @@ struct Server: Decodable, Identifiable, Hashable {
 
     var isAlive: Bool { status == "running" || status == "starting" || status == "stopping" }
 
-    /// Whether the daemon restarts it on its own, so its crash is not final;
-    /// daemons without the field say so in the note.
-    var waitsForRestart: Bool { retrying != true && (restartPending ?? (note?.contains("restarting in") ?? false)) }
+    /// Whether the daemon restarts it on its own, so its crash is not final.
+    var waitsForRestart: Bool { restartPending == true && retrying != true }
 }
 
 /// What `daemon info` reports (see internal/cli/daemoncmds.go).
