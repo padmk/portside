@@ -133,6 +133,75 @@ func (v View) Health(required bool) Health {
 	return h
 }
 
+// Display is the state a client shows for a server: its status, or one of
+// the three states the status alone does not tell.
+type Display string
+
+const (
+	DisplayExternal Display = "external" // stopped, while another process holds its port
+	DisplayUnready  Display = "unready"  // running, but stopped answering
+	DisplayDone     Display = "done"     // a task that exited with code 0
+)
+
+// CanStop reports whether a stop has something to do: a process runs, or an
+// automatic restart is due (the dashboard's canStop in
+// web/src/features/servers/format.ts).
+func (v View) CanStop() bool {
+	switch v.Status {
+	case Running, Starting:
+		return true
+	case Crashed, Exited, Blocked:
+		return v.RestartPending
+	}
+	return false
+}
+
+// HasProcess reports whether the server has a process: it runs, starts or
+// stops (the dashboard's hasProcess in web/src/features/servers/format.ts).
+func (v View) HasProcess() bool {
+	switch v.Status {
+	case Running, Starting, Stopping:
+		return true
+	}
+	return false
+}
+
+// GroupTargets returns the members of a group that a group action applies
+// to, in their order: "start" takes the enabled members without a process,
+// "stop" and "restart" the members CanStop reports for (the dashboard's
+// groupTargets in web/src/features/servers/actions.ts). Other verbs take
+// none.
+func GroupTargets(members []View, verb string) []View {
+	var out []View
+	for _, v := range members {
+		var ok bool
+		switch verb {
+		case "start":
+			ok = v.Enabled && !v.HasProcess()
+		case "stop", "restart":
+			ok = v.CanStop()
+		}
+		if ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// Display is the state to show for the server, the rule the dashboard's
+// displayStatus and the menu bar app's Server.displayStatus mirror.
+func (v View) Display() Display {
+	switch {
+	case v.Status == Stopped && v.External != nil:
+		return DisplayExternal
+	case v.Status == Running && v.Unready:
+		return DisplayUnready
+	case v.Status == Exited && v.Done:
+		return DisplayDone
+	}
+	return Display(v.Status)
+}
+
 // Snapshot returns all servers in configuration order. daemonPort is used to
 // build *.localhost alias URLs served by the daemon's proxy.
 func (s *Supervisor) Snapshot(daemonPort int) []View {

@@ -1,4 +1,6 @@
-package cli
+// Package browser picks the command that opens an address in a browser of
+// this session, shared by the CLI and the terminal UI.
+package browser
 
 import (
 	"os"
@@ -6,11 +8,11 @@ import (
 	"strings"
 )
 
-// browserCommand is the command that opens u in a browser of this session,
+// Command is the command that opens u in a browser of this session,
 // or nil when there is none and the address should be printed instead: over
 // SSH, where a browser would open on the remote machine, or without a
 // desktop.
-func browserCommand(goos string, getenv func(string) string, u string) []string {
+func Command(goos string, getenv func(string) string, u string) []string {
 	if getenv("SSH_CONNECTION") != "" {
 		return nil
 	}

@@ -16,12 +16,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/padmk/portside/internal/browser"
+
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/client"
 	"github.com/padmk/portside/internal/docker"
-	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/server"
 	"github.com/padmk/portside/internal/supervisor"
+	"github.com/padmk/portside/internal/viewfmt"
 )
 
 func (e *env) state() (*server.State, error) {
@@ -84,19 +86,7 @@ func cmdStatus(e *env, args []string) error {
 		}
 	}
 	// Same order as the dashboard: groups in order of appearance, ungrouped last.
-	ordered := make([]supervisor.View, 0, len(st.Servers))
-	for _, g := range st.Groups {
-		for _, s := range st.Servers {
-			if s.Group == g {
-				ordered = append(ordered, s)
-			}
-		}
-	}
-	for _, s := range st.Servers {
-		if s.Group == "" {
-			ordered = append(ordered, s)
-		}
-	}
+	ordered := viewfmt.Ordered(st)
 	exposed := 0
 	group := "\x00"
 	for _, s := range ordered {
@@ -117,26 +107,9 @@ func cmdStatus(e *env, args []string) error {
 		}
 		usage := ""
 		if s.PID != 0 {
-			usage = fmt.Sprintf("%5.1f%%  %7s", s.CPU, humanBytes(s.Mem))
+			usage = fmt.Sprintf("%5.1f%%  %7s", s.CPU, viewfmt.HumanBytes(s.Mem))
 		}
-		note := s.Note
-		if s.Done {
-			note = "" // the status says it
-		}
-		if s.External != nil && s.PID == 0 {
-			note = fmt.Sprintf("port held by %s (pid %d)", s.External.Command, s.External.PID)
-		} else if s.ForwardedFrom != "" {
-			note = "port forwarded from " + s.ForwardedFrom
-		}
-		if s.Stale {
-			note = strings.TrimSpace(note + " config changed, restart to apply")
-		}
-		if s.Temporary {
-			note = strings.TrimSpace("temporary in " + paths.ShortenHome(s.Worktree) + " " + note)
-		}
-		if s.NextRun != nil {
-			note = strings.TrimSpace("next " + nextRunLabel(*s.NextRun, time.Now()) + " " + note)
-		}
+		note := viewfmt.Note(s, time.Now())
 		note = plain(note) // before the color sequences go in
 		if s.Unready {
 			note = e.paint(yellow, note)
@@ -148,7 +121,7 @@ func cmdStatus(e *env, args []string) error {
 			note = strings.TrimSpace(e.paint(yellow, "may be reachable from the network") + " " + note)
 		}
 		fmt.Fprintf(e.out, "  %s %-*s  %-9s %s  %-16s %s\n",
-			e.statusDot(s), nameW, plain(s.Name), e.statusWord(s), port, usage, note)
+			e.statusDot(s), nameW, plain(s.Name), viewfmt.StatusWord(s), port, usage, note)
 	}
 	if exposed > 0 {
 		fmt.Fprintf(e.out, "\n%s\n", e.paint(dim, "May be reachable from the network: unless a firewall blocks it, other devices on the network\ncan connect. Bind the server to 127.0.0.1, or set lan = true in its config if that is intended."))
@@ -176,29 +149,6 @@ func (e *env) statusDot(s supervisor.View) string {
 		return e.paint(blue, "○")
 	}
 	return e.paint(dim, "○")
-}
-
-func (e *env) statusWord(s supervisor.View) string {
-	w := string(s.Status)
-	if s.Status == supervisor.Stopped && s.External != nil {
-		w = "external"
-	}
-	if s.Done {
-		w = "done"
-	}
-	return fmt.Sprintf("%-9s", w)
-}
-
-func humanBytes(n int64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%d MB", n>>20)
-	case n > 0:
-		return fmt.Sprintf("%d KB", n>>10)
-	}
-	return ""
 }
 
 func printJSON(e *env, v any) error {
@@ -457,7 +407,7 @@ func cmdOpen(e *env, args []string) error {
 				if *printOnly {
 					return nil
 				}
-				if argv := browserCommand(runtime.GOOS, os.Getenv, target); argv != nil {
+				if argv := browser.Command(runtime.GOOS, os.Getenv, target); argv != nil {
 					return exec.Command(argv[0], argv[1:]...).Start()
 				}
 				return nil
@@ -489,7 +439,7 @@ func cmdOpen(e *env, args []string) error {
 	fmt.Fprintln(e.out, d.Scheme+"://"+d.Host+next)
 	var argv []string
 	if !*printOnly {
-		argv = browserCommand(runtime.GOOS, os.Getenv, link.URL)
+		argv = browser.Command(runtime.GOOS, os.Getenv, link.URL)
 	}
 	if argv != nil {
 		return exec.Command(argv[0], argv[1:]...).Start()
@@ -541,21 +491,4 @@ func truncate(s string, n int) string {
 	}
 	r := []rune(s)
 	return string(r[:n-1]) + "…"
-}
-
-// nextRunLabel says concisely when a scheduled run is due: the time today,
-// the weekday within a week, else the date (with the year when it differs).
-func nextRunLabel(next, now time.Time) string {
-	next, now = next.Local(), now.Local()
-	y, m, d := now.Date()
-	today := time.Date(y, m, d, 0, 0, 0, 0, time.Local)
-	switch {
-	case next.Before(today.AddDate(0, 0, 1)):
-		return next.Format("15:04")
-	case next.Before(today.AddDate(0, 0, 7)):
-		return next.Format("Mon 15:04")
-	case next.Year() == now.Year():
-		return next.Format("2 Jan 15:04")
-	}
-	return next.Format("2 Jan 2006 15:04")
 }

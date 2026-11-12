@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/padmk/portside/internal/config"
@@ -62,5 +63,42 @@ func TestViewHealthRequired(t *testing.T) {
 	running := View{Status: Running, Restart: config.RestartNo}
 	if got := running.Health(true); got.Degraded() {
 		t.Errorf("required and running: %+v", got)
+	}
+}
+
+func TestGroupTargets(t *testing.T) {
+	members := []View{
+		{Name: "web", Enabled: true, Status: Running},
+		{Name: "worker", Enabled: false, Status: Stopped},
+		{Name: "api", Enabled: true, Status: Stopped},
+		{Name: "migrate", Enabled: true, Status: Exited, Oneshot: true, Done: true},
+		{Name: "queue", Enabled: true, Status: Crashed, RestartPending: true},
+		{Name: "cron", Enabled: true, Status: Crashed},
+		{Name: "db", Enabled: true, Status: Stopping},
+	}
+	names := func(vs []View) []string {
+		var out []string
+		for _, v := range vs {
+			out = append(out, v.Name)
+		}
+		return out
+	}
+	tests := []struct {
+		verb string
+		want []string
+	}{
+		// A disabled member stays stopped; a member with a process is not
+		// started again.
+		{"start", []string{"api", "migrate", "queue", "cron"}},
+		// Stop and restart leave stopped, done and crashed members without
+		// a pending restart alone.
+		{"stop", []string{"web", "queue"}},
+		{"restart", []string{"web", "queue"}},
+		{"delete", nil},
+	}
+	for _, tt := range tests {
+		if got := names(GroupTargets(members, tt.verb)); !slices.Equal(got, tt.want) {
+			t.Errorf("GroupTargets(%s) = %v, want %v", tt.verb, got, tt.want)
+		}
 	}
 }
