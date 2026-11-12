@@ -143,6 +143,7 @@ func readable(fg, text rgb, bgs ...rgb) rgb {
 	}
 	return text
 }
+
 // maxTint is the most of Accent the selected row's background takes, and
 // separation how far it stands out from Surface (WCAG contrast) in dark and
 // light themes.
