@@ -22,7 +22,7 @@ When the file is invalid:
 - The last good settings stay live, also across daemon restarts. Without a saved copy, the dashboard starts with an empty list of servers so you can repair the file. The banner shows the error.
 - `portside daemon restart` refuses an invalid config before replacing a healthy daemon.
 
-A dashboard edit made from an older version of the file (because it changed on disk while the form or the config editor was open) is refused instead of overwriting that change; the dashboard then offers to reload, or in the config editor to overwrite. After a save, the dashboard offers to restart the running servers that still use the old settings.
+A dashboard edit made from an older version of the file (because it changed on disk while the form or the config editor was open) is refused instead of overwriting that change; the dashboard then offers to reload, or in the config editor to overwrite. After a save, the dashboard offers to restart the running servers that still use the old settings. The terminal UI's forms and `:config` save the same way ([Editing the config](tui.md#editing-the-config)).
 
 ## Example
 

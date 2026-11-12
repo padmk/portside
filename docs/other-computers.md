@@ -25,9 +25,13 @@ While connected, the window changes color and shows the other computer's name in
 
 The connection belongs to the daemon, so every dashboard window follows it. It outlasts a daemon restart: the daemon reconnects to the same computer in the background when it starts, until you disconnect or the other computer removes the pairing. When the other computer's daemon comes back on another automatic port, the connection follows it there.
 
-From the terminal, `--on <computer>` runs `status`, `up`, `down`, `restart`, `ensure`, `logs`, `attach` and `containers` on the connected computer, for example `portside logs api --on devbox --grep error`. It fails when this computer is connected to another computer or to none. `portside computers` lists your computers that share their servers and the connection. Local `portside status` with no servers here points to `--on`, and `portside doctor` reports sharing and the connection in one line each while they are in use.
+From the terminal, `--on <computer>` runs `status`, `up`, `down`, `restart`, `ensure`, `logs`, `attach`, `containers` and `tui` on the connected computer, for example `portside logs api --on devbox --grep error`. It fails when this computer is connected to another computer or to none. `portside computers` lists your computers that share their servers and the connection. Local `portside status` with no servers here points to `--on`, and `portside doctor` reports sharing and the connection in one line each while they are in use.
 
 Coding agents act on the connected computer through the `computer` argument of the server and container tools ([Coding agents](coding-agents.md#mcp-tools)).
+
+### In the terminal UI
+
+`C` in `portside tui` opens **Computers**, with this computer's sharing and paired devices, your other computers and the connected one's forwarded ports: `enter` switches the session to a computer (connecting first), `p` pairs with a code typed into a hidden field, and `:on <computer>` or `:on local` switches from the command line. Setting up Tailscale and revoking a device stay in the dashboard and the CLI ([Terminal UI](tui.md#other-computers)).
 
 ## Forwarded ports
 

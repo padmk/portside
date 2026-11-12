@@ -8,7 +8,7 @@
 
 Each server runs as `<shell> -c <cmd>` (`bash` unless the config sets [`shell`](configuration.md#editor-terminal-shell-and-docker)) in its own pseudo-terminal and process group, inside the project's tool environment when it has one ([Version managers](configuration.md#version-managers)). A stop sends `SIGINT` (what `Ctrl-C` sends) to the whole process group, so `docker compose` shuts its containers down, then `SIGTERM`, then `SIGKILL`. Children left in the group after the main process exits are ended too.
 
-Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log`, rotated at 10 MiB. When the daemon restarts or upgrades, it reloads the last 256 KiB of the current and rotated files into scrollback, followed by a `daemon restarted` separator. Restored output has no line timestamps.
+Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log`, rotated at 10 MiB. When the daemon restarts or upgrades, it reloads the last 256 KiB of the current and rotated files into scrollback, followed by a `daemon restarted` separator unless the output already ends with one. Restored output has no line timestamps.
 
 `~/.local/state/portside/state.json` holds which servers you want running, the process groups in flight and the last exit codes, times and notes. A daemon that stops removes the groups once its servers have exited. `last-good-config.json` beside it is a validated copy of the config, used when the file stops loading.
 

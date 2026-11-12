@@ -1,0 +1,205 @@
+# Terminal UI design
+
+The design of `portside tui`: a full-screen terminal client of the daemon that does what the dashboard and the menu bar app do, for Linux, SSH sessions and people who work in the terminal. It is the reference for every implementation phase; change this file when a decision changes.
+
+## Principles
+
+1. **Glanceable first.** The first frame answers "what runs, what broke, on which port" without a keypress. State is shown by glyph shape and color together, never by color alone.
+2. **One place per action.** Every action has one key, one command-line name and one menu entry, all with the same name. An action that means the same in several panes (start, stop, restart, shell, open, copy) has one id and one entry per pane's scope, and the command line resolves a name to the right one. The footer shows the keys that apply to what is focused; `?` lists all of them.
+3. **Keyboard like lazygit and lazydocker, mouse like a desktop app.** One key per action, the same keys those tools use for the same things (`h`/`l` between panes, `[`/`]` between tabs, `J`/`K` scroll the main panel, `x` a menu of the pane's actions, `?` the keys), `/` to filter or search and `:` commands with completion. Rows, tabs, headers, footer keys, dialogs, toasts and the host overlays' lines can also be clicked, panes scrolled with the wheel and rows right-clicked for their menu ("Mouse" lists what is clickable).
+4. **Quiet chrome, loud state.** Borders, titles and labels stay muted; color goes to server state, ports, log levels and the focused pane. The one signature element is the server row: lamp, name, berth (port) and a live braille sparkline.
+5. **Fast and calm.** Render only on change, at most 30 frames per second; no animation except a spinner on pending actions and a one-time fade of a new toast. Built for 80x24 and SSH sessions; inside tmux, the mouse and the clipboard need tmux's `mouse` and `set-clipboard` options.
+6. **Same truth as the dashboard.** Data and rules come from the daemon's API and the Go types it serves (`server.State`, `supervisor.View` and its `Health`, `Unready` and `displayStatus`-equivalent rules). The TUI never decides on its own what a state means.
+
+## Look
+
+### Themes
+
+The TUI ships the dashboard's six theme families (Rosé Pine, Everforest, Tokyo Night, Catppuccin, Nord, Neutral), each with a dark and a light variant, plus **Terminal**, the default, which uses the terminal's own 16 ANSI colors so it matches whatever theme the user already runs.
+
+- Palettes are generated from `web/src/styles/themes/*.css` and the state colors in `web/src/styles/semantic.css` by `scripts/tuithemes` into `internal/tui/theme/palettes_gen.go`; `make check` runs it with `-check`, so the dashboard and the TUI never drift.
+- Light or dark: the TUI asks the terminal for its background (OSC 11, which Bubble Tea v2 exposes) and picks the variant; `--theme <family>[-light|-dark]` and the `T` key override it.
+- Backgrounds: a named theme paints its own `bg` and `surface` on every cell (`Styles.Screen`, `Styles.Surface`, and `Styles.Row` for a whole row with its padding), so `--theme nord-light` reads the same in a dark terminal. Terminal paints no background.
+- Color depth: true color when the terminal supports it, otherwise colors are reduced to 256 or 16 (lipgloss v2 color profiles). Without colors (`NO_COLOR`, or a terminal reporting none: `theme.Monochrome` of Bubble Tea's `ColorProfileMsg`) the styles come from `theme.NewMono`: the selected row is reversed and marked with the cursor glyph (inside an overlay too: `OverlaySelected`, `accent` on `raised` in color), the focused pane has a bold, underlined title and a heavy border, the active tab is bold and underlined and the mode pill reversed; glyphs carry state.
+
+Semantic tokens (each theme defines all of them):
+
+| Token | Use |
+|---|---|
+| `bg`, `surface`, `raised` | screen, panes, overlays and the selected row (`raised` is the dashboard's `--selected`; Terminal's dark `raised` is ANSI 8, since ANSI 0 is many dark terminals' background, and `muted` text on it is drawn in `text2`) |
+| `text`, `text2`, `muted` | primary text, secondary values, labels and borders of unfocused panes |
+| `accent` | focused pane border, the active tab and mode pill, the cursor |
+| `accentText` | accent as text: key hints, the focused title, search matches; `--primary` mixed toward `--text` until it reads at 4.5:1 on `bg`, `surface` and `raised` (the generator computes it) |
+| `running`, `starting`, `crashed`, `external`, `stopped` | state glyphs and state words (the dashboard's tokens) |
+| `warn`, `info` | warnings, notices, log levels |
+| `port` | ports and addresses (the berth column) |
+
+### Glyphs
+
+Three glyph sets, picked by `--icons nerd|unicode|ascii` (default `unicode`; `nerd` when `$NERD_FONT` or the saved preference says so; `ascii` when the locale is not UTF-8):
+
+| Meaning | unicode | nerd | ascii |
+|---|---|---|---|
+| running | `●` | `` | `*` |
+| starting | `◐` (spinner `◐◓◑◒`) | spinner `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | spinner `\|/-\` |
+| unready | `◍` | `󰀦` | `?` |
+| crashed | `◆` | `` | `!` |
+| stopped, exited | `○` | `` | `-` |
+| done (task) | `✓` | `` | `+` |
+| external | `◎` | `󰖟` | `@` |
+| disabled | `⊘` | `󰜺` | `x` |
+| config changed (restart applies it) | `↻` | `` | `^` |
+| selected row (cursor) | `▎` | `▎` | `>` |
+| text cursor in an input line | `▏` | `▏` | `_` |
+| borders, focused without color | rounded `╭─╮│`, heavy `┏━┓┃` | as unicode | `+-+\|`, heavy `+=+\|` (focused always) |
+| rule, ellipsis, separator | `─`, `…`, ` · ` | as unicode | `-`, `~`, `, ` |
+| sparkline, charts | braille, two samples a cell | as unicode | levels `_.-=#`, one sample a cell |
+
+Renderers read borders, rules, ellipses and plot alphabets from the glyph set (`theme.Glyphs`). Exceptions that still draw Unicode in the ASCII set: the top bar's separator (` · ` in `chrome.go`) and the ellipsis of `detail/pane.go`'s `clip`; names and log text pass through as they are.
+
+Nerd Font only: a tool icon before the server name, from `discover.CommandKind` (Next.js, Vite, Node, Deno, Python, Ruby, PHP, Elixir, Java, .NET, Go, Rust, Docker Compose), and icons on badges (task, schedule, watch, worktree copy, network exposure).
+
+### Borders and spacing
+
+Rounded borders (`╭╮╰╯`, the glyph set's `Border`) for panes and overlays; the pane title sits in the top border with its count at the right (`╭ Servers ───── 9 ╮`). One column of padding inside panes. Unfocused panes have `muted` borders, the focused pane an `accent` border and bold title. Overlays are drawn over a dimmed screen (lipgloss v2 layers).
+
+## Layout
+
+Wide (120 columns or more):
+
+```
+ ⚓ portside  :7878   ● 5  ◐ 1  ◆ 1  ○ 3                       acropolis · v0.11.3
+╭ Servers ─────────────────────── 9 ╮╭ ● web  Logs  Details  Env  Metrics ────────╮
+│ ▾ shop                       3/4  ││ 12:01:02  ▲ Next.js 16.2 ready in 412 ms   │
+│   ● web       :3000 ⣀⣤⣶⣤  120 MB ││ 12:01:05  GET / 200 in 12ms                 │
+│   ● api       :4000 ⣀⣀⣤⣀   80 MB ││ 12:01:09  WARN cache miss for /products     │
+│   ◆ worker    exit 1 · 2m ago     ││ ...                                          │
+│ ▾ blog                       0/1  ││                                              │
+│   ○ blog      :4321               ││                                              │
+╰───────────────────────────────────╯│                                              │
+╭ Containers ───────────────────── 3 ╮│                                              │
+│ ▾ shop                            ││                                              │
+│   ● db-1      postgres  healthy   ││                                              │
+╰───────────────────────────────────╯╰──────────────────────────────────── follow ─╯
+ ␣ start/stop  r restart  a attach  o open  / filter  x menu  ? keys
+```
+
+- **Top bar:** product mark, the daemon's port, counts per state (clicking one filters the list), the computer when connected with `--on`, the daemon version; an outdated daemon or a config error turns it into a banner (`warn`/`crashed` background) with the fix key.
+- **Left column (40% of the width, at most 60 columns; half the screen in the half screen mode):** Servers, then Containers, then Ports when opened. The active list (the focused one, or the last focused while the main panel is) takes the column's height; the others collapse to one header row with their jump key, title and count (`─ 2 Containers ──── 3 ─`), as lazygit collapses side panels; a click on a header or its key (`1`, `2`, `3`) opens it. Groups fold with `enter` on their header or a click on `▾`, all of them with `-` and `=`. Each server row: the cursor glyph in the left padding of the selected row (whose `raised` background spans the row), lamp, a mark for disabled (`⊘`) or a changed config (`↻`), (tool icon), name, berth column with the port aligned across groups, CPU sparkline from `cpuHistory`, memory right-aligned, or for a stopped server its last exit and how long ago (`exit 1` alone when that does not fit); badges at the end in `muted`, state first (unready, changed, disabled), then network, task, schedule, watch, copy. Width goes first to the lamp and mark, 10 cells of name and the port, then memory, the name up to 20 cells, the sparkline, the badges and the rest of a long name. A group header counts running services and done tasks apart (`2/3 · ✓ 1/2`) and crashed members (`◆ 1`); the ungrouped servers' header is a muted `other`. An overflowing list shows the cursor's row and the row count in its bottom border (`4/25`), after the filter label. The first snapshot puts the cursor on the first crashed, unready or failed server, so the first frame shows what broke.
+- **Containers pane:** shown while the daemon reports containers, or while the engine is not ready and a server's command runs containers (the dashboard's `usesDocker`); `containers.Shown` decides. Rows group by Compose project, sorted by name, with `other containers` last; a project header has its arrow, name, owner server badge, a spinner and the job's kind while a compose job runs, and its running count. A container row: indent, state glyph (running; unhealthy, dead or failed as crashed; health checking, restarting and removing as starting; paused, created and exited as stopped), its service (its name outside a project), the state word when it is not plain running with the exit code of a failure and `OOM`, then at the right the published TCP ports in `port` and the owner server badge when the header does not name it. The cursor opens on the first container; while the pane is focused the container under it is the selection the right pane shows, and focusing the servers again brings back their last server. The engine's state is the empty state: connecting, starting, or not running with the engine's name, `:start-docker` and the daemon's error. The header keeps the count; the cursor's position of an overflowing list goes to the bottom border, as in Servers and Ports (where the filter and a failed refresh go too). Every status in a bottom border is drawn by `ui.BottomBorder`, in the pane's own border (heavy when focused without colors).
+- **Ports pane:** opened with `:ports` or `3`, closed with `esc` (after clearing its filter) or `:ports`; polls `GET /api/listeners` every 3 seconds while open and not at all once closed; a new list keeps the cursor on its listener (or the row that took its place) and moves the target only while it is the pane's. Rows sorted by port: the port in `port`, the process and PID, the role (`server web` in `running`, `container db (shop)` in `accent`, `blocks web` in `warn`, `unmanaged`) and the reach (`local` muted, `all interfaces` or addresses in `warn`); a narrow row drops the reach, then the PID, then cuts the process name.
+- **Right pane:** the selected item's tabs. Servers: Logs, Details, Env, Metrics. Containers: Logs, Details, Shell, and Job while the container has a compose job (opened when a recreate starts; once the job ended its output stays and its stream closes, and a new job opens a new one; every log stream has its own id, so a message reaches only the tab that opened it). The top border holds the identity (state glyph and name), the tab strip and at the right the state word and uptime; as the frame narrows the uptime goes first, then the state word, then the name shrinks to 8 cells, then the tabs become abbreviations and last only the open tab shows between `‹ ›` arrows (clickable). The bottom border shows the log mode (`follow`, `paused`, `search 3/17`, `filter`), or the cursor's position (`3/12`) on a Details or Env tab that overflows. A container's pane uses the same strip (`detail.Strip`) and the same Details list (`detail.Facts`: right-aligned labels, wrapped values, one fact per mount, file or variable, full-page keys, the cursor drawn only while focused); on its log tabs `a` reads Shell, Attach being a server's terminal (`containers.Detail.ActionLabel` and `ActionOff` for the menus).
+- **Details and Env:** label and value rows in groups separated by a blank row (state and history; addresses; command and folder; config ties), labels right-aligned in Details and names left-aligned in Env. Values pass through `viewfmt.PlainText` (controls and bidirectional format characters become `�`) and wrap over at most 8 rows with the label on the first; the row count drives scrolling. A cursor (the `Cursor` glyph and the selected row style, while focused) picks the value `y` copies. URLs are OSC 8 links. Env ends with the source line: config path, revision, load time, `stale` after a failed refresh, `updating` while a newer revision loads.
+- **Metrics:** per chart the current value and the peak, the chart in `Glyphs.Chart` (braille two samples per cell; `Levels` one sample per cell), a `Rule` baseline and the span and sample interval. Without samples it says whether the server is stopped or the first sample is due.
+- **Footer:** outside the normal mode the mode pill (`FILTER`, `SEARCH`, `COMMAND`, `SELECT`, `INSERT`) in `accent`, then the keys for the focused pane; transient messages replace the key hints for 4 seconds (errors in `crashed`, success in `running`). The hints always keep room for `x menu` (only when the focused pane has a menu) and `? keys`, and in a narrow terminal for `esc back`; the focused pane's primary actions fill the rest and are dropped from the end first. Hints name what the key does to the target: `␣ start` on a stopped server, `␣ stop` on a running one, `r restart group (2)` on a group header.
+- **Medium (80 to 119 columns):** the same, left column narrowed, sparkline and badges dropped first.
+- **Narrow (under 80 columns or under 24 rows):** one pane at a time; `enter` or `l` opens the detail, `esc` or `h` goes back (the footer says `esc back`); the top bar keeps only the counts; toasts shrink to the newest one, 32 cells wide with one body line.
+- **First frame:** the selection starts on the first crashed, blocked, not answering or failed (exited with an error) server, else the first running one, else the first row, so the right pane opens on what needs attention; root `firstToShow` is the one owner of that rule.
+- **Target and preview:** the active list's visible cursor is the target of every action (`followSelection` reconciles focus, cursor and target before a key, a command, a menu or a right click acts, from any pane): a group header targets the group, and a list that shows no rows (a filter that matches nothing) has no target, so actions say `nothing selected`. The right pane keeps showing the last server while the cursor is on a header or no row, with a muted `(preview)` after its name.
+
+## Interaction
+
+### Modes
+
+| Mode | Enter | Leave | Purpose |
+|---|---|---|---|
+| Normal | default | | navigate and act |
+| Filter | `/` in a list | `esc` clears, `enter` keeps | fuzzy filter of the list (name, group, directory, port) |
+| Search | `/` in logs | `esc` | find in logs, `n`/`N` next/previous, matches highlighted |
+| Select | `v` or `shift-↑`/`shift-↓` in logs | `esc` | select lines, `y` copies them |
+| Command | `:` | `esc` | commands with completion and history (`↑`/`↓`) |
+| Insert | a form field | `esc` | typing in forms |
+
+### Keys (normal mode)
+
+The keys are lazygit's and lazydocker's where those tools do the same thing, single keys without sequences or counts. Checked against lazygit's `docs/Config.md` keybinding defaults and lazydocker's `pkg/gui/keybindings.go` on 2026-11-12; the full table for users is in `docs/tui.md` "Keys". Deliberate differences, each because this tool does something else with the key:
+
+| Key | lazygit / lazydocker | Here | Why |
+|---|---|---|---|
+| `?` | lazygit: keybindings menu that runs actions; lazydocker: same as `x` | the list of keys by scope | `x` is the menu that runs actions; `ctrl+p` the palette |
+| `o` | lazygit: open file; lazydocker: `w` opens in browser | open in browser | a server's URL is what it opens |
+| `e` | lazygit: edit; lazydocker: hide stopped containers | edit a server's config entry in a form | as lazygit's edit |
+| `c` | lazydocker: custom command | clear the daemon's scrollback (asks first) | no custom commands; the confirmation protects the data |
+| `space` | lazygit: select or toggle | start or stop, the primary action | the toggle of a server |
+| `h` `l` | lazydocker: previous and next side view | the pane on the left or right | same intent; lazydocker pans the main view with `H` `L`, which wraps here (`w`) |
+| `ctrl+p` | lazygit: patch options | the command palette | no patches; editors use it for a palette |
+| `R` | lazygit: refresh | reconnect to the daemon | the snapshot is live; reconnecting is the refresh |
+
+Panes: `h`/`l` or `←`/`→` the pane on the left or right, `tab`/`shift-tab` next and previous, `1` the servers, `2` the containers and `3` the ports when they are shown (lazygit's jump to block), `0` the main panel, `enter` from a list focuses the main panel and `esc` goes back, `[`/`]` previous and next tab of the main panel, `+`/`_` the screen mode (normal; half: the servers take half the width, or the main panel all of it; full: the focused pane only).
+
+Main panel, from every pane: `J`/`K` scroll, `ctrl-d`/`ctrl-u` half a page, `PgDn`/`PgUp` a page.
+
+Lists and the main panel: `j`/`k` and arrows, `.`/`,` next and previous page, `<`/`Home` and `>`/`End` top and bottom (in logs, bottom follows new output again).
+
+Server actions: `space` start or stop (the primary action, as `space` is in lazygit's panels; on a group header the whole group), `S` start, `s` stop and `r` restart as in lazydocker (also on a group header), `a` attach, `o` open in browser, `y` copy URL (OSC 52), `E` a shell in its folder (lazydocker's exec shell; only on this computer), `d` remove from the config (confirm), `c` clear the daemon's scrollback (confirm), `e` edit in a form (lazygit's edit), `n` a new server (lazygit's new), `/` filter and `esc` clears it; opening the folder in an editor or a terminal app, enabling and disabling and the group actions are in the `x` menu and the command line, and the servers' menu ends with the new server, the config file and the settings.
+
+Logs: `/` search, `n`/`N`, `F` only matching lines, `f` follow on/off (scrolling up pauses, `>` resumes), `w` wrap, `t` timestamps (hidden on their own when most lines carry their own time), `v` or `shift-↑`/`shift-↓` select lines, `y` copy, `a` attach, `c` clear the scrollback, `esc` clears the search, then goes back.
+
+Global: `x` the focused pane's actions as a menu, `?` the keys, `:` command line, `ctrl+p` the palette, `T` theme, `R` reconnect, `C` the Computers overlay, `q` quit, `ctrl-c` always quits, checked before any dialog or input.
+
+Overlays take every key while open, and `q` closes the overlay, never the program, except where the overlay takes text (the palette, the command line, a form field, a pairing code), where `q` is typed: in a menu `j`/`k` move, `enter` or `space` run the highlighted item (as in lazydocker's menus), an item's own key runs it and `esc`, `q` or `x` close it; in the help `j`/`k` scroll; in `:messages` `j`/`k` move and `enter` selects the server the message is about.
+
+Every action is defined once in `keymap.Default()`; the footer, the help, the menus, the command line and the palette are generated from it, and `keymap_test.go` checks that no key runs two actions in one scope (a pane's key never hides a global one), that every key shown runs the action shown, and `model_test.go` that every action has an executor.
+
+### Command line and palette
+
+`:` opens a command line at the bottom with completion of commands and their arguments (server, group and container names, themes, icon sets, states): the candidates for the word under the cursor show above it while typing, `tab` and `shift-tab` cycle through them in place, names with spaces are quoted (`:restart "my app"`), and `↑`/`↓` walk the history:
+`:start web`, `:stop shop`, `:restart`, `:attach api`, `:open`, `:filter-state crashed`, `:theme nord`, `:icons nerd`, `:messages`, `:new`, `:edit web`, `:scan ~/dev`, `:settings`, `:config`, `:ports`, `:kill 3016` (a port, else a PID; the cursor's row without one), `:takeover web`, `:recreate db-1`, `:down-project`, `:start-docker`, `:computers`, `:on mbp`, `:pair mbp`, `:daemon`, `:upgrade`, `:restart-daemon`, `:setup`, `:doctor`, `:q`. Container and port actions share the server actions' ids where they mean the same (`toggle`, `start`, `stop`, `restart`, `shell`, `open`, `copy-url`) and run on the item the cursor is on, through the same `off` rule (`containers.Off`, `ports.Off`). A name resolves against the kinds the id's actions take (`keymap.Registry.Variants`, `commandVariant`): `:restart shop-db-1` is the container's restart, `:restart web` the server's, the focused pane's kind first; the project commands take a project (`:stop-project shop`). Each command checks its arguments before it runs: how many it takes and that a name names something of the right kind (`:start-group web` says web is a server in group shop); unknown commands and names get an error that names the closest match. An action that does nothing on its target says why (`restart mailer: disabled; S starts it anyway`, `stop blog: not running`), from one rule shared with the menus and the palette.
+
+`ctrl+p` opens the command palette (the dashboard's `⌘K`): type to filter, fuzzy, over every action on the cursor's target, the global and pane actions, every theme, icon set and state filter, and the target actions on every other server, group, container, Compose project and listed port, each once per target (`Restart web`, `Restart group shop (2)`, `Restart container shop-db-1`, `Stop project shop`, `Kill node 5141 on :3016`); the containers' and ports' actions never appear as generic entries that would run on whatever the cursor is on. Each row shows its label, and at the right the key that does the same from the focused pane or else a command the command line accepts (`:restart shop-db-1`, `:kill 3016`); global rows carry their `off` reason (`systemOff`) as target rows do; destructive actions are in `crashed`, ones that do nothing now are muted with the reason. `enter` runs a server or global row as its command line, so it does exactly what typing it does, and a container, project or port row as that action on its item (`ui.ActMsg`), as its key there does.
+
+### Mouse
+
+Click selects and focuses; double click on a server or container opens the detail (focuses the main panel; it never attaches); the wheel scrolls the pane under the pointer; clicking a tab, a group arrow, a state count, a footer key, a collapsed pane's header, a toast (selects its server) or a dialog's choice acts on it; right click opens the menu of the row under the pointer (as `x` does) with the same actions as the keys and their keys shown; links in logs are OSC 8 hyperlinks the terminal opens on ctrl/cmd-click. The host overlays (Computers, Daemon, Coding agents) record a click target per content line (`remote/mouse.go`): a row takes the cursor (a second click within 400 ms on a computer's row runs its `enter`), the sharing line runs `s`, a forwarded port's state `f`, an agent's check box and label `space`, and each overlay ends with a line of its row-independent actions as key and label pairs that run their key.
+
+### Logs
+
+- From the terminal WebSocket: its replay of the scrollback, then live output on the same connection, so the two join without a repeat or a gap; the plain logs reply (`timestamps=1`) only dates the scrollback's lines where its text agrees. Cleaned with the supervisor's line rules (`RedrawLine`, `CursorUp` redraws of recent rows as `PlainLines` applies them), SGR colors kept when they are safe, carriage-return progress lines collapsed to their last state, at most 10 000 lines kept in the pane. Output the UI could not keep up with is dropped from a line start and marked with a muted `some output was not shown` rule.
+- Viewport: positions count screen rows (a bottom line and its rows below the screen), so wrapped lines taller than the pane read from the top and pages move by the pane's height; search jumps put the match's row in the middle and, with lines cut, scroll sideways to it (`H` `L`).
+- Time column: automatic until `t`; shown once at least half of the latest lines carry daemon times and fewer than 80% start with their own, decided once per server shown.
+- Bottom border: independent pieces joined by the glyph set's separator (`PAUSED · 240 new · search error 3/17 · wrap`); follow or paused never gives way to the search.
+- Read state (position, search, filter, time column) is kept for the last 8 servers shown and restored when one is shown again or its stream reconnects.
+- The daemon's marker lines (start, stopped, crashed) are drawn as a full-width rule with their label, crashes in `crashed`.
+- Highlighting: log levels (`ERROR`, `WARN`, `INFO`, `DEBUG` and common forms) colored, timestamps `muted`, URLs and `name.localhost` addresses underlined and clickable, the matched search term on `raised` with `accent` text.
+- Attach (`a`): the TUI suspends and the terminal is connected to the server's PTY (input, resize); a one-line hint says `ctrl-]` detaches; the TUI comes back exactly where it was, with a notice telling a detach from the process ending (the terminal stream outlives it, so the session checks the process id) and a lost connection.
+- Suspended sessions (attach, a container's shell, `E`'s shell, `:doctor` and the restart fallback) go through `ui.Exec`, never Bubble Tea's exec directly: `remote.Tag` turns it into Bubble Tea's exec and tags the callback's result with the session generation that started it, so a result that arrives after `:on` switched is dropped like any other reply. Bubble Tea ignores signals while the UI is suspended, so the session takes them: the end of the program's context, a SIGTERM or a SIGHUP ends it (`ui.ErrEnding`). A WebSocket session (attach, container shell) closes its connection; a child process (`ui.Process`) gets SIGHUP, what a closing terminal sends and an interactive shell ends on, then SIGKILL after 2 seconds, and is waited for. The terminal is then restored and the UI quits; any other end of a session brings the UI back where it was. Log streams end with the program's context too. `:config`'s editor runs through Bubble Tea's exec directly (`edit.launchEditor`), so it is not ended this way; the edit flow drops a result of an earlier run or session by its sequence and generation.
+
+### Feedback
+
+- Every action shows a spinner on its row until the daemon's state changes or the request fails; errors are shown in the footer with the daemon's message and stay in `:messages`.
+- Crashes, containers that become unhealthy, crash or are killed for memory, and a lost daemon connection appear as a toast at the top right for 6 seconds (and once in `:messages`), like the dashboard's notifications. A click on a toast about a server or container selects it. Several of one kind in one snapshot (a group going down) make one toast naming them (`2 servers crashed: web, api`), with each one's details in `:messages`; a group action with several failures makes one footer notice, the failures in `:messages`.
+- Menus are titled with their target (`web`, `group shop (4)`, `Logs of web`), and an item that does nothing there stays listed, muted, with the reason (`Stop (not running)`); running it shows the reason instead of doing nothing. Each menu is resolved for what its pane shows: the Logs menu checks its toggles (`✓ Follow new output`) and says why attach is off, a container's Logs menu offers its Shell, and a container's Details tab has the container's actions as commands. The servers' menu has muted section headers (Server, Group, Config, Computers, Daemon, Agents) with the keys aligned at the right. A menu is bounded to the body between the bars; a longer one scrolls with the cursor and shows `↑ 3 more` and `↓ 8 more` rows, and clicks and the wheel follow the scroll.
+- A lost connection keeps the last state on screen, greyed, with `reconnecting in 3 s` in the top bar.
+
+### Forms and dialogs
+
+Forms (`internal/tui/form`) are centered overlays on `raised` over the dimmed screen, at most 76 cells of content, leaving the top bar and the footer in view, with one field per row and label left and value right, as in the dashboard's Settings, and section headings in muted bold. Kinds: text, number (digits only), toggle (`on` in the running color, `off` muted), choice and list (one item per line, or comma-separated). Empty values show what empty means, muted (`automatic`, the default from the daemon). `j`/`k` or `tab` move, `enter` or `i` edits (insert mode, the field's value drawn with a cursor), `space` toggles switches and cycles choices, `ctrl-s` saves, `esc` asks before discarding changes. The highlighted field shows its help line under it; errors from the daemon are shown under the field they name (the key or a word for it that comes first in the message), others above the hints. A form taller than the screen scrolls to keep the highlighted field, its help and error in view, with the position (`4/25`) at the end of the hint line; hints that do not fit drop `move` first, then the ones before the last, so `esc` stays; a click selects a field. Secret-looking values of a list stay masked until the field is edited. The server form ends with its hook commands (`on_crash`, `on_unready`, `on_recover`), read-only, edited with `:config`. A new server's empty port is filled from `GET /api/free-port`; cleared, the key is left out (automatic, the lowest free port when the config loads), while `0` means no port, and a task drops the suggested port when saved. The daemon validates; the terminal UI only parses what it must send (a number, `NAME=value` lines). The footer shows the form's hints while it is open.
+
+`:config` (`internal/tui/edit`) suspends the UI and runs `$VISUAL`/`$EDITOR` on a private temporary copy of the text `GET /api/config` served, then saves it with the revision it was served at: a refusal offers to edit again with the text kept, a conflict offers Overwrite (not the default). The scan proposals list (`n`, `:new`, `:scan`) shows name, kind, port and folder, the command under the highlighted row, and ends with the row for an empty form; `space` marks proposals and `enter` adds the marked ones as they are, one request each as the dashboard's "Add selected" does, keeping the refused ones marked with the daemon's error under them. After any save, the running servers that keep their old settings (`View.Stale`) get one restart confirmation naming them.
+
+Confirmations are small centered dialogs naming the target and the consequence ("Remove web from the config? It is stopped first." for a running server; "Stop server api on port 3102?" when `d` or `:kill` reaches a managed server's port, which stops the server rather than killing its process) with two choices, Cancel selected by default: `tab`, the arrows and `h`/`l` move between them, `enter` runs the selected one, `y` confirms, `n`, `q` and `esc` cancel, and both choices can be clicked.
+
+### Other computers and the daemon
+
+`internal/tui/remote`. The Computers, Daemon and Coding agents overlays are centered on `raised` over the dimmed screen like the forms, with the row under the cursor highlighted and the footer showing the keys for that row. Their requests always go to this computer's daemon (`remote.Host.Local`), whatever the session targets: the daemon refuses the remote, upgrade and agent routes to paired devices, and a session on another computer reaches that computer through this daemon's relay.
+
+A session (`ui.Session`) is the computer the panes act on. `:on` replaces it in place: `remote.Switch` connects this daemon to the computer unless it is connected to it, then takes a client through `client.On`, as `--on` does. The root model then counts a new generation, closes the right pane, starts fresh panes, selection, operations, toasts and forms, and restarts the live stream for the new client. Every command the root model returns is wrapped by `remote.Tag`, so its reply arrives as a `ui.GenMsg` of the generation it was started in, and the stream's messages carry theirs; the root model drops every message of an earlier generation. Bubble Tea's own messages pass untagged, and batches and sequences are tagged command by command.
+
+`:upgrade` and `:restart-daemon` post `/api/upgrade` with this binary, which is what `daemon restart --in-place` does before it waits; here the live stream is the wait. While it runs the top bar says `restarting, reconnecting` instead of the countdown, the lost-connection and reconnected toasts stay quiet, and the first snapshot with another start time ends it with a notice naming the version, or an error after a minute. A daemon that predates upgrades in place gets `portside daemon restart` in the suspended terminal (the same config and state through the environment), which stops and starts it and so restarts its servers: the restart confirmation says so up front, and a failure of that command ends the reconnect state at once. `:doctor` runs the same way and waits for `enter` before coming back.
+
+While the session targets another computer, `remote.Host.WatchConnection` reads this daemon's connection again every 5 seconds, and every Computers action applies the connection its reply carries (`remote.SyncConn`), so `ui.Session.Conn` (which resolves the other computer's addresses here) follows forwarding turned on or off, here or in another client; a connection that ended or is to another computer leaves the session without addresses. A server's own port opens through its forwarded port or this daemon's `*.localhost` proxy; any other port (a container's, another listener of a server) only through its forwarded port (`ui.Session.PortURL`), else open and copy say `no local address for :5432 on mbp`.
+
+## Scope by phase
+
+1. Foundation (implemented): command, client and live state with reconnect, themes and glyphs, layout and screen modes, the action table, command line and palette, help, servers list, logs, details, env, metrics, server and group actions, attach, the local shell, mouse, toasts.
+2. Containers (implemented): list grouped by Compose project, actions (start, stop, restart, recreate, rebuild, pull, project start/stop/down), logs, details, shell, compose job progress, engine state and starting the engine.
+3. Forms and ports (implemented): new server (scan proposals and manual form), edit a server's keys in a form (its name, its hook commands and an environment value spanning lines are read-only there and edited with `:config`), settings, config editing (`$EDITOR` on a private copy of the text, saved through the API with its revision); ports with kill and takeover.
+4. The rest of the dashboard (implemented): the Computers overlay (this computer's sharing and paired devices, the tailnet's computers, the connected one's forwarded ports; connect, disconnect, pair with a masked code, sharing with a confirmation, forwarding per port), `:on` switching the session in place, the daemon's details, `:upgrade` and `:restart-daemon` in place with the reconnect, the coding-agent setup list and `:doctor`. Not here: Tailscale setup, a port forwarded to another local port (`Use another port`), revoking a paired device; the dashboard and the CLI (`share revoke`) do those.
+5. Install without the macOS app (partly done): README Install offers "Mac app" or "terminal only" and `docs/tui.md` is the user guide, kept in line with the action table by `internal/tui/docs_test.go`. The Homebrew formula (`packaging/homebrew/portside-formula.rb.tmpl`) builds from source, with Go, Node and pnpm at build time; whether it should install the release binary instead is open.
+
+## Quality bar
+
+- Snapshots at 80x24, 120x40 and 200x60 in every theme and glyph set look aligned (East Asian width and emoji in server names do not break columns). Covered: `snapshot_test.go` renders the whole screen at the three sizes in every theme family, both variants and mono, in every glyph set (135 frames) against a fake daemon with CJK, emoji, combining marks, a 400-character line, containers and the ports pane, and checks the row count, every row's cell width, the panes' corners and sides, that only SGR and OSC 8 escapes remain and that the ASCII set draws only ASCII; the overlays (help, menu, palette, confirmation, edit form, Computers) once per size; `servers_test.go` checks row widths from 34 to 60 columns, `detail_test.go` the tab strip at narrow widths, `model_test.go` the footer at every width.
+- Every key in `?` works, every action can be reached by key or command, and every pane action by the menu, so by right click too. Covered: `keymap_test.go` (no key runs two actions in a scope, every shown key runs the shown action), `model_test.go` (every action has an executor), `keys_test.go` (every key of every scope is pressed with its pane focused and every command run without an argument: no unknown key, no unknown command, no panic), `docs_test.go` (every key and command is in the guide, and the guide and this file name no command the registry lacks).
+- No flicker; idle CPU of the TUI under 1%; a log flood of 10 000 lines per second keeps input responsive. Measured on 2026-11-12 with `scripts/tui-acceptance.sh` (Apple M4 Pro, a pty at 120x40, an isolated daemon, three servers running, the containers pane showing): idle 0.90% of one core over 30 s; with the selected server printing 10 000 lines per second and the logs following, `?` drew the help in 30 ms (median) and 34 ms (p95) and the TUI used 12.7% of one core; with 2 000 lines per second of 1 000 characters and wrap on, 25 and 33 ms and 19.2%. The renderer never erased the whole screen after the first frame in any phase (it redraws changed cells only); frames are capped at 30 per second. A real-terminal video was not made.
+- Leaves the terminal exactly as it was (alternate screen, cursor, mouse mode, bracketed paste) also after a panic or a lost connection. Covered: `restore_test.go` runs the command in a pty against an isolated daemon and checks, after SIGTERM, after the terminal closes and after the daemon is killed and `q` is pressed, that the process exits and the output turns the alternate screen, the mouse modes, bracketed paste, modifyOtherKeys and the kitty keyboard off and shows the cursor, with the tty's ICANON, ECHO and ISIG back. Bubble Tea recovers a panic in Update, View and a command's goroutine and restores the terminal; the UI's own goroutines (the live stream, the log feeds, the attach and shell sessions) recover theirs into an error the program quits with, printed with its stack. After SIGTERM the UI has 5 s to end before it is stopped, and the terminal is restored even if it hangs.

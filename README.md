@@ -47,19 +47,22 @@
 
 ## Install
 
-With [Homebrew](https://brew.sh). On **macOS** 26 or later (Apple Silicon), the menu bar app and the `portside` command:
+With [Homebrew](https://brew.sh), one of these two; both install the `portside` command.
+
+**Mac app** (macOS 26 or later, Apple Silicon): the menu bar app, its dashboard window and the command.
 
 ```sh
 brew install --cask padmk/tap/portside
 ```
 
-On **macOS or Linux** (x86-64, arm64), the command and dashboard, built from source:
+**Terminal only** (macOS or Linux, x86-64 and arm64; also for a machine you reach over SSH): the command with the daemon, the [terminal UI](docs/tui.md) and the dashboard in your browser (`portside open`), built from source. Without Homebrew, a release archive (under "Other ways to install" below) holds the same command.
 
 ```sh
 brew install --formula padmk/tap/portside
+portside tui
 ```
 
-On Linux, `portside service install` then starts the daemon at login, or at boot with lingering; [Linux server](docs/linux-server.md) is the guide for a machine without a desktop. Without the menu bar app, the dashboard opens in your browser (`portside open`). The cask and the formula both install `portside`, so install only one of them.
+On Linux, `portside service install` then starts the daemon at login, or at boot with lingering; [Linux server](docs/linux-server.md) is the guide for a machine without a desktop.
 
 The app is not notarized by Apple yet, so the cask removes the quarantine flag to let macOS start it. You rely instead on the public source and on release files built by GitHub Actions with a verifiable attestation; [Trust](docs/security.md#trust) says what that covers and how to check a download. The formula avoids the prebuilt app.
 
@@ -115,7 +118,7 @@ group = "shop"
 
 ## Features
 
-One static binary runs a daemon on `127.0.0.1`; the menu bar app, the dashboard, the CLI (with `--json` for scripts) and the MCP server all talk to it.
+One static binary runs a daemon on `127.0.0.1`; the menu bar app, the dashboard, the [terminal UI](docs/tui.md) (`portside tui`, also over SSH), the CLI (with `--json` for scripts) and the MCP server all talk to it.
 
 - **One list for every project.** A single TOML file describes servers across all your repositories, with groups (`portside up shop`) and dependencies (`api` waits for `db`). `portside scan` finds Node, Deno, Python, Ruby, PHP, Elixir, Java, .NET, Go, Rust and Compose projects and proposes the commands.
 - **Stable ports and clean URLs.** Each server keeps its port and is also reachable at `http://<name>.localhost:7878` (the daemon's port), WebSockets and hot reload included.
@@ -145,6 +148,7 @@ The skill that `portside setup` installs says the same in more detail (`portside
 - [Configuration](docs/configuration.md): every key, the environment and version managers, the daemon's port, project discovery
 - [CLI](docs/cli.md): every command
 - [Dashboard and menu bar app](docs/dashboard.md)
+- [Terminal UI](docs/tui.md): `portside tui`, its keys and themes
 - [Coding agents](docs/coding-agents.md): setup, other MCP clients, the tools, worktrees
 - [Containers](docs/containers.md): engines, ownership, actions
 - [Other computers](docs/other-computers.md): pairing and sharing over Tailscale, or with your coding agent's help

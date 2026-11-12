@@ -5,7 +5,7 @@ Commands start the daemon when none runs, except those that only report on it: `
 Global flags go before the command:
 
 - `--config FILE` uses another config file, like `$PORTSIDE_CONFIG` ([Configuration](configuration.md#where-things-live)).
-- `--on <computer>` runs `status`, `up`, `down`, `restart`, `ensure`, `logs`, `attach` or `containers` on the connected computer ([Other computers](other-computers.md#work-on-the-other-computer)); it may also follow the command.
+- `--on <computer>` runs `status`, `up`, `down`, `restart`, `ensure`, `logs`, `attach`, `containers` or `tui` on the connected computer ([Other computers](other-computers.md#work-on-the-other-computer)); it may also follow the command.
 
 ```text
 portside status [--json]                 list servers with state, port and usage; a task
@@ -30,6 +30,10 @@ portside logs <name> [-n 200] [-f]       print or follow a server's or container
                                          --since 10m (or an RFC 3339 time) limits it,
                                          none of these three with -f or --raw
 portside attach <name>                   interactive terminal, Ctrl-] detaches
+portside tui [--theme T] [--icons I]     the terminal UI: servers, logs, containers, ports
+                                         and every action full screen; needs a terminal
+                                         on stdin and stdout; --theme and --icons for
+                                         this run, the rest in tui.md
 portside open [name] [--alias] [--print] open the dashboard or a server; --alias opens
                                          <name>.localhost, --print only prints the address
 portside containers [server|project]... [--json]
@@ -49,7 +53,8 @@ portside scan [dir] [--add [--yes]] [--json] [--depth 3]
                                          root); --add asks first on a terminal
 portside init                            write the starter config file
 portside config [path|edit|check]        print the config's path (default), open it in
-                                         $VISUAL or $EDITOR, or validate it
+                                         $VISUAL, else $EDITOR, else vi (run through sh,
+                                         so it may hold arguments), or validate it
 
 portside daemon                          run the daemon in the foreground
 portside daemon start|stop|status        start it in the background, stop it and its
@@ -99,7 +104,7 @@ portside doctor [--fix]                  check the setup; --fix connects coding 
 portside version                         print the version (also --version)
 ```
 
-[Reading state from scripts](linux-server.md#reading-state-from-scripts) covers `check`, `status --json` and the HTTP API. [Coding agents](coding-agents.md) covers `mcp`, `setup` and `skill`.
+[Reading state from scripts](linux-server.md#reading-state-from-scripts) covers `check`, `status --json` and the HTTP API. [Coding agents](coding-agents.md) covers `mcp`, `setup` and `skill`, and [Terminal UI](tui.md) covers `tui`: its flags, keys and commands.
 
 ## Opening the dashboard
 
