@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -191,20 +192,41 @@ func (s *Supervisor) markStartAfterExitLocked(p *proc, since time.Time) {
 	if s.requestedExitLocked(p) || p.overMemory != "" {
 		return
 	}
-	if at, ok := reapedLocked(p); ok && (!p.cfg.Oneshot || since.IsZero() || at.Before(since)) {
+	ended := false
+	if p.cfg.Oneshot && !since.IsZero() {
+		// Ordered by wait's record of the end, which becomes the run's
+		// settledAt: a request from before it shares the run.
+		at, ok := reapedLocked(p)
+		ended = ok && at.Before(since)
+	} else {
+		ended = processEndedLocked(p)
+	}
+	if ended {
 		p.startAfterExit = true
+		// The ended run is not ready for anyone waiting: the next one is
+		// on its way.
+		p.status, p.note = Starting, ""
+		s.changedLocked()
 	}
 }
 
-// reapedLocked reports whether wait has seen p's process, whose pid is
-// still set, end, and when. That moment decides for every request: one
-// from before it is for the run in progress, as for a running server.
+// processEndedLocked reports whether p's process, whose pid is still set,
+// has been reaped, also before wait has recorded it. The process's own
+// state says so, not its pid, which another process may have by now.
+func processEndedLocked(p *proc) bool {
+	if p.pid == 0 || p.process == nil {
+		return false
+	}
+	return !p.reapedAt.IsZero() || errors.Is(p.process.Signal(syscall.Signal(0)), os.ErrProcessDone)
+}
+
+// reapedLocked reports whether wait has recorded the end of p's process,
+// whose pid is still set, and when.
 func reapedLocked(p *proc) (time.Time, bool) {
-	t := p.reapedAt.Load()
-	if p.pid == 0 || t == 0 {
+	if p.pid == 0 || p.reapedAt.IsZero() {
 		return time.Time{}, false
 	}
-	return time.Unix(0, t), true
+	return p.reapedAt, true
 }
 
 // reserveStartLocked records a start of p, which is down, for launch with
@@ -412,7 +434,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.gen++
 	gen := p.gen
 	p.process = cmd.Process
-	p.reapedAt.Store(0)
+	p.reapedAt = time.Time{}
 	p.pty = f
 	p.pid = cmd.Process.Pid
 	p.pidStart = processStart(p.pid)

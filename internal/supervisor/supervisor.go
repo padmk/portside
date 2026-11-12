@@ -64,9 +64,9 @@ type proc struct {
 	// startAfterExit marks a start asked for once the process had ended on
 	// its own, while wait still drains its output: wait runs it.
 	startAfterExit bool
-	// reapedAt is when wait reaped the process of the current run, in Unix
-	// nanoseconds, 0 before. wait stores it without the lock.
-	reapedAt      atomic.Int64
+	// reapedAt is when wait saw the process of the current run end, zero
+	// before.
+	reapedAt      time.Time
 	listenPorts   []int
 	listenHost    string
 	missingSince  time.Time
