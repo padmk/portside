@@ -587,6 +587,7 @@ final class Store {
 
     func stopDaemon() {
         pauseLoop(while: ["daemon", "stop"]) {
+            startRequested = false // a later Stop withdraws a Start still waiting for the loop
             daemonStopped = true
             setOffline("stopped", clear: true)
         }

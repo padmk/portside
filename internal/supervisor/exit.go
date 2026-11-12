@@ -108,9 +108,11 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 			restartIn = s.backoffLocked(p, uptime)
 		}
 	}
-	if !again && !s.requestedExitLocked(p) && p.startAfterExit && p.want && !p.removed && !s.closing {
+	if !again && !s.requestedExitLocked(p) && p.startAfterExit && p.want && !p.removed {
 		// Started again after it ended on its own, while its last output
 		// drained: run it now instead of what the exit alone would decide.
+		// During an upgrade in place the launch waits for its end; the
+		// next daemon starts the server, which stays wanted.
 		p.status = Starting
 		p.note = ""
 		p.retries = 0

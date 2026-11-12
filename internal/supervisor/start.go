@@ -188,10 +188,11 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 
 // markStartAfterExitLocked records that a start of p, whose pid is still
 // set, comes after its process ended on its own and was reaped, so wait
-// runs it once it has recorded the exit. A stopping server starts again
-// through its own path in wait.
+// runs it once it has recorded the exit. The process's own state says so,
+// not its pid, which another process may have by now. A stopping server
+// starts again through its own path in wait.
 func (s *Supervisor) markStartAfterExitLocked(p *proc) {
-	if p.pid != 0 && !s.requestedExitLocked(p) && p.overMemory == "" && syscall.Kill(p.pid, 0) == syscall.ESRCH {
+	if p.pid != 0 && p.process != nil && !s.requestedExitLocked(p) && p.overMemory == "" && errors.Is(p.process.Signal(syscall.Signal(0)), os.ErrProcessDone) {
 		p.startAfterExit = true
 	}
 }
