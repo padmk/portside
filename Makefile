@@ -43,6 +43,7 @@ check:
 	go test ./...
 	pnpm --dir web build
 	go run ./scripts/notices -check
+	go run ./scripts/tuithemes -check
 
 ## notices: regenerate THIRD_PARTY_NOTICES.txt from the Go modules, web/node_modules and theme credits
 notices:

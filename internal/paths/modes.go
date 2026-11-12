@@ -24,7 +24,7 @@ var stateEntries = []string{
 	TokenName, "auto-port", "container-stops.json", LockName, "daemon.log",
 	PortName, DashboardHostName, "handoff.json", "last-good-config.json",
 	"remote-tokens.json", "remote.json", "share-devices.json", "share-target",
-	"remote-instance", "state.json", "stopped",
+	"remote-instance", "state.json", "stopped", TUIPrefsName,
 }
 
 // WriteFile replaces path with data through a fresh private temporary file in
