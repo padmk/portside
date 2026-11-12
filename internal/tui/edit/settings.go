@@ -36,7 +36,7 @@ func settingsFields(v settingsView) []form.Field {
 	}
 	return []form.Field{
 		{Key: "root", Label: "Projects folder", Value: s.Root, Placeholder: d.Root, Help: "Relative server directories start here."},
-		{Key: "restore", Label: "Bring back running servers", Kind: form.Toggle, On: s.Restore, Help: "Servers that were running start again when the daemon comes back."},
+		{Key: "restore", Label: "Restore running servers", Kind: form.Toggle, On: s.Restore, Help: "Servers that were running start again when the daemon comes back."},
 		{Key: "notify", Label: "Desktop notifications", Kind: form.Toggle, On: s.Notify, Help: "Crashes, container problems and devices connecting."},
 		{Key: "port", Aliases: []string{"dashboard port"}, Label: "Dashboard port", Kind: form.Number, Value: port, Placeholder: "chosen by the daemon", Help: "Applies after a daemon restart."},
 		{Key: "stop_timeout", Label: "Stop timeout", Value: s.StopTimeout, Placeholder: d.StopTimeout, Section: "Servers", Help: "How long to wait after Ctrl-C, such as 30s."},
@@ -44,7 +44,7 @@ func settingsFields(v settingsView) []form.Field {
 		{Key: "memory_limit", Label: "Memory limit", Value: s.MemoryLimit, Placeholder: or(d.MemoryLimit, "none"), Help: "Per server, such as 2GB. A server over it is stopped as a crash."},
 		{Key: "docker_start", Label: "Start Docker command", Value: s.DockerStart, Placeholder: "the active context's engine", Help: "Such as colima start."},
 		{Key: "shell", Label: "Shell", Value: s.Shell, Placeholder: d.Shell, Section: "Environment", Help: "Runs each command as <shell> -c <cmd>."},
-		{Key: "login_env", Label: "Login shell's environment", Kind: form.Toggle, On: s.LoginEnv, Help: "Off: servers get the daemon's own environment."},
+		{Key: "login_env", Label: "Login environment", Kind: form.Toggle, On: s.LoginEnv, Help: "Off: servers get the daemon's own environment."},
 		{Key: "path", Label: "PATH folders", Kind: form.List, Lines: true, Value: form.JoinItems(s.Path, true), Help: "One per line, put in front of PATH for every server."},
 		envField("env", "Variables", "One NAME=value per line, for every server.", s.Env),
 		{Key: "umask", Label: "umask", Value: s.Umask, Placeholder: or(d.Umask, "the daemon's"), Help: "Mode mask for files servers create, such as 0007."},
