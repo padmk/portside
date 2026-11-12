@@ -37,9 +37,44 @@ type helpSection struct {
 	entries []helpEntry
 }
 
-// sections lists the actions of the scopes in their order, one section a
-// scope (the global scope one per group: panes, main panel, general). The
-// first scope is the focused pane's and says so. An action in several
+// essentials are the keys a newcomer needs first, each line one or more
+// actions' first keys and what they do; the help starts with them.
+var essentials = []struct {
+	ids  []string
+	help string
+}{
+	{[]string{"down", "up"}, "Move down and up"},
+	{[]string{"focus-left", "focus-right"}, "Pane on the left and right"},
+	{[]string{"focus-servers", "focus-containers", "focus-ports", "focus-main"}, "Servers, Containers, Ports, main panel"},
+	{[]string{"tab-prev", "tab-next"}, "Previous and next tab"},
+	{[]string{"open-detail"}, "Open the logs, or fold a group"},
+	{[]string{"back"}, "Back"},
+	{[]string{"menu"}, "Menu of the pane's actions"},
+	{[]string{"palette"}, "Find any action or server"},
+	{[]string{"command"}, "Command line"},
+	{[]string{"quit"}, "Quit"},
+}
+
+// essentialSection is the help's first section, with the keys from r.
+func essentialSection(r *keymap.Registry, ascii bool) helpSection {
+	sec := helpSection{title: "Essentials"}
+	for _, e := range essentials {
+		var keys []string
+		for _, id := range e.ids {
+			if a, ok := r.ByID(id); ok && len(a.Keys) > 0 {
+				keys = append(keys, KeyLabel(a.Keys[0], ascii))
+			}
+		}
+		if len(keys) > 0 {
+			sec.entries = append(sec.entries, helpEntry{strings.Join(keys, " "), e.help})
+		}
+	}
+	return sec
+}
+
+// sections lists the essentials, then the actions of the scopes in their
+// order, one section a scope (the global scope one per group: panes, main
+// panel, general). The first scope is the focused pane's and says so. An action in several
 // scopes is listed in each with what it does there; only the navigation
 // keys every list shares are listed once.
 func sections(r *keymap.Registry, scopes []keymap.Scope, ascii bool) []helpSection {
@@ -89,11 +124,12 @@ func sections(r *keymap.Registry, scopes []keymap.Scope, ascii bool) []helpSecti
 		at := min(len(out), 1)
 		out = append(out[:at], append([]helpSection{nav}, out[at:]...)...)
 	}
-	return out
+	return append([]helpSection{essentialSection(r, ascii)}, out...)
 }
 
 // View renders the overlay for a w x h screen: at most 100 cells wide and
-// h-4 rows tall (at least 3), the sections of scopes in order, in two
+// h-4 rows tall (at least 3), the essentials and the sections of scopes in
+// order, with which lines show when they do not all fit, in two
 // columns when the box is 90 cells wide or more; descriptions wrap within
 // their column.
 func (p *Help) View(s theme.Styles, g theme.Glyphs, r *keymap.Registry, scopes []keymap.Scope, ascii bool, w, h int) string {
@@ -145,7 +181,7 @@ func (p *Help) View(s theme.Styles, g theme.Glyphs, r *keymap.Registry, scopes [
 	shown := append([]string{}, lines[p.Offset:min(len(lines), p.Offset+rows)]...)
 	more := ""
 	if p.limit > 1 {
-		more = fmt.Sprintf("  %d/%d", p.Offset+1, p.limit)
+		more = fmt.Sprintf("  lines %d-%d of %d", p.Offset+1, p.Offset+len(shown), len(lines))
 	}
 	keys := [][2]string{{"j/k", "scroll"}, {KeyLabel("ctrl+p", ascii), "find an action"}, {"esc", "close"}}
 	shown = append(shown, HintFit(s, g, inner-ansi.StringWidth(more), keys...)+pn.s.Muted.Render(more))

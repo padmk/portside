@@ -110,20 +110,33 @@ func (m *model) messagesKey(k string) tea.Cmd {
 	case "esc", "q":
 		m.messages = nil
 	case "enter":
-		if l.cursor < len(m.history) {
-			if it := m.history[l.cursor].Item; it.Kind == ui.SelectServer && m.hasServer(it.Name) {
-				m.messages = nil
+		if it, ok := m.messageTarget(); ok {
+			m.messages = nil
+			if it.Kind == ui.SelectServer {
 				return m.selectServer(it)
 			}
-			if it := m.history[l.cursor].Item; it.Kind == ui.SelectContainer {
-				if _, ok := containers.Find(m.env.State, it); ok {
-					m.messages = nil
-					return m.selectContainer(it)
-				}
-			}
+			return m.selectContainer(it)
 		}
 	}
 	return nil
+}
+
+// messageTarget is the server or container the highlighted message is
+// about, when it still exists and enter can select it.
+func (m *model) messageTarget() (ui.Selection, bool) {
+	l := m.messages
+	if l == nil || l.cursor < 0 || l.cursor >= len(m.history) {
+		return ui.Selection{}, false
+	}
+	it := m.history[l.cursor].Item
+	switch it.Kind {
+	case ui.SelectServer:
+		return it, m.hasServer(it.Name)
+	case ui.SelectContainer:
+		_, ok := containers.Find(m.env.State, it)
+		return it, ok
+	}
+	return ui.Selection{}, false
 }
 
 func (l *messageList) move(n, total int) {
@@ -450,13 +463,14 @@ func boxSize(box string) (w, h int) {
 }
 
 // messagesView renders the message history, newest last, at most 100 cells
-// wide and h-4 rows tall, with the highlighted message marked; a message
-// about a server says enter selects it.
+// wide and h-4 rows tall, with the highlighted message marked, and its
+// keys: moving when there are messages, selecting the highlighted
+// message's server or container when enter can, closing.
 func (m *model) messagesView() string {
 	s := overlay.Styles(m.env.Styles)
 	inner := max(min(100, m.width)-4, 1)
 	l := m.messages
-	rows := max(min(m.height-4, len(m.history)+3)-3, 1)
+	rows := max(min(m.height-4, len(m.history)+4)-4, 1)
 	l.cursor = max(0, min(l.cursor, len(m.history)-1))
 	if l.cursor < l.offset {
 		l.offset = l.cursor
@@ -477,11 +491,15 @@ func (m *model) messagesView() string {
 	if len(lines) == 0 {
 		lines = append(lines, s.Muted.Render("No messages yet"))
 	}
-	pairs := [][2]string{{"j/k", "move"}, {"esc", "close"}}
-	if l.cursor < len(m.history) && m.history[l.cursor].Item.Kind == ui.SelectServer {
-		pairs = append([][2]string{{overlay.KeyLabel("enter", m.ascii()), "select " + m.history[l.cursor].Item.Name}}, pairs...)
+	var pairs [][2]string
+	if len(m.history) > 1 {
+		pairs = append(pairs, [2]string{"j/k", "move"})
 	}
-	lines = append(lines, overlay.Hint(m.env.Styles, m.env.Glyphs, pairs...))
+	if it, ok := m.messageTarget(); ok {
+		pairs = append(pairs, [2]string{overlay.KeyLabel("enter", m.ascii()), "select " + plainText(it.Name)})
+	}
+	pairs = append(pairs, [2]string{"esc", "close"})
+	lines = append(lines, "", overlay.HintFit(m.env.Styles, m.env.Glyphs, inner, pairs...))
 	return overlay.Frame(m.env.Styles, m.env.Glyphs, "Messages", lines, inner)
 }
 
