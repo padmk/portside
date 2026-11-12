@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/padmk/portside/internal/tui/theme"
@@ -60,5 +61,19 @@ func TestLongMenuScrollsAndHitsTheShownItem(t *testing.T) {
 	}
 	if m.Hit(1) != -1 {
 		t.Error("a click on a section header picks an item")
+	}
+}
+
+// TestBoxBorderCarriesTheSurroundingBackground checks that an overlay's
+// border cells are drawn on the screen's background, not the interior's,
+// so no band of the interior's color shows around the lines.
+func TestBoxBorderCarriesTheSurroundingBackground(t *testing.T) {
+	f, _ := theme.Lookup("nord")
+	s := theme.New(f.Dark)
+	box := Frame(s, theme.Unicode, "web", []string{"x"}, 10)
+	top := strings.Split(box, "\n")[0]
+	raised := lipgloss.NewStyle().Background(f.Dark.Raised).Render(" ")
+	if bg := raised[:strings.IndexByte(raised, ' ')]; strings.Contains(top, strings.TrimPrefix(bg, "\x1b[")) {
+		t.Errorf("the top border carries the interior's background: %q", top)
 	}
 }

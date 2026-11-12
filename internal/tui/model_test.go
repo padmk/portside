@@ -627,3 +627,23 @@ func TestCtrlCQuitsOverADialogAndQClosesOverlays(t *testing.T) {
 		t.Error("q in the palette is not typed")
 	}
 }
+
+// TestCompletionsKeepThePaneFrames checks that while the command line
+// shows completions the panes end above both footer rows, so their
+// bottom borders stay on screen.
+func TestCompletionsKeepThePaneFrames(t *testing.T) {
+	m := testModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 38})
+	press(m, ":")
+	press(m, typed("st")...)
+	if m.cmdLine == nil || m.cmdLine.Rows() != 2 {
+		t.Fatal("no completions under :st")
+	}
+	rows := strings.Split(ansi.Strip(m.screen()), "\n")
+	if len(rows) != 38 {
+		t.Fatalf("the screen has %d rows", len(rows))
+	}
+	if !strings.Contains(rows[35], "╯") {
+		t.Errorf("the row above the completions is not the panes' bottom border: %q", rows[35])
+	}
+}
