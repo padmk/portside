@@ -262,7 +262,7 @@ Installing a new release stays with Homebrew or a download ([Install](../README.
 
 ## Themes and icons
 
-The themes are Terminal (`terminal`), which uses your terminal's 16 colors and is the default, and the dashboard's Rosé Pine, Everforest, Tokyo Night, Catppuccin, Nord and Neutral. The light or dark variant follows the terminal's background unless `-light` or `-dark` sets it. `T` cycles the themes, `:theme nord-light` picks one.
+The themes are Terminal (`terminal`), which uses your terminal's 16 colors and is the default, and the dashboard's Rosé Pine, Everforest, Tokyo Night, Catppuccin, Nord and Neutral. Since Terminal cannot know how your colors contrast, it shows the active tab, the mode and the highlighted entry of a menu or dialog in reverse video of your terminal's text and background, and the selected row's text in your terminal's text color, with the state glyphs still colored. The light or dark variant follows the terminal's background unless `-light` or `-dark` sets it. `T` cycles the themes, `:theme nord-light` picks one.
 
 Icons are Unicode by default, Nerd Font icons with `--icons nerd` or when `$NERD_FONT` is set, and ASCII in a locale that is not UTF-8 (`LC_ALL`, `LC_CTYPE`, `LANG`). `:icons` cycles them.
 

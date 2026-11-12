@@ -9,10 +9,10 @@ import (
 )
 
 // New builds the styles for a palette in color.
-func New(p Palette) Styles { return build(p, p.Surface, false) }
+func New(p Palette) Styles { return build(p, p.Surface, false, false) }
 
 // NewMono builds the styles for a terminal without colors (Monochrome).
-func NewMono(p Palette) Styles { return build(p, p.Surface, true) }
+func NewMono(p Palette) Styles { return build(p, p.Surface, true, false) }
 
 // Monochrome reports whether a terminal's color profile shows no colors,
 // so the styles must mark state with attributes (NewMono). Bubble Tea
@@ -22,29 +22,48 @@ func Monochrome(p colorprofile.Profile) bool { return p <= colorprofile.ASCII }
 // OnRaised is s for content drawn on Raised, inside an overlay: every
 // style that carried Surface carries Raised instead.
 func (s Styles) OnRaised() Styles {
-	r := build(s.Palette, s.Palette.Raised, s.Mono)
+	r := build(s.Palette, s.Palette.Raised, s.Mono, false)
 	r.Screen = s.Screen
 	return r
 }
 
 // OnSelected is s for the selected row's content: every style that
 // carried Surface carries Selected instead, so the row's segments keep
-// its background (see SelectedRow).
+// its background (see SelectedRow). In the Terminal family the text
+// styles that carry a meaning (ports, states, warnings) are Text there,
+// since an ANSI color on ANSI 8 or 7 may not read; State's glyph styles
+// keep their color.
 func (s Styles) OnSelected() Styles {
-	r := build(s.Palette, s.Palette.Selected, s.Mono)
+	r := build(s.Palette, s.Palette.Selected, s.Mono, true)
 	r.Screen = s.Screen
 	return r
 }
 
 // OnSelection is st, one of s's styles, moved onto the selected row: on
 // Selected, with its foreground made readable there as OnSelected makes
-// it. Mono rows are reversed by SelectedRow, so st stays.
+// it (a semantic color is Text in the Terminal family). Mono rows are
+// reversed by SelectedRow, so st stays.
 func (s Styles) OnSelection(st lipgloss.Style) lipgloss.Style {
 	if s.Mono {
 		return st
 	}
 	p := s.Palette
-	return st.Background(p.Selected).Foreground(readableOn(p, st.GetForeground(), p.Selected, 3))
+	return st.Background(p.Selected).Foreground(selectedText(p, st.GetForeground()))
+}
+
+// selectedText is the color of text in color c on the selected row: Text
+// for the Terminal family's semantic colors, else c readable on Selected.
+// Stopped is Muted's ANSI color there, so a color equal to it is left to
+// readableOn: muted labels stay secondary.
+func selectedText(p Palette, c color.Color) color.Color {
+	if p.ANSI {
+		for _, sem := range []color.Color{p.Port, p.Running, p.Starting, p.Crashed, p.External, p.Warn, p.Info} {
+			if sameColor(c, sem) {
+				return p.Text
+			}
+		}
+	}
+	return readableOn(p, c, p.Selected, 3)
 }
 
 // readableOn is c as drawn on surface. A color equal to the surface would
@@ -57,7 +76,7 @@ func readableOn(p Palette, c, surface color.Color, min float64) color.Color {
 	if sameColor(c, surface) {
 		return p.Text2
 	}
-	if _, ansi := p.Surface.(lipgloss.NoColor); ansi || c == nil || !sameColor(surface, p.Selected) || contrast(c, surface) >= min {
+	if p.ANSI || c == nil || !sameColor(surface, p.Selected) || contrast(c, surface) >= min {
 		return c
 	}
 	cr, cg, cb, _ := c.RGBA()
@@ -90,7 +109,9 @@ func contrast(a, b color.Color) float64 {
 	return (math.Max(x, y) + 0.05) / (math.Min(x, y) + 0.05)
 }
 
-func build(p Palette, surface color.Color, mono bool) Styles {
+// build makes the styles on surface; selected is set for the selected
+// row's (OnSelected).
+func build(p Palette, surface color.Color, mono, selected bool) Styles {
 	s := lipgloss.NewStyle().Background(surface)
 	// Labels, states and frames stay readable on the surface (readableOn):
 	// text at 4.5:1, the rest at 3:1.
@@ -117,6 +138,22 @@ func build(p Palette, surface color.Color, mono bool) Styles {
 		Overlay:         pane.BorderForeground(p.Accent).BorderBackground(p.Raised).Background(p.Raised).Padding(0, 1),
 		OverlaySelected: s.Foreground(p.AccentFg).Background(p.Accent).Bold(true),
 		Banner:          s.Foreground(p.AccentFg).Background(p.Warn), BannerError: s.Foreground(p.AccentFg).Background(p.Crashed), Dim: muted.Faint(true),
+	}
+	st.glyphs = stateStyles{st.Running, st.Starting, st.Crashed, st.External, st.Stopped}
+	st.idleWord = st.Text2
+	if selected && !mono && p.ANSI {
+		t := func(c color.Color) lipgloss.Style { return s.Foreground(selectedText(p, c)) }
+		st.Port, st.Link = t(p.Port), t(p.Port).Underline(true)
+		st.Warn, st.Info, st.Error = t(p.Warn), t(p.Info), t(p.Crashed)
+		st.Running, st.Starting, st.Crashed, st.External, st.Stopped = t(p.Running), t(p.Starting), t(p.Crashed), t(p.External), st.Text
+		st.idleWord = st.Text
+	}
+	if p.ANSI {
+		// The terminal's own foreground and background, reversed: the
+		// one pair on any ANSI palette that reads, whatever Accent is.
+		st.TabActive = s.Reverse(true).Bold(true).Padding(0, 1)
+		st.Mode = st.TabActive
+		st.OverlaySelected = s.Reverse(true).Bold(true)
 	}
 	if mono {
 		st.Selected = s.Reverse(true)

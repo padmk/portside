@@ -306,7 +306,7 @@ func renderServer(env *ui.Env, s theme.Styles, v supervisor.View, c columns, w i
 	glyph, pending := lampGlyph(env, v)
 	lampStyle := state.Bold(true)
 	if pending {
-		lampStyle = s.Starting.Bold(true)
+		lampStyle = s.State("starting").Bold(true)
 	}
 	segs := []seg{pad(s, c.indent), {glyph, lampStyle}, pad(s, c.lamp-ansi.StringWidth(glyph))}
 	if c.mark {

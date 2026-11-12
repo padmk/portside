@@ -428,7 +428,7 @@ func renderContainer(env *ui.Env, s theme.Styles, r row, w int) string {
 	style, wordStyle := s.State(string(st.Display)), s.StateWord(string(st.Display))
 	glyph := g.State(st.Display, env.Frame)
 	if env.Pending[Item(c)] != "" || (c.Job != nil && c.Job.Running) {
-		glyph, style, wordStyle = g.Spinner[env.Frame%len(g.Spinner)], s.Starting, s.Starting
+		glyph, style, wordStyle = g.Spinner[env.Frame%len(g.Spinner)], s.State("starting"), s.Starting
 	}
 	var left []seg
 	if r.indent {

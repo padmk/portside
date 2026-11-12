@@ -273,3 +273,40 @@ func TestTerminalSelectionIsVisible(t *testing.T) {
 		t.Error("a named theme's muted text changed on Selected")
 	}
 }
+
+// TestTerminalHighlightsReverse: in the Terminal family, whose ANSI colors
+// have unknown contrast, the selected row's text that carries a meaning is
+// Text while its state glyphs keep their color, and the active tab, the
+// mode pill and an overlay's highlighted row reverse the terminal's own
+// colors instead of drawing on Accent. Named themes keep their fills.
+func TestTerminalHighlightsReverse(t *testing.T) {
+	for _, p := range []Palette{TerminalFamily.Dark, TerminalFamily.Light} {
+		s := New(p)
+		sel := s.OnSelected()
+		for name, st := range map[string]lipgloss.Style{
+			"Port": sel.Port, "Link": sel.Link, "Warn": sel.Warn, "Info": sel.Info, "Error": sel.Error,
+			"Running": sel.Running, "Starting": sel.Starting, "Crashed": sel.Crashed, "External": sel.External, "Stopped": sel.Stopped,
+			"crashed word": sel.StateWord("crashed"), "stopped word": sel.StateWord("stopped"), "a field's port": s.OnSelection(s.Port), "a field's warning": s.OnSelection(s.Warn),
+		} {
+			if !sameColor(st.GetForeground(), p.Text) {
+				t.Errorf("%s: %s on the selected row is not Text", p.ID, name)
+			}
+		}
+		if !sameColor(sel.State("crashed").GetForeground(), p.Crashed) || !sameColor(sel.State("running").GetForeground(), p.Running) {
+			t.Errorf("%s: a state glyph lost its color on the selected row", p.ID)
+		}
+		for name, st := range map[string]lipgloss.Style{"TabActive": s.TabActive, "Mode": s.Mode, "OverlaySelected": s.OverlaySelected} {
+			if !st.GetReverse() || !st.GetBold() {
+				t.Errorf("%s: %s is not reverse and bold", p.ID, name)
+			}
+			if _, none := st.GetBackground().(lipgloss.NoColor); !none {
+				t.Errorf("%s: %s has a background of its own", p.ID, name)
+			}
+		}
+	}
+	nord := mustFamily(t, "nord").Dark
+	if s := New(nord); s.OverlaySelected.GetReverse() || !sameColor(s.OverlaySelected.GetBackground(), nord.Accent) ||
+		!sameColor(s.OnSelected().Port.GetForeground(), nord.Port) {
+		t.Error("a named theme lost its accent fill or its port color on Selected")
+	}
+}
