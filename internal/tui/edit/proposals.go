@@ -201,7 +201,7 @@ func (p *picker) view(env *ui.Env, w, h int) string {
 	}
 	var rows []line
 	if len(p.items) == 0 {
-		rows = append(rows, line{s.Muted.Render(cutTo("No new projects found in "+p.root+".", inner, g.Ellipsis)), -1})
+		rows = append(rows, line{s.Muted.Render("No new projects found there."), -1})
 	}
 	for i, it := range p.items {
 		port := "auto"
@@ -240,7 +240,7 @@ func (p *picker) view(env *ui.Env, w, h int) string {
 		rows = append(rows, line{s.Surface.Render("  ") + s.Running.Render(mark) + s.Text.Render(head) + s.Muted.Render(dir), i})
 		errRow()
 	}
-	manual := "Empty form (m): enter every key yourself"
+	manual := "Add manually (m)"
 	if p.manual() {
 		rows = append(rows, line{overlay.Highlight(s, g.Cursor+" "+manual, inner), len(p.items)})
 	} else {
@@ -263,7 +263,12 @@ func (p *picker) view(env *ui.Env, w, h int) string {
 		p.offset = first
 	}
 	p.offset = max(0, min(p.offset, len(rows)-avail))
-	where := "In " + p.root
+	// The scanned folder, shown once; a long path keeps its end, which
+	// tells folders apart.
+	where := "Scanned " + p.root
+	if pw := ansi.StringWidth(where); pw > inner {
+		where = "Scanned " + g.Ellipsis + ansi.TruncateLeft(p.root, pw-inner+ansi.StringWidth(g.Ellipsis), "")
+	}
 	if p.adding {
 		where = "Adding " + joinNames(slices.Sorted(maps.Keys(p.marked))) + g.Ellipsis
 	}
