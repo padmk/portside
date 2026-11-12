@@ -64,6 +64,8 @@ type proc struct {
 	// startAfterExit marks a start asked for once the process had ended on
 	// its own, while wait still drains its output: wait runs it.
 	startAfterExit bool
+	// doneAt is when the task's last run that exited with code 0 ended.
+	doneAt time.Time
 	// reapedAt is when wait saw the process of the current run end, zero
 	// before.
 	reapedAt      time.Time

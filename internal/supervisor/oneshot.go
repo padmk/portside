@@ -29,6 +29,7 @@ func (s *Supervisor) taskDoneLocked(p *proc, stamp string) {
 	p.status = Exited
 	p.note = noteDone
 	fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  done (code 0) ──\x1b[0m\r\n", stamp)
+	p.doneAt = p.settledAt
 	s.readyLocked(p, p.exitedAt)
 }
 
@@ -48,6 +49,8 @@ const (
 func taskStateLocked(p *proc, since time.Time) taskState {
 	fresh := !p.settledAt.Before(since)
 	switch {
+	case !p.doneAt.IsZero() && !p.doneAt.Before(since):
+		return taskDone // also while a later start runs it again
 	case p.status == Starting || p.status == Stopping || p.status == Running:
 		return taskPending
 	case fresh && p.succeeded():
