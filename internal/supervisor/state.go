@@ -219,8 +219,9 @@ func (s *Supervisor) Recover(restore bool) {
 		}
 		_ = syscall.Kill(-g.PID, syscall.SIGKILL)
 	}
-	// Servers that exited during the upgrade restart as after a crash,
-	// whatever restore says; a stop requested meanwhile (restore false) wins.
+	// Servers that exited during the upgrade restart as after a crash, and
+	// those started again after they exited before it run, whatever
+	// restore says; a stop requested meanwhile (restore false) wins.
 	started := map[string]bool{}
 	if restore {
 		for _, name := range exited {

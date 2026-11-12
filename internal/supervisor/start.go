@@ -8,11 +8,9 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -198,22 +196,15 @@ func (s *Supervisor) markStartAfterExitLocked(p *proc, since time.Time) {
 	}
 }
 
-// reapedLocked reports whether p's process, whose pid is still set, has
-// ended and been reaped, and when. The process's own state says so, not
-// its pid, which another process may have by now.
+// reapedLocked reports whether wait has seen p's process, whose pid is
+// still set, end, and when. That moment decides for every request: one
+// from before it is for the run in progress, as for a running server.
 func reapedLocked(p *proc) (time.Time, bool) {
-	if p.pid == 0 || p.process == nil || !errors.Is(p.process.Signal(syscall.Signal(0)), os.ErrProcessDone) {
+	t := p.reapedAt.Load()
+	if p.pid == 0 || t == 0 {
 		return time.Time{}, false
 	}
-	// wait stores the time right after the reap, without the lock.
-	for deadline := time.Now().Add(10 * time.Millisecond); ; runtime.Gosched() {
-		if t := p.reapedAt.Load(); t != 0 {
-			return time.Unix(0, t), true
-		}
-		if time.Now().After(deadline) {
-			return time.Now(), true
-		}
-	}
+	return time.Unix(0, t), true
 }
 
 // reserveStartLocked records a start of p, which is down, for launch with

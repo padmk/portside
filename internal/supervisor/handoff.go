@@ -50,6 +50,9 @@ type Handoff struct {
 	MissingSince time.Time `json:"missingSince,omitzero"`
 	Cols         uint16    `json:"cols"`
 	Rows         uint16    `json:"rows"`
+	// StartAfterExit says a start was asked for after the process ended,
+	// while its output still drained: the new daemon runs it.
+	StartAfterExit bool `json:"startAfterExit,omitempty"`
 }
 
 // pauseTimeout bounds how long PrepareHandoff waits for a terminal's reader.
@@ -133,6 +136,7 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 			StartedAt: p.startedAt, ReadyAt: p.readyAt,
 			ListenHost: p.listenHost, ListenPorts: slices.Clone(p.listenPorts),
 			Cols: p.cols, Rows: p.rows, LogReady: &logReady, LogLine: logLine, MissingSince: p.missingSince,
+			StartAfterExit: p.startAfterExit,
 		})
 	}
 	return out, nil
@@ -324,6 +328,15 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 		s.handoffExited = map[string]bool{}
 	}
 	s.handoffExited[h.Name] = true
+	if h.StartAfterExit && h.Want {
+		// Started again after it ended, before the upgrade: Recover runs it.
+		log.Printf("handoff: %s exited before the upgrade and was started again", h.Name)
+		p.status, p.note = Stopped, ""
+		p.want = true
+		s.handoffRestarts = append(s.handoffRestarts, h.Name)
+		s.changedLocked()
+		return
+	}
 	if h.Config.Oneshot {
 		s.taskEndedInHandoffLocked(p, h)
 		s.changedLocked()
