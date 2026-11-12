@@ -9,7 +9,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/padmk/portside/internal/app"
-	"github.com/padmk/portside/internal/tui/keymap"
 	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
@@ -335,13 +334,7 @@ func (m *model) compactHeader(r rect) string {
 	if t, ok := p.(ui.Titled); ok {
 		title, count = t.Title(&m.env)
 	}
-	key := ""
-	for _, a := range m.env.Keys.InScope(keymap.ScopeGlobal) {
-		if a.ID == "focus-"+string(p.Scope()) && len(a.Keys) > 0 {
-			key = a.Keys[0]
-		}
-	}
-	return ui.HeaderRow(&m.env, r.w, key, title, count)
+	return ui.HeaderRow(&m.env, r.w, ui.JumpKey(&m.env, p.Scope()), title, count)
 }
 
 // withDialog draws the confirmation dialog centered over the screen and

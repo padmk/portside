@@ -438,7 +438,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 	if position != "" {
 		status = append(status, position)
 	}
-	box := ui.BoxRows(env, w, h, focused, title, count, lines, fill)
+	box := ui.BoxRows(env, w, h, focused, ui.PaneTitle(env, keymap.ScopePorts, title, focused), count, lines, fill)
 	return ui.WithBottom(env, box, w, focused, strings.Join(status, env.Glyphs.Separator))
 }
 

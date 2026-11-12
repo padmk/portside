@@ -457,7 +457,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 		}
 		body = append(body[:max(0, listH)], s.Row(" "+p.filterInput(env, cw), inner))
 	}
-	box := ui.BoxRows(env, w, h, focused, "Servers", right, nil, nil)
+	box := ui.BoxRows(env, w, h, focused, ui.PaneTitle(env, keymap.ScopeServers, "Servers", focused), right, nil, nil)
 	lines := strings.Split(box, "\n")
 	if w < 4 || len(lines) < 3 {
 		return box

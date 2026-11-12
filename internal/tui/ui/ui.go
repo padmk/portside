@@ -435,6 +435,34 @@ type Titled interface {
 	Title(env *Env) (title, count string)
 }
 
+// JumpKey is the key that focuses the pane of scope (focus-<scope>), as
+// its title and its collapsed header show it; "" when it has none.
+func JumpKey(env *Env, scope keymap.Scope) string {
+	if env.Keys == nil {
+		return ""
+	}
+	if a, ok := env.Keys.ByID("focus-" + string(scope)); ok && len(a.Keys) > 0 {
+		return a.Keys[0]
+	}
+	return ""
+}
+
+// PaneTitle is a left-column pane's title for Box: its jump key in Key and
+// the title in the frame's title style, so the active pane names the key
+// its collapsed header shows.
+func PaneTitle(env *Env, scope keymap.Scope, title string, focused bool) string {
+	s := env.Styles
+	st := s.Title
+	if focused {
+		st = s.TitleFocused
+	}
+	key := JumpKey(env, scope)
+	if key == "" {
+		return st.Render(title)
+	}
+	return s.Key.Render(key) + s.Surface.Render(" ") + st.Render(title)
+}
+
 // HeaderRow is the compact header of a collapsed pane, exactly w cells:
 // the pane's key and title, a rule and the count at the right end.
 func HeaderRow(env *Env, w int, key, title, count string) string {

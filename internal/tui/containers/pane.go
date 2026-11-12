@@ -303,7 +303,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 	}
 	// The header keeps the count; the position goes to the bottom border,
 	// as in the servers list.
-	return ui.WithBottom(env, ui.BoxRows(env, w, h, focused, title, count, lines, fill), w, focused, position)
+	return ui.WithBottom(env, ui.BoxRows(env, w, h, focused, ui.PaneTitle(env, keymap.ScopeContainers, title, focused), count, lines, fill), w, focused, position)
 }
 
 // EngineLines say why there are no containers while the engine is not
