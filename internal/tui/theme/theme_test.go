@@ -208,22 +208,28 @@ func contrast(a, b color.Color) float64 {
 }
 
 // TestNamedPalettesAreLegible mirrors the dashboard's contrast check for
-// the pairs the terminal UI draws: text on the background and on Raised
-// (the selected row, overlays) at 4.5:1, muted labels at 3:1, and the mode
-// pill's AccentFg on Accent at 3:1, since it is bold, and AccentText (key
-// hints, the focused title, matches) at 4.5:1 wherever it is drawn. Raised must differ
-// from Bg, since it marks the selected row.
+// the pairs the terminal UI draws: text on the background, on Raised
+// (overlays) and on Selected (the selected row) at 4.5:1, muted labels at
+// 3:1, the mode pill's AccentFg on Accent at 3:1, since it is bold, and
+// AccentText (key hints, the focused title, matches, the cursor) at 4.5:1
+// wherever it is drawn. On Selected, Text2 reads at 4.5:1 and every state,
+// the port and muted badges at 3:1. Raised must differ from Bg, and
+// Selected clearly from Surface, since it marks the selected row.
 func TestNamedPalettesAreLegible(t *testing.T) {
 	for _, f := range Families()[1:] {
 		for _, p := range []Palette{f.Dark, f.Light} {
 			if contrast(p.Raised, p.Bg) < 1.04 {
-				t.Errorf("%s: Raised does not stand out from Bg, so the selected row is invisible", p.ID)
+				t.Errorf("%s: Raised does not stand out from Bg", p.ID)
 			}
-			for _, c := range []struct {
+			if contrast(p.Selected, p.Surface) < 1.1 {
+				t.Errorf("%s: Selected is %.2f:1 on Surface, so the selected row is faint", p.ID, contrast(p.Selected, p.Surface))
+			}
+			type pair struct {
 				name   string
 				fg, bg color.Color
 				min    float64
-			}{
+			}
+			pairs := []pair{
 				{"Text on Bg", p.Text, p.Bg, 4.5},
 				{"Text on Raised", p.Text, p.Raised, 4.5},
 				{"Muted on Bg", p.Muted, p.Bg, 3},
@@ -232,7 +238,19 @@ func TestNamedPalettesAreLegible(t *testing.T) {
 				{"AccentText on Bg", p.AccentText, p.Bg, 4.5},
 				{"AccentText on Surface", p.AccentText, p.Surface, 4.5},
 				{"AccentText on Raised", p.AccentText, p.Raised, 4.5},
+			}
+			for _, fg := range []struct {
+				name string
+				c    color.Color
+				min  float64
+			}{
+				{"Text", p.Text, 4.5}, {"Text2", p.Text2, 4.5}, {"AccentText", p.AccentText, 4.5},
+				{"Muted", p.Muted, 3}, {"Port", p.Port, 3}, {"Running", p.Running, 3}, {"Starting", p.Starting, 3},
+				{"Crashed", p.Crashed, 3}, {"External", p.External, 3}, {"Stopped", p.Stopped, 3}, {"Warn", p.Warn, 3}, {"Info", p.Info, 3},
 			} {
+				pairs = append(pairs, pair{fg.name + " on Selected", fg.c, p.Selected, fg.min})
+			}
+			for _, c := range pairs {
 				if r := contrast(c.fg, c.bg); r < c.min {
 					t.Errorf("%s: %s is %.2f:1, want %.1f:1", p.ID, c.name, r, c.min)
 				}
@@ -243,23 +261,30 @@ func TestNamedPalettesAreLegible(t *testing.T) {
 
 // TestTerminalSelectionIsVisible: the Terminal family's selected row is not
 // ANSI black, which is the background of many dark terminals, and muted
-// text drawn on it (OnRaised) is lifted off the row's own color.
+// text drawn on it (OnSelected, OnSelection) is lifted off the row's own
+// color.
 func TestTerminalSelectionIsVisible(t *testing.T) {
 	for _, p := range []Palette{TerminalFamily.Dark, TerminalFamily.Light} {
-		if sameColor(p.Raised, lipgloss.Color("0")) && p.Dark {
-			t.Errorf("%s: Raised is ANSI black", p.ID)
+		if sameColor(p.Selected, lipgloss.Color("0")) && p.Dark {
+			t.Errorf("%s: Selected is ANSI black", p.ID)
 		}
-		r := New(p).OnRaised()
-		if sameColor(r.Muted.GetForeground(), p.Raised) {
-			t.Errorf("%s: muted text on the selected row has the row's color", p.ID)
+		s := New(p)
+		r := s.OnSelected()
+		for name, st := range map[string]lipgloss.Style{"muted": r.Muted, "stopped": r.Stopped, "done": r.State("done"), "lifted muted": s.OnSelection(s.Muted)} {
+			if sameColor(st.GetForeground(), p.Selected) {
+				t.Errorf("%s: %s text on the selected row has the row's color", p.ID, name)
+			}
+			if !sameColor(st.GetBackground(), p.Selected) {
+				t.Errorf("%s: %s text is not on the selected row's background", p.ID, name)
+			}
 		}
-		if !sameColor(r.Muted.GetBackground(), p.Raised) || !sameColor(New(p).Selected.GetBackground(), p.Raised) {
-			t.Errorf("%s: the selected row is not on Raised", p.ID)
+		if !sameColor(s.Selected.GetBackground(), p.Selected) {
+			t.Errorf("%s: the selected row is not on Selected", p.ID)
 		}
 	}
-	// Named themes keep Muted on Raised: it already reads at 3:1 there.
+	// Named themes keep Muted on Selected: it already reads at 3:1 there.
 	nord := mustFamily(t, "nord").Light
-	if !sameColor(New(nord).OnRaised().Muted.GetForeground(), nord.Muted) {
-		t.Error("a named theme's muted text changed on Raised")
+	if !sameColor(New(nord).OnSelected().Muted.GetForeground(), nord.Muted) {
+		t.Error("a named theme's muted text changed on Selected")
 	}
 }

@@ -288,7 +288,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 	default:
 		cur := p.index(rows)
 		p.keepVisible(cur, len(rows))
-		sel := s.OnRaised()
+		sel := s.OnSelected()
 		for i := p.offset; i < len(rows) && i < p.offset+p.listH; i++ {
 			if i == cur {
 				fill[len(lines)] = s.Selected
@@ -425,10 +425,10 @@ func renderContainer(env *ui.Env, s theme.Styles, r row, w int) string {
 	g := env.Glyphs
 	c := r.c
 	st := StatusOf(c)
-	style := s.State(string(st.Display))
+	style, wordStyle := s.State(string(st.Display)), s.StateWord(string(st.Display))
 	glyph := g.State(st.Display, env.Frame)
 	if env.Pending[Item(c)] != "" || (c.Job != nil && c.Job.Running) {
-		glyph, style = g.Spinner[env.Frame%len(g.Spinner)], s.Starting
+		glyph, style, wordStyle = g.Spinner[env.Frame%len(g.Spinner)], s.Starting, s.Starting
 	}
 	var left []seg
 	if r.indent {
@@ -444,7 +444,7 @@ func renderContainer(env *ui.Env, s theme.Styles, r row, w int) string {
 		if c.Failed && c.ExitCode != nil {
 			word += " (" + strconv.Itoa(*c.ExitCode) + ")"
 		}
-		left = append(left, seg{" ", s.Surface}, seg{word, style})
+		left = append(left, seg{" ", s.Surface}, seg{word, wordStyle})
 	}
 	if c.OOMKilled {
 		left = append(left, seg{" ", s.Surface}, seg{"OOM", s.Error})

@@ -221,7 +221,7 @@ func (c *Pane) header(env *ui.Env, v supervisor.View, ok bool, inner int, focuse
 	if ok {
 		d := v.Display()
 		glyph = s.State(string(d)).Render(env.Glyphs.State(d, env.Frame))
-		word = s.State(string(d)).Render(string(d))
+		word = s.StateWord(string(d)).Render(string(d))
 		if v.Status == supervisor.Running && v.StartedAt != nil {
 			uptime = word + s.Muted.Render(env.Glyphs.Separator+durationLabel(env.Now().Sub(*v.StartedAt)))
 		}

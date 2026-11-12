@@ -17,12 +17,16 @@ type Palette struct {
 
 	Bg      color.Color // screen
 	Surface color.Color // panes
-	Raised  color.Color // overlays, the selected row, search matches
-	Text    color.Color
-	Text2   color.Color // secondary values
-	Muted   color.Color // labels, unfocused borders, badges
-	Border  color.Color
-	Accent  color.Color // focused border, active tab and mode pill backgrounds, cursor
+	Raised  color.Color // overlays and search matches
+	// Selected is the selected row's background: Accent tinted into
+	// Surface as far as the row's text, labels, ports and states stay
+	// readable on it.
+	Selected color.Color
+	Text     color.Color
+	Text2    color.Color // secondary values
+	Muted    color.Color // labels, unfocused borders, badges
+	Border   color.Color
+	Accent   color.Color // focused border, active tab and mode pill backgrounds, cursor
 	// AccentText is Accent as text (key hints, the focused title, search
 	// matches): Accent mixed toward Text until it reads at 4.5:1 on Bg,
 	// Surface and Raised, Accent itself where it already does.
@@ -57,8 +61,8 @@ func (f Family) Variant(dark bool) Palette {
 
 // TerminalFamily uses the terminal's 16 ANSI colors, so the UI matches the
 // user's terminal theme; Bg and Surface are the terminal's own background.
-// Raised is bright black (8) in dark terminals: black (0) is the
-// background itself in many of them. Text on Accent is bright white (15):
+// Raised and Selected are bright black (8) in dark terminals, white (7) in
+// light ones: black (0) is the background itself in many dark terminals. Text on Accent is bright white (15):
 // bold black would render as bright black, or stay black, depending on
 // the terminal, and neither reads on magenta.
 var TerminalFamily = Family{
@@ -77,7 +81,7 @@ func terminal(dark bool) Palette {
 	}
 	return Palette{
 		ID: id, Dark: dark,
-		Bg: lipgloss.NoColor{}, Surface: lipgloss.NoColor{}, Raised: raised,
+		Bg: lipgloss.NoColor{}, Surface: lipgloss.NoColor{}, Raised: raised, Selected: raised,
 		Text: text, Text2: text2, Muted: muted, Border: muted,
 		Accent: lipgloss.Color("5"), AccentText: lipgloss.Color("5"), AccentFg: lipgloss.Color("15"),
 		Running: lipgloss.Color("2"), Starting: lipgloss.Color("3"), Crashed: lipgloss.Color("1"),

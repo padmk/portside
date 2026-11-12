@@ -438,7 +438,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 		cur := p.index(env, rows)
 		p.keepVisible(cur, len(rows), p.listH)
 		cols := layout(env, rows, cw)
-		sel := s.OnRaised()
+		sel := s.OnSelected()
 		for i := p.offset; i < len(rows) && i < p.offset+p.listH; i++ {
 			if i == cur {
 				line := sel.Accent.Render(env.Glyphs.Cursor) + renderRow(env, sel, rows[i], cols, cw)

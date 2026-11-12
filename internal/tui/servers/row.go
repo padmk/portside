@@ -39,6 +39,10 @@ type columns struct {
 	spark  int
 	mem    int
 	badges int // the widest row's badges
+	// tail is the widest row's content after the name (port, sparkline
+	// and memory, or the last exit): the badges start after it, in one
+	// column, instead of at the far edge of a wide pane.
+	tail int
 }
 
 // running reports whether the row shows CPU and memory instead of its last
@@ -137,7 +141,32 @@ func layout(env *ui.Env, rows []row, w int) columns {
 	fits(&badgeW)
 	c.badges = badgeW
 	grow(nameW)
+	for _, r := range rows {
+		if !r.header {
+			c.tail = max(c.tail, tailWidth(env, r.view, c))
+		}
+	}
 	return c
+}
+
+// tailWidth is how wide row v's content after the name is, uncut, in
+// columns c (renderServer draws it).
+func tailWidth(env *ui.Env, v supervisor.View, c columns) int {
+	n := 0
+	if c.port > 0 && (v.Port > 0 || running(v)) {
+		n += 1 + c.port
+	}
+	if running(v) {
+		if c.spark > 0 {
+			n += 1 + c.spark
+		}
+		if c.mem > 0 {
+			n += 1 + c.mem
+		}
+	} else if long, _, _ := lastExit(env, env.Styles, v); long != "" {
+		n += 1 + ansi.StringWidth(long)
+	}
+	return n
 }
 
 // seg is a piece of a row and its style.
@@ -175,7 +204,7 @@ func paint(env *ui.Env, segs []seg, w int) string {
 // pad is n spaces on the row's background.
 func pad(s theme.Styles, n int) seg { return seg{strings.Repeat(" ", max(0, n)), s.Surface} }
 
-// renderRow draws row r in w cells with styles s (OnRaised for the
+// renderRow draws row r in w cells with styles s (OnSelected for the
 // selected row); the caller fills the background.
 func renderRow(env *ui.Env, s theme.Styles, r row, c columns, w int) string {
 	if r.header {
@@ -184,10 +213,12 @@ func renderRow(env *ui.Env, s theme.Styles, r row, c columns, w int) string {
 	return renderServer(env, s, r.view, c, w)
 }
 
-// groupCount is a header's summary: running/services for the services,
-// done/tasks for the tasks (a finished task is not a missing service), and
-// the crashed members, so a folded group still shows a crash.
-func groupCount(env *ui.Env, s theme.Styles, servers []supervisor.View) []seg {
+// groupCount is a header's summary: the crashed members first, so a folded
+// group still shows a crash, then running/services for the services and
+// done/tasks for the tasks (a finished task is not a missing service).
+// The long form names the services' count ("1/3 up"), the short one
+// leaves the word out.
+func groupCount(env *ui.Env, s theme.Styles, servers []supervisor.View, long bool) []seg {
 	g := env.Glyphs
 	services, up, tasks, done, crashed := 0, 0, 0, 0, 0
 	for _, v := range servers {
@@ -217,16 +248,21 @@ func groupCount(env *ui.Env, s theme.Styles, servers []supervisor.View) []seg {
 		add(fmt.Sprintf("%s %d", g.Crashed, crashed), s.Crashed)
 	}
 	if services > 0 {
-		add(fmt.Sprintf("%d/%d", up, services), s.Muted)
+		text := fmt.Sprintf("%d/%d", up, services)
+		if long {
+			text += " up"
+		}
+		add(text, s.Text2)
 	}
 	if tasks > 0 {
-		add(fmt.Sprintf("%s %d/%d", g.Done, done, tasks), s.Muted)
+		add(fmt.Sprintf("%s %d/%d", g.Done, done, tasks), s.Text2)
 	}
 	return out
 }
 
 // renderHeader is a group's arrow and name, its directory when all of its
-// servers share one and there is room, and its count at the right. The
+// servers share one and there is room, and its count at the right, in
+// its long form when that fits beside the name. The
 // ungrouped servers' header is a muted "other" without a directory.
 func renderHeader(env *ui.Env, s theme.Styles, r row, w int) string {
 	g := env.Glyphs
@@ -245,7 +281,10 @@ func renderHeader(env *ui.Env, s theme.Styles, r row, w int) string {
 		name, nameStyle, dir = "other", s.Muted, ""
 	}
 	left := []seg{{arrow, s.Muted}, {" ", s.Surface}, {name, nameStyle}}
-	count := groupCount(env, s, r.servers)
+	count := groupCount(env, s, r.servers, true)
+	if segsWidth(left)+1+segsWidth(count) > w {
+		count = groupCount(env, s, r.servers, false)
+	}
 	cw := segsWidth(count)
 	room := w - cw - 1
 	if dir != "" && segsWidth(left)+2+ansi.StringWidth(viewfmt.PlainText(dir)) <= room {
@@ -259,7 +298,8 @@ func renderHeader(env *ui.Env, s theme.Styles, r row, w int) string {
 }
 
 // renderServer is the signature row: lamp and mark, tool icon, name, port,
-// CPU sparkline and memory or the last exit, then the badges at the right.
+// CPU sparkline and memory or the last exit, then the badges in their
+// column after the widest of those.
 func renderServer(env *ui.Env, s theme.Styles, v supervisor.View, c columns, w int) string {
 	g := env.Glyphs
 	state := s.State(string(v.Display()))
@@ -309,7 +349,7 @@ func renderServer(env *ui.Env, s theme.Styles, v supervisor.View, c columns, w i
 	}
 	if running(v) {
 		if c.spark > 0 {
-			tail = append(tail, pad(s, 1), seg{sparkline(g.Spark, v.CPUHistory, c.spark), state})
+			tail = append(tail, pad(s, 1), seg{sparkline(g.Spark, v.CPUHistory, c.spark, theme.CPUFloor), state})
 		}
 		if c.mem > 0 {
 			mem := viewfmt.HumanBytes(v.Mem)
@@ -327,20 +367,22 @@ func renderServer(env *ui.Env, s theme.Styles, v supervisor.View, c columns, w i
 	}
 	segs = append(segs, tail...)
 	if bw > 0 {
-		segs = append(segs, pad(s, w-segsWidth(segs)-bw+1))
+		at := min(w-bw+1, used+c.tail+1)
+		segs = append(segs, pad(s, max(1, at-segsWidth(segs))))
 		segs = append(segs, badges...)
 	}
 	return paint(env, segs, w)
 }
 
 // sparkline draws the last samples of vals in width cells, scaled to their
-// peak. Levels draw one sample a cell; Braille two, and cells before the
-// first sample are spaces, not blank braille.
-func sparkline(p theme.Plot, vals []float64, width int) string {
+// peak or to floor, whichever is higher. Levels draw one sample a cell;
+// Braille two, and cells before the first sample are spaces, not blank
+// braille.
+func sparkline(p theme.Plot, vals []float64, width int, floor float64) string {
 	switch p := p.(type) {
 	case theme.Levels:
 		vals = vals[max(0, len(vals)-width):]
-		peak := 0.0
+		peak := floor
 		for _, v := range vals {
 			peak = max(peak, v)
 		}
@@ -354,7 +396,7 @@ func sparkline(p theme.Plot, vals []float64, width int) string {
 		}
 		return string(cells)
 	}
-	return strings.ReplaceAll(viewfmt.Sparkline(vals, width), "⠀", " ")
+	return strings.ReplaceAll(viewfmt.Sparkline(vals, width, floor), "⠀", " ")
 }
 
 // lastExit is what a server that does not run shows, in full and in the
@@ -363,7 +405,7 @@ func sparkline(p theme.Plot, vals []float64, width int) string {
 // the lamp says it.
 func lastExit(env *ui.Env, s theme.Styles, v supervisor.View) (long, short string, style lipgloss.Style) {
 	d := v.Display()
-	style = s.State(string(d))
+	style = s.StateWord(string(d))
 	now := env.Now()
 	switch {
 	case d == supervisor.DisplayDone:
@@ -372,7 +414,7 @@ func lastExit(env *ui.Env, s theme.Styles, v supervisor.View) (long, short strin
 		}
 		return "done", "done", style
 	case d == supervisor.Display(supervisor.Stopped):
-		return "stopped", "", s.Muted
+		return "stopped", "", style
 	case v.ExitCode != nil && v.ExitedAt != nil && (d == supervisor.Display(supervisor.Exited) || d == supervisor.Display(supervisor.Crashed)):
 		code := fmt.Sprintf("exit %d", *v.ExitCode)
 		return code + env.Glyphs.Separator + ago(*v.ExitedAt, now), code, style

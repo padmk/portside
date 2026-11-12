@@ -408,7 +408,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 		for _, l := range rows {
 			pw = max(pw, len(strconv.Itoa(l.Port))+1)
 		}
-		sel := s.OnRaised()
+		sel := s.OnSelected()
 		for i := p.offset; i < len(rows) && i < p.offset+p.listH; i++ {
 			if i == cur {
 				fill[len(lines)] = s.Selected

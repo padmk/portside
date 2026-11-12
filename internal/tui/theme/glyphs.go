@@ -63,6 +63,11 @@ type Levels struct {
 	Steps []rune
 }
 
+// CPUFloor is the lowest top of a CPU plot, in percent of a core: the
+// servers list's sparklines and the Metrics chart scale to at least it,
+// so a process idling at 1 percent draws a low line, not a full one.
+const CPUFloor = 5.0
+
 func (Braille) plot() {}
 func (Levels) plot()  {}
 

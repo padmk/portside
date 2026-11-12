@@ -177,11 +177,14 @@ func PlainLines(s string) []string {
 
 // Sparkline draws vals as braille of exactly width cells, two samples per
 // cell, the newest at the right.
-func Sparkline(vals []float64, width int) string {
+func Sparkline(vals []float64, width int, floor float64) string {
 	if width <= 0 {
 		return ""
 	}
 	max := 1e-9
+	if floor > max {
+		max = floor
+	}
 	for _, v := range vals {
 		if v > max {
 			max = v

@@ -16,9 +16,9 @@ var resets = regexp.MustCompile(`\x1b\[0?m`)
 // the terminal's background.
 func (s Styles) Row(line string, width int) string { return Fill(s.Surface, line, width) }
 
-// SelectedRow is Row for the selected row: on Raised, or reversed when Mono.
-// Draw the row's segments with OnRaised styles, whose Muted stays visible
-// on Raised.
+// SelectedRow is Row for the selected row: on Selected, or reversed when
+// Mono. Draw the row's segments with OnSelected styles, whose Muted stays
+// visible on Selected.
 func (s Styles) SelectedRow(line string, width int) string { return Fill(s.Selected, line, width) }
 
 // Fill fits line to width cells (cut, or padded with spaces) with base's

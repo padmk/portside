@@ -30,11 +30,11 @@ type Styles struct {
 	Pane, PaneFocused   lipgloss.Style // rounded borders, Border or Accent colored
 	Frame, FrameFocused lipgloss.Style // the border characters a pane draws itself, on Surface
 	Title, TitleFocused lipgloss.Style // pane titles in the top border
-	Selected            lipgloss.Style // background of the selected row; reverse when Mono
+	Selected            lipgloss.Style // the selected row's background, Selected; reverse when Mono
 	Match               lipgloss.Style // a search match
 	Tab, TabActive      lipgloss.Style
 	Mode                lipgloss.Style // the footer's mode pill: AccentFg on Accent
-	Key, KeyHelp        lipgloss.Style // a key hint and its description
+	Key, KeyHelp        lipgloss.Style // a key hint and its description (Text2)
 	Overlay             lipgloss.Style // dialogs and menus on Raised, Accent border
 	// OverlaySelected is the highlighted row of a list inside an overlay,
 	// whose own background is Raised: AccentFg on Accent; reverse and
@@ -44,17 +44,33 @@ type Styles struct {
 	Dim                 lipgloss.Style // what lies under an overlay
 }
 
-// State returns the style for a display state.
+// State returns the style for a display state's glyph.
 func (s Styles) State(d string) lipgloss.Style {
+	st, _ := s.state(d)
+	return st
+}
+
+// StateWord returns the style for a display state's word: State's color
+// for a state that is active or failing, Text2 for an inactive one
+// (stopped, exited, done), whose word must read while its glyph stays
+// quiet.
+func (s Styles) StateWord(d string) lipgloss.Style {
+	if st, active := s.state(d); active {
+		return st
+	}
+	return s.Text2
+}
+
+func (s Styles) state(d string) (lipgloss.Style, bool) {
 	switch d {
 	case "running":
-		return s.Running
+		return s.Running, true
 	case "starting", "stopping", "unready":
-		return s.Starting
+		return s.Starting, true
 	case "crashed", "blocked":
-		return s.Crashed
+		return s.Crashed, true
 	case "external":
-		return s.External
+		return s.External, true
 	}
-	return s.Stopped
+	return s.Stopped, false
 }
