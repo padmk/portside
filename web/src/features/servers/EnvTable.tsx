@@ -3,12 +3,15 @@ import { Eye, EyeOff } from 'lucide-react'
 import { useT } from '../../i18n'
 
 /** Variable names whose values are hidden until revealed. */
-const SECRET = /(pass(word)?|passwd|secret|token|api[_-]?key|private|credential|auth|cookie|session|signature|salt|dsn|access[_-]?key|(^|_)key$)/i
+const SECRET = /(pass(word)?|passwd|secret|token|api[_-]?key|private|credential|auth|cookie|session|signature|salt|dsn|access[_-]?key|jwt|bearer|(^|_)pwd($|_)|(^|_)key$)/i
 
-/** URLs that carry a password, such as postgres://user:pass@host/db. */
-const URL_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/@:\s]+:[^/@\s]+@/i
+/** URLs that carry a password, such as postgres://user:pass@host/db or redis://:pass@host. */
+const URL_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^@\s]+@/i
 
-const isSecret = (key: string, value: string) => SECRET.test(key) || URL_PASSWORD.test(value)
+/** URLs with a credential in the query string, such as https://host/feed?apikey=... */
+const SECRET_QUERY = /[?&](api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd|sig|signature|key)=[^&\s]/i
+
+const isSecret = (key: string, value: string) => SECRET.test(key) || URL_PASSWORD.test(value) || SECRET_QUERY.test(value)
 
 /** Environment variables of a server or container, secret-looking values hidden until revealed. */
 export function EnvTable({ env }: { env: { key: string; value: string }[] }) {
