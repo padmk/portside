@@ -134,6 +134,7 @@ func (m *model) paletteItems() []overlay.PaletteItem {
 				key = keyHere(a)
 			}
 			add(a, label, t.Name, key, m.off(a.ID, t))
+			out[len(out)-1].Current = current
 		}
 	}
 	// itemEntry is action id of scope on a container, project or port.
@@ -150,7 +151,7 @@ func (m *model) paletteItems() []overlay.PaletteItem {
 		if current {
 			key = keyHere(a)
 		}
-		out = append(out, overlay.PaletteItem{Label: label, Key: key, Command: m.itemCommand(a, t), Act: ui.ActMsg{ID: id, Item: t}, Off: off, Destructive: a.Destructive})
+		out = append(out, overlay.PaletteItem{Label: label, Key: key, Command: m.itemCommand(a, t), Act: ui.ActMsg{ID: id, Item: t}, Off: off, Destructive: a.Destructive, Current: current})
 	}
 	containerEntries := func(t ui.Selection, current bool) {
 		ids := containers.PaletteActions

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -278,5 +279,40 @@ func TestMenusResolveForTheShownSource(t *testing.T) {
 	}
 	if r := item("restart"); r.Key != ":restart" {
 		t.Errorf("Details restart item %+v", r)
+	}
+}
+
+// TestPaletteRanksTheActionWordFirst: an action prefix finds the cursor
+// target's action first, the daemon-wide restart never comes before a
+// server's, and scattered letters still find their entry.
+func TestPaletteRanksTheActionWordFirst(t *testing.T) {
+	m := testModel(t)
+	withContainers(m)
+	press(m, "j", "j", "j")
+	target := m.env.Target.Name
+	shown := func(query string) []string {
+		press(m, "ctrl+p")
+		press(m, typed(query)...)
+		defer press(m, "esc")
+		var out []string
+		for range 400 {
+			it, ok := m.palette.Selected()
+			if !ok || len(out) > 0 && it.Label == out[0] {
+				break
+			}
+			out = append(out, it.Label)
+			m.palette.Down()
+		}
+		return out
+	}
+	res := shown("res")
+	if len(res) == 0 || res[0] != "Restart "+target {
+		t.Fatalf("res ranks %q first, want Restart %s", res, target)
+	}
+	if d, w := slices.Index(res, "Restart the daemon in place"), slices.Index(res, "Restart web"); d < 0 || w < 0 || d < w {
+		t.Errorf("res ranks the daemon at %d, Restart web at %d", d, w)
+	}
+	if !slices.Contains(shown("rw"), "Restart web") {
+		t.Error("rw does not find Restart web")
 	}
 }

@@ -171,13 +171,38 @@ func TestCompletion(t *testing.T) {
 func TestFuzzyPrefersWordStarts(t *testing.T) {
 	a, okA := Fuzzy("rw", "Restart web")
 	b, okB := Fuzzy("rw", "Clear the daemon's scrollback: worker")
-	if !okA || !okB || a <= b {
-		t.Errorf("rw: %d (%v) for Restart web, %d (%v) for the scrollback", a, okA, b, okB)
+	if !okA || !okB || a.Score <= b.Score {
+		t.Errorf("rw: %+v (%v) for Restart web, %+v (%v) for the scrollback", a, okA, b, okB)
 	}
 	if _, ok := Fuzzy("restart web", "Restart: api"); ok {
 		t.Error("restart web matches Restart: api")
 	}
 	if _, ok := Fuzzy("theme nord", "Theme Nord dark"); !ok {
 		t.Error("theme nord does not match Theme Nord dark")
+	}
+}
+
+func TestFuzzyRanksTheActionWordFirst(t *testing.T) {
+	for _, c := range []struct {
+		query, text string
+		rank        int
+	}{
+		{"restart", "Restart web", RankExact},
+		{"res", "Restart web", RankPrefix},
+		{"web", "Restart web", RankWordStart},
+		{"res", "Recreate container silverconnect-postgres-1", RankLoose},
+		{"rw", "Restart web", RankLoose},
+	} {
+		if m, ok := Fuzzy(c.query, c.text); !ok || m.Rank != c.rank {
+			t.Errorf("%q on %q: %+v, %v; want rank %d", c.query, c.text, m, ok, c.rank)
+		}
+	}
+	web, _ := Fuzzy("res", "Restart web")
+	daemon, _ := Fuzzy("res", "Restart the daemon in place")
+	if web.Score <= daemon.Score {
+		t.Errorf("res scores Restart web %d, the daemon %d", web.Score, daemon.Score)
+	}
+	if m, _ := Fuzzy("rw", "Restart web"); !slices.Equal(m.At, []int{0, 8}) {
+		t.Errorf("rw marks %v in Restart web", m.At)
 	}
 }
