@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -66,10 +67,8 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		// exit in between cannot miss it. A task's run in progress
 		// satisfies a start asked for together with others (Since), as it
 		// does a dependency.
-		if !p.cfg.Oneshot || opt.Since.IsZero() {
-			p.againTrigger = opt.trigger
-			s.markStartAfterExitLocked(p)
-		}
+		p.againTrigger = opt.trigger
+		s.markStartAfterExitLocked(p, opt.Since)
 		s.reserveLocked(p)
 		s.mu.Unlock()
 		return nil
@@ -180,20 +179,40 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 		}
 	}
 	p.retries = 0
-	if !p.cfg.Oneshot {
-		s.markStartAfterExitLocked(p) // a task's ended run serves it
-	}
+	s.markStartAfterExitLocked(p, since)
 	return dependency{task: p.cfg.Oneshot, token: s.reserveLocked(p)}
 }
 
 // markStartAfterExitLocked records that a start of p, whose pid is still
 // set, comes after its process ended on its own and was reaped, so wait
-// runs it once it has recorded the exit. The process's own state says so,
-// not its pid, which another process may have by now. A stopping server
-// starts again through its own path in wait.
-func (s *Supervisor) markStartAfterExitLocked(p *proc) {
-	if p.pid != 0 && p.process != nil && !s.requestedExitLocked(p) && p.overMemory == "" && errors.Is(p.process.Signal(syscall.Signal(0)), os.ErrProcessDone) {
+// runs it once it has recorded the exit. A task's run that ended at or
+// after since (non-zero for a dependency or a start asked for together
+// with others) serves the start instead. A stopping server starts again
+// through its own path in wait.
+func (s *Supervisor) markStartAfterExitLocked(p *proc, since time.Time) {
+	if s.requestedExitLocked(p) || p.overMemory != "" {
+		return
+	}
+	if at, ok := reapedLocked(p); ok && (!p.cfg.Oneshot || since.IsZero() || at.Before(since)) {
 		p.startAfterExit = true
+	}
+}
+
+// reapedLocked reports whether p's process, whose pid is still set, has
+// ended and been reaped, and when. The process's own state says so, not
+// its pid, which another process may have by now.
+func reapedLocked(p *proc) (time.Time, bool) {
+	if p.pid == 0 || p.process == nil || !errors.Is(p.process.Signal(syscall.Signal(0)), os.ErrProcessDone) {
+		return time.Time{}, false
+	}
+	// wait stores the time right after the reap, without the lock.
+	for deadline := time.Now().Add(10 * time.Millisecond); ; runtime.Gosched() {
+		if t := p.reapedAt.Load(); t != 0 {
+			return time.Unix(0, t), true
+		}
+		if time.Now().After(deadline) {
+			return time.Now(), true
+		}
 	}
 }
 
@@ -300,7 +319,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		if !opt.Takeover || !found {
 			s.mu.Lock()
 			s.awaitHandoffLocked()
-			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing {
+			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.pid != 0 {
 				s.mu.Unlock()
 				return nil
 			}
@@ -330,7 +349,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		msg := "directory not found: " + paths.ShortenHome(sv.Dir)
 		s.mu.Lock()
 		s.awaitHandoffLocked()
-		if s.procs[name] != p || !p.want || p.startSeq != token || s.closing {
+		if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.pid != 0 {
 			s.mu.Unlock()
 			return nil
 		}
@@ -402,6 +421,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.gen++
 	gen := p.gen
 	p.process = cmd.Process
+	p.reapedAt.Store(0)
 	p.pty = f
 	p.pid = cmd.Process.Pid
 	p.pidStart = processStart(p.pid)

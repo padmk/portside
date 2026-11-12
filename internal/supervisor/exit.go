@@ -30,6 +30,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	process := p.process
 	s.mu.Unlock()
 	code := exitCode(process.Wait())
+	p.reapedAt.Store(time.Now().UnixNano())
 	pgid := p.pid
 	s.mu.Lock()
 	stopping := s.requestedExitLocked(p) || p.overMemory != ""
@@ -54,7 +55,9 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	_ = p.pty.Close()
 	uptime := time.Since(p.startedAt)
 	p.exitedAt = time.Now()
-	p.settledAt = p.exitedAt
+	// The run ended when its process did, before its output drained: a
+	// request from after that is not served by it.
+	p.settledAt = time.Unix(0, p.reapedAt.Load())
 	p.exitCode = code
 	p.hasExit = true
 	p.pid = 0

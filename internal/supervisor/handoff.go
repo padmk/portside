@@ -251,6 +251,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 			installReadyLog(p, h.Config.ReadyLog, h.LogLine)
 		}
 		p.process = process
+		p.reapedAt.Store(0)
 		p.pty = f
 		p.pid = h.PID
 		// Saved by an older daemon perhaps in its own locale; keep the C
