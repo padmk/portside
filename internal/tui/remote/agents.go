@@ -172,7 +172,7 @@ func stateWord(st agentsetup.State) string {
 	return string(st)
 }
 
-func (a *agents) lines(env *ui.Env) (lines []string, cursorLine int) {
+func (a *agents) lines(env *ui.Env, inner int) (lines []string, cursorLine int) {
 	s := overlay.Styles(env.Styles)
 	g := env.Glyphs
 	cursorLine = -1
@@ -240,24 +240,18 @@ func (a *agents) lines(env *ui.Env) (lines []string, cursorLine int) {
 		add("")
 		add(s.Muted.Render("Setting up" + g.Ellipsis))
 	}
-	if !a.loading {
-		add("")
-		lines = append(lines, actionLine(env.Styles, g, cl, a.actions()))
-	}
+	add("")
+	lines = append(lines, actionLines(env.Styles, g, cl, inner, a.hints())...)
 	return lines, cursorLine
 }
 
-// actions are the overlay's clickable actions.
-func (a *agents) actions() [][2]string {
-	if a.results != nil {
+// hints are the overlay's keys, drawn in its box as clickable actions.
+func (a *agents) hints() [][2]string {
+	switch {
+	case a.loading:
+		return [][2]string{{"esc", "close"}}
+	case a.results != nil:
 		return [][2]string{{"enter", "close"}, {"R", "check again"}}
 	}
-	return [][2]string{{"enter", "set up the checked"}, {"R", "check again"}}
-}
-
-func (a *agents) hints(enter string) [][2]string {
-	if a.results != nil {
-		return [][2]string{{enter, "close"}, {"R", "check again"}, {"esc", "close"}}
-	}
-	return [][2]string{{"space", "check"}, {enter, "set up the checked"}, {"R", "check again"}, {"esc", "close"}}
+	return [][2]string{{"space", "check"}, {"enter", "set up the checked"}, {"R", "check again"}, {"esc", "close"}}
 }

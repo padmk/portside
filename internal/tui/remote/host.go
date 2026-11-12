@@ -198,20 +198,6 @@ func (h *Host) Key(env *ui.Env, msg tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-// Hints are the footer's keys while an overlay is open.
-func (h *Host) Hints(env *ui.Env, ascii bool) [][2]string {
-	enter := overlay.KeyLabel("enter", ascii)
-	switch h.open {
-	case viewComputers:
-		return h.comp.hints(env, enter)
-	case viewAgents:
-		return h.agents.hints(enter)
-	case viewDaemon:
-		return [][2]string{{"u", "upgrade"}, {"r", "restart"}, {"esc", "close"}}
-	}
-	return nil
-}
-
 // View draws the open overlay centered over the screen (the root dims
 // it).
 func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
@@ -223,7 +209,7 @@ func (h *Host) View(env *ui.Env, screen string, w, hgt int) string {
 		lines, cursor = h.comp.lines(env, inner, env.Now())
 	case viewAgents:
 		title = "Coding agents"
-		lines, cursor = h.agents.lines(env)
+		lines, cursor = h.agents.lines(env, inner)
 	case viewDaemon:
 		title = "Daemon"
 		lines = h.daemonView(env, inner)
@@ -290,10 +276,18 @@ func (h *Host) daemonView(env *ui.Env, inner int) []string {
 		for _, l := range wrap("u replaces the daemon with this binary when it is newer; r restarts it in place. Both keep servers running; a daemon too old to restart in place is stopped and started, which restarts its servers.", inner) {
 			add(s.Text2.Render(l))
 		}
-		add("")
-		out = append(out, actionLine(env.Styles, env.Glyphs, cl, [][2]string{{"u", "upgrade"}, {"r", "restart"}}))
 	}
-	return out
+	add("")
+	return append(out, actionLines(env.Styles, env.Glyphs, cl, inner, h.daemonHints(env))...)
+}
+
+// daemonHints are the Daemon overlay's keys: upgrade and restart on this
+// computer, and the way out.
+func (h *Host) daemonHints(env *ui.Env) [][2]string {
+	if env.Session.Remote() {
+		return [][2]string{{"esc", "close"}}
+	}
+	return [][2]string{{"u", "upgrade"}, {"r", "restart"}, {"esc", "close"}}
 }
 
 // wrap breaks text into lines of at most w cells, at spaces and slashes

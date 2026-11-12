@@ -256,25 +256,27 @@ func (m *model) footer() string {
 
 // fixedHints are the footer's key and label pairs while an overlay or a
 // mode other than normal takes the keys; ok is false when the action hints
-// apply.
+// apply. An overlay with a hint row in its box owns its hints and the
+// footer shows none; menus, the palette and confirmations, whose boxes
+// have no hint row, keep the footer's.
 func (m *model) fixedHints() (hints [][2]string, ok bool) {
 	enter := overlay.KeyLabel("enter", m.ascii())
 	switch {
 	case m.confirm != nil:
 		return [][2]string{{"tab", "choose"}, {enter, "run the selected"}, {"y", "yes"}, {"n", "no"}}, true
 	case m.edit.Open():
-		return m.edit.Hints(m.ascii()), true
-	case m.sys.Open():
-		return m.sys.Hints(&m.env, m.ascii()), true
-	case m.help != nil:
-		return [][2]string{{"j/k", "scroll"}, {"esc", "close"}}, true
-	case m.messages != nil:
-		// The overlay names its keys for the highlighted message.
+		return m.edit.Hints(), true
+	case m.sys.Open(), m.help != nil, m.messages != nil:
+		// These overlays draw their keys in their own box.
 		return nil, true
 	case m.menu != nil:
 		return [][2]string{{"j/k", "move"}, {enter, "run"}, {"esc", "close"}}, true
 	case m.palette != nil:
-		return [][2]string{{"type", "to find"}, {enter, "run"}, {"esc", "close"}}, true
+		move := "↑↓"
+		if m.ascii() {
+			move = "up/down"
+		}
+		return [][2]string{{"type", "to find"}, {move, "move"}, {enter, "run"}, {"esc", "close"}}, true
 	}
 	switch m.mode {
 	case ui.ModeFilter, ui.ModeSearch:

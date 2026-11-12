@@ -40,25 +40,35 @@ func (c *clicks) on(x, end int, key string) {
 	}
 }
 
-// actionLine draws key and label pairs as the overlay's clickable actions
-// (as overlay.Hint draws them) and records each pair's span.
-func actionLine(s theme.Styles, g theme.Glyphs, cl *clicks, pairs [][2]string) string {
+// actionLines draws key and label pairs as the overlay's clickable
+// actions and its complete key hints (as overlay.Hint draws them), on as
+// many lines of w cells as they need, and records each pair's span; a
+// pair whose key is "type" names typing, not a key, and is not clickable.
+func actionLines(s theme.Styles, g theme.Glyphs, cl *clicks, w int, pairs [][2]string) []string {
 	r := overlay.Styles(s)
-	out, x := "", 0
+	sep := r.Muted.Render(g.Separator)
+	var out []string
+	line, x := "", 0
 	cl.line(-1)
-	for i, p := range pairs {
-		if i > 0 {
-			sep := r.Muted.Render(g.Separator)
-			out += sep
+	for _, p := range pairs {
+		part := r.Key.Render(overlay.KeyLabel(p[0], g.ID == theme.ASCII.ID)) + r.Surface.Render(" ") + r.Text.Render(p[1])
+		pw := ansi.StringWidth(part)
+		if x > 0 && x+ansi.StringWidth(sep)+pw > w {
+			out = append(out, line)
+			line, x = "", 0
+			cl.line(-1)
+		}
+		if x > 0 {
+			line += sep
 			x += ansi.StringWidth(sep)
 		}
-		part := r.Key.Render(overlay.KeyLabel(p[0], g.ID == theme.ASCII.ID)) + r.Surface.Render(" ") + r.Text.Render(p[1])
-		w := ansi.StringWidth(part)
-		cl.on(x, x+w, p[0])
-		out += part
-		x += w
+		if p[0] != "type" {
+			cl.on(x, x+pw, p[0])
+		}
+		line += part
+		x += pw
 	}
-	return out
+	return append(out, line)
 }
 
 // geometry is where the last frame drew the open overlay: its first
@@ -74,6 +84,8 @@ func keyPress(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "space":
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	}
 	r := []rune(k)
 	return tea.KeyPressMsg{Code: r[0], Text: k}

@@ -82,11 +82,11 @@ func TestComputersRowsFromTheRemoteAPI(t *testing.T) {
 	}
 	// The cursor on mini offers pairing, on a port its forwarding.
 	c.cursor = 2
-	if h := c.hints(testEnv(ui.Session{}), "enter"); h[0] != [2]string{"enter", "pair"} {
+	if h := c.hints(testEnv(ui.Session{})); h[0] != [2]string{"enter", "pair"} {
 		t.Errorf("hints on an unpaired computer %v", h)
 	}
 	c.cursor = 4
-	if h := c.hints(testEnv(ui.Session{}), "enter"); h[0] != [2]string{"f", "forwarding on/off"} {
+	if h := c.hints(testEnv(ui.Session{})); h[0] != [2]string{"f", "forwarding on/off"} {
 		t.Errorf("hints on a port %v", h)
 	}
 	if got := c.names(); !slices.Equal(got, []string{"local", "studio", "mini"}) {
@@ -160,7 +160,7 @@ func TestAgentsChecksWhatApplyingFixes(t *testing.T) {
 	if n.Level != ui.LevelError || !strings.Contains(n.Text, "Skill for Claude Code and Codex failed") {
 		t.Errorf("the notice after applying %+v", n)
 	}
-	lines, _ := a.lines(testEnv(ui.Session{}))
+	lines, _ := a.lines(testEnv(ui.Session{}), 80)
 	text := ansi.Strip(strings.Join(lines, "\n"))
 	for _, want := range []string{"ok     Codex MCP server: connected", "failed Skill for Claude Code and Codex: permission denied", "run it yourself: portside skill install --force"} {
 		if !strings.Contains(text, want) {

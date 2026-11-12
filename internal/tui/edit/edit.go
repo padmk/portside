@@ -495,13 +495,12 @@ func savedNotice(what string, st *server.State, skip []string) tea.Cmd {
 	return notice(level, text)
 }
 
-// Hints are the footer's key hints while the overlay is open.
-func (e *Editor) Hints(ascii bool) [][2]string {
-	switch {
-	case e.sheet != nil:
-		return e.sheet.form.Hints(ascii)
-	case e.picker != nil:
-		return e.picker.hints(ascii)
+// Hints are the footer's key hints while the overlay is open: none for
+// the form and the proposals picker, which draw theirs in their box, and
+// the way out while the overlay loads.
+func (e *Editor) Hints() [][2]string {
+	if e.sheet != nil || e.picker != nil {
+		return nil
 	}
 	return [][2]string{{"esc", "cancel"}}
 }
