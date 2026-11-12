@@ -410,6 +410,18 @@ func (m *model) hintShort(a keymap.Action) string {
 	if a.Scope == keymap.ScopeLogs && a.ID == "attach" && m.env.Selected.Kind == ui.SelectContainer {
 		return "shell"
 	}
+	if a.Scope == keymap.ScopeContainers && a.ID == "toggle" && m.env.State != nil {
+		switch t.Kind {
+		case ui.SelectContainer:
+			if c, ok := containers.Find(m.env.State, t); ok {
+				return containers.ToggleVerb(c)
+			}
+		case ui.SelectProject:
+			if p, ok := containers.FindProject(m.env.State, t.Name); ok {
+				return strings.ReplaceAll(containers.ProjectToggleVerb(p), "-", " ")
+			}
+		}
+	}
 	if a.Scope == keymap.ScopeServers && a.ID == "toggle" && t.Kind == ui.SelectServer {
 		if v, ok := m.server(t.Name); ok && v.CanStop() {
 			return "stop"

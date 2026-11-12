@@ -38,7 +38,7 @@ func detailFields(env *ui.Env, v supervisor.View) []field {
 
 	// State and history.
 	d := v.Display()
-	add(field{label: "State", value: env.Glyphs.State(d, env.Frame) + " " + string(d), style: s.State(string(d)), copy: string(d)})
+	add(field{label: "State", value: env.Glyphs.State(d, env.Frame) + " " + string(d), style: s.StateWord(string(d)), copy: string(d)})
 	add(text("Note", viewfmt.StateNote(v)))
 	if !v.Enabled && !v.Temporary {
 		add(text("Enabled", "no: --all and restore skip it"))
