@@ -26,6 +26,8 @@ Compose jobs use `docker compose`; without a `docker` command whose `docker comp
 
 A **Containers** page (`g d`) shows every container on the engine with the same actions.
 
+In the terminal UI, the **Containers** pane under the servers lists every container grouped by Compose project, with these actions, logs, details, a shell, the compose job's output and `:start-docker` for **Start Docker** ([Terminal UI](tui.md#containers)).
+
 When the engine is down, **Start Docker** runs the config's [`docker_start`](configuration.md#editor-terminal-shell-and-docker) command when set. Otherwise it starts the engine behind the active context, or the first one installed of OrbStack, Docker Desktop, Colima, Rancher Desktop and Podman. On Linux it starts rootless Docker's user unit (`systemctl --user start docker`) or Podman's socket; for Docker as a system service it tells you to run `sudo systemctl start docker` instead. An engine on another computer has to be started there.
 
 ## Finding the engine

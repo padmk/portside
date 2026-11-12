@@ -1,5 +1,7 @@
 # Dashboard and menu bar app
 
+In a terminal, also over SSH, [`portside tui`](tui.md) shows the same servers, logs, containers and ports with the same actions.
+
 ## Menu bar app (macOS)
 
 The status icon shows whether everything runs, something is starting, or a server or one of its containers needs attention. Its panel lists every server with its project icon and start, stop, restart, open and logs, plus group actions; the dashboard opens in its own window.

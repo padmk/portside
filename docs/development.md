@@ -7,7 +7,7 @@ make dev-daemon     # isolated daemon on :7980 (config and state in .dev/)
 make dev-open       # sign the browser in; prints the Vite address on the dev daemon's dashboard host (new on each cold start)
 make dev-ui         # dashboard with hot reload on http://<dashboard host>:5173 (the session cookie covers every port of that host)
 make build          # dashboard + bin/portside
-make check          # go vet, go test, dashboard build, license notices
+make check          # go vet, go test, dashboard build, license notices, terminal UI palettes
 make notices        # regenerate THIRD_PARTY_NOTICES.txt
 make snapshot       # release archives in ./dist (goreleaser)
 make app            # macOS app in dist/macos/Portside.app (scripts/build-macos-app.sh)

@@ -26,6 +26,8 @@ and installs the skill. `<path>` is the `portside` on PATH when it is the same b
 
 When an agent's command is not found (`unavailable`), or a skill file with that name was not written by Portside (`foreign`), setup leaves it alone and prints the command to run yourself. `portside doctor` reports the same items without changing anything, and `portside doctor --fix` applies the missing and outdated ones.
 
+In the terminal UI, `:setup` lists the same items to check and apply, and `:doctor` runs `portside doctor` ([Terminal UI](tui.md#coding-agents)).
+
 The dashboard offers the same setup on its getting-started page while no server is configured (the macOS app opens it on its first launch), and under **Coding agents** in Settings, which the app's **Settings > Connect Coding Agents** and the command palette open. It lists each installed agent's MCP server and skill as connected or with a checkbox, and **Connect** adds the checked ones. It is shown for this computer only, not while the dashboard shows another one.
 
 To let an agent do the whole setup, paste it the prompt that `portside setup --print-prompt` prints, or that **Copy prompt for your agent** in the dashboard copies. It asks the agent to run `portside setup` and `portside doctor`, scan your projects folder, add the servers you pick, start each one and fix what fails with you, then summarize the URLs.

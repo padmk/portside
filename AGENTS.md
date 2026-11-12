@@ -6,7 +6,7 @@ Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded Reac
 
 ```sh
 make build        # dashboard (pnpm --dir web build into web/dist) and bin/portside
-make check        # go vet, go test, the dashboard build, the license notices check
+make check        # go vet, go test, the dashboard build, the license notices and terminal UI palettes checks
 make notices      # regenerate THIRD_PARTY_NOTICES.txt after changing Go or npm dependencies or adding a theme
 make dev-daemon   # isolated daemon on :7980, config and state in .dev/
 make dev-open     # sign the browser in; prints the Vite address on the dev daemon's dashboard host
@@ -19,6 +19,7 @@ pnpm --dir web check:contrast   # WCAG AA for every theme
 - `scripts/upgrade-from-release.sh <binary>` upgrades the latest published release in place to that binary on an isolated instance.
 - `scripts/linux-service-e2e.sh <binary> <other binary>` runs the systemd user service end to end with the default config and state locations: run it only on a disposable machine such as an OrbStack one, never on the owner's.
 - `scripts/bench-idle.sh` measures an idle isolated daemon; its numbers are in `docs/how-it-works.md` "Periodic checks".
+- `scripts/tui-acceptance.sh <binary> <port> <work dir>` measures the terminal UI's idle CPU, a log flood and the help's latency in a pty against an isolated daemon; its numbers are in `design/tui.md` "Quality bar".
 
 CI (`.github/workflows/ci.yml`) runs on Linux for pushes to main and pull requests: `make build`, the notices check, `go vet`, `go test -race`, `pnpm audit`, `govulncheck`, the contrast check, the Linux service end to end and an upgrade from the latest release. The macOS job builds the app, runs `go test` and the upgrade. CodeQL scans Go and TypeScript. macOS runners are expensive, so push finished work in batches. Releases run from a `v*` tag with a `CHANGELOG.md` section; see [docs/development.md](docs/development.md#releases).
 
@@ -40,6 +41,7 @@ CI (`.github/workflows/ci.yml`) runs on Linux for pushes to main and pull reques
 | Path | Responsibility |
 |---|---|
 | `cmd/portside`, `internal/cli` | Entry point and commands |
+| `internal/tui` | The terminal UI (`portside tui`), a client of the daemon's API like the dashboard |
 | `internal/daemon`, `internal/server` | The daemon process, port choice and upgrades in place; the HTTP API, WebSockets, auth and the `*.localhost` proxy |
 | `internal/supervisor` | Process lifecycle in PTYs, restarts, tasks, schedules, file watching, memory limits |
 | `internal/config`, `internal/discover` | TOML loading, validation and comment-preserving edits; project detection for `scan` |

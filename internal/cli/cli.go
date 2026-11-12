@@ -154,6 +154,7 @@ func init() {
 		{names: []string{"attach", "a"}, section: "Servers", usage: "attach <name>", summary: "Interactive terminal of a server (Ctrl-] detaches)", run: cmdAttach, remote: true},
 		{names: []string{"open"}, section: "Servers", usage: "open [name] [--alias] [--print]", summary: "Open the dashboard or a server in the browser", run: cmdOpen},
 		{names: []string{"containers"}, section: "Servers", usage: "containers [server|project]... [--json] | start|stop|restart|recreate <name> [--build] [--pull]", summary: "List containers or act on one container", run: cmdContainers, remote: true},
+		{names: []string{"tui"}, section: "Servers", usage: "tui [--theme <family>[-light|-dark]] [--icons unicode|nerd|ascii]", summary: "Open the terminal UI", run: cmdTUI, remote: true},
 		{names: []string{"ports"}, section: "Servers", usage: "ports [--json]", summary: "Show every listening TCP port and its owner", run: cmdPorts},
 
 		{names: []string{"computers"}, section: "Other computers", usage: "computers [--json] | --print-prompt", summary: "List your other computers that share their servers, and the connection; --print-prompt prints a setup request for a coding agent", run: cmdComputers},
