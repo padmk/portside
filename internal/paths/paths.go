@@ -89,6 +89,7 @@ const (
 	DashboardHostName = "dashboard-host" // the dashboard's host name
 	PortName          = "daemon.port"    // the port a running daemon serves
 	LockName          = "daemon.lock"    // held by the running daemon
+	TUIPrefsName      = "tui.json"       // the terminal UI's preferences
 )
 
 // LogDir returns the directory in stateDir holding one log file per server.
