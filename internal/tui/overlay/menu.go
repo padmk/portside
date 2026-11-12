@@ -12,9 +12,9 @@ import (
 
 // MenuItem is one row of a menu: the action it runs, its label and the
 // key that runs it (or its command when it has no key there). Off holds
-// why the action does nothing on the menu's target; the row is then muted,
-// the reason shows under the list while the row is highlighted, and
-// running it shows the reason.
+// why the action does nothing on the menu's target; the row is then muted
+// and marked (decorate), the reason shows under the list while the row is
+// highlighted, and running it shows the reason.
 type MenuItem struct {
 	ActionID, Label, Key string
 	Off                  string
