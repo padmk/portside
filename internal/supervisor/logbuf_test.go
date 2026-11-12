@@ -38,6 +38,37 @@ func times(lines []Line) []time.Time {
 	return out
 }
 
+// composeKeyBar is one line of docker compose up output as a PTY records
+// it: the key bar is drawn at the bottom of the screen between cursor saves
+// and restores, then the real line follows.
+const composeKeyBar = "\x1b[0G\x1b[2A\x1b[0G\x1b[s\x1b7\x1b[48;0H\x1b[0K" +
+	"\x1b[1;38;2;0;0;0;48;2;255;255;255mw\x1b[0m\x1b[2m Enable Watch\x1b[0m   " +
+	"\x1b[1;38;2;0;0;0;48;2;255;255;255md\x1b[0m\x1b[2m Detach\x1b[0m" +
+	"\x1b[0G\x1b[u\x1b8\x1b[0G\x1b[s\x1b7\x1b[1B\x1b[0K\x1b[1B\x1b[0K\x1b[1B\x1b[0K" +
+	"\x1b[0G\x1b[u\x1b8workspace-n8n  | Editor is now accessible via:\r\r"
+
+func TestPlainLineComposeKeyBar(t *testing.T) {
+	if got, want := PlainLine(composeKeyBar), "workspace-n8n  | Editor is now accessible via:"; got != want {
+		t.Errorf("PlainLine = %q, want %q", got, want)
+	}
+}
+
+func TestRedrawLineKeepsSequences(t *testing.T) {
+	sgr := func(s string) bool { return strings.HasSuffix(s, "m") }
+	cases := []struct{ raw, want string }{
+		{"\x1b[31mred\x1b[0m", "\x1b[31mred\x1b[0m"},
+		// The style set before a redraw stays in effect for the new text.
+		{"\x1b[31mold\rnew", "\x1b[31mnew"},
+		// Styles inside a save and restore were drawn elsewhere.
+		{"a\x1b7\x1b[1mbar\x1b[0m\x1b8b", "ab"},
+	}
+	for _, c := range cases {
+		if got := RedrawLine(c.raw, sgr); got != c.want {
+			t.Errorf("RedrawLine(%q) = %q, want %q", c.raw, got, c.want)
+		}
+	}
+}
+
 func TestPlainLines(t *testing.T) {
 	cases := []struct {
 		name string
@@ -53,9 +84,24 @@ func TestPlainLines(t *testing.T) {
 		{"cr redraw", "10%\r50%\r100%\nnext", 0, []string{"100%", "next"}},
 		{"cr redraw with erase", "50%\r\x1b[K100%", 0, []string{"100%"}},
 		{"crlf", "a\r\nb\r\n", 0, []string{"a", "b"}},
+		{"decsc and decrc", "a\x1b7b\x1b8c\n", 0, []string{"ac"}},
+		{"two-byte escapes", "\x1b=\x1b>\x1bc\x1bD\x1bM\x1b(B\x1b#8x\n", 0, []string{"x"}},
+		{"save restore drops text drawn elsewhere", "keep\x1b[s\x1b[10;1Hbar\x1b[udone", 0, []string{"keepdone"}},
+		{"restore without save", "a\x1b8b", 0, []string{"ab"}},
+		{"save without restore", "a\x1b7b", 0, []string{"ab"}},
+		{"column one is a carriage return", "50%\x1b[0G100%", 0, []string{"100%"}},
+		{"backspace spinner", "wait |\b/\b-\b\\", 0, []string{"wait \\"}},
+		{"cursor left redraw", "count 9\x1b[1D10", 0, []string{"count 10"}},
+		{"erase line after text", "old\x1b[2K\x1b[1Gnew", 0, []string{"new"}},
+		{"erase to end", "abcdef\x1b[3D\x1b[Kxy", 0, []string{"abcxy"}},
+		{"cursor up at the top", "\x1b[2Aline", 0, []string{"line"}},
+		{"cursor up overwrites rows", "[+] 1/2\nA wait\nB wait\n\x1b[3A[+] 2/2\nA done\nB done\nnext", 0, []string{"[+] 2/2", "A done", "B done", "next"}},
+		{"overwrite without text keeps the row", "a\nb\n\x1b[2A\nc", 0, []string{"a", "c"}},
+		{"cursor up inside save and restore", "a\n\x1b7\x1b[5Abar\x1b8b", 0, []string{"a", "b"}},
+		{"compose rows kept free for the key bar", "x | 1\r\n\x1b[0G\x1b[0K\r\n\x1b[0G\x1b[0K\r\n\x1b[0G\x1b[2Ax | 2\r\n\x1b[0G\x1b[0K\r\n\x1b[0G\x1b[0K\r\n\x1b[0G\x1b[2Ax | 3\r\n", 0, []string{"x | 1", "x | 2", "x | 3"}},
 		{"trailing blank lines", "a\n\n  \n\t\n", 0, []string{"a"}},
 		{"inner blank lines kept", "a\n\nb\n", 0, []string{"a", "", "b"}},
-		{"control chars dropped", "a\x00b\x07c\x08d\te", 0, []string{"abcd\te"}},
+		{"control chars dropped", "a\x00b\x07c\x7fd\te", 0, []string{"abcd\te"}},
 		{"unicode", "zażółć 世界\n", 0, []string{"zażółć 世界"}},
 		{"last n", "1\n2\n3\n4\n", 2, []string{"3", "4"}},
 		{"n larger", "1\n2\n", 5, []string{"1", "2"}},
@@ -79,7 +125,7 @@ func TestPlainLine(t *testing.T) {
 		"\x1b[31mhello\x1b[0m":     "hello",
 		"abc\r":                    "abc",
 		"loading\rdone":            "done",
-		"a\x1b[2Kb":                "ab",
+		"a\x1b[2Kb":                " b",
 		"tab\tkept":                "tab\tkept",
 		"bell\x07":                 "bell",
 		"\x1b(Bplain":              "plain",
