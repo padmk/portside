@@ -9,6 +9,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/padmk/portside/internal/server"
+	"github.com/padmk/portside/internal/supervisor"
 	"github.com/padmk/portside/internal/tui/keymap"
 	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
@@ -378,5 +380,23 @@ func TestSettleClosesTheFeedKeepingLines(t *testing.T) {
 	}
 	if got := strings.Join(plains(p), "|"); got != "done" {
 		t.Errorf("lines = %q", got)
+	}
+}
+
+// An empty log of a stopped server names a way to start it that works
+// from where the keys are: space in the servers list, the command line
+// in the focused pane, where space does nothing.
+func TestEmptyLogNamesAWorkingStart(t *testing.T) {
+	env := testEnv()
+	env.State = &server.State{Servers: []supervisor.View{{Name: "my app", Status: supervisor.Stopped}}}
+	p := New()
+	p.server = "my app"
+	for _, c := range []struct {
+		focused bool
+		want    string
+	}{{false, "stopped · space starts it"}, {true, `stopped · :start "my app"`}} {
+		if got := ansi.Strip(p.View(env, 60, 5, c.focused)); !strings.Contains(got, c.want) {
+			t.Errorf("focused %v: no %q in\n%s", c.focused, c.want, got)
+		}
 	}
 }

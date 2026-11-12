@@ -387,7 +387,8 @@ func (p *Pane) Status() string {
 }
 
 // View renders the lines that fit, newest at the bottom, and the search
-// prompt while it is open.
+// prompt while it is open; focused is whether the pane has the keys, which
+// decides what an empty log says to do.
 func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 	p.glyphs = env.Glyphs
 	if w <= 0 || h <= 0 {
@@ -410,7 +411,7 @@ func (p *Pane) View(env *ui.Env, w, h int, focused bool) string {
 	case p.seqLen() == 0 && p.filtering():
 		out = centered(env, "No lines match "+p.search.query, w, rows)
 	case p.seqLen() == 0:
-		out = centered(env, "No output yet", w, rows, p.emptyContext(env))
+		out = centered(env, "No output yet", w, rows, p.emptyContext(env, focused))
 	default:
 		out = p.visibleRows(env, rows)
 	}
@@ -430,14 +431,20 @@ func (p *Pane) dots() string {
 }
 
 // emptyContext is the line under "No output yet" that says why and what
-// to do: a stopped server's state and the key that starts it; "" else.
-func (p *Pane) emptyContext(env *ui.Env) string {
+// to do: a stopped server's state and how to start it from where the keys
+// are, space in the servers list (the pane is not focused) or its command
+// line here, where space does nothing; "" else.
+func (p *Pane) emptyContext(env *ui.Env, focused bool) string {
 	if env.State == nil {
 		return ""
 	}
 	for _, v := range env.State.Servers {
 		if v.Name == p.server && v.Display() == supervisor.Display(supervisor.Stopped) {
-			return "stopped" + env.Glyphs.Separator + "space starts it"
+			how := "space starts it"
+			if focused {
+				how = ":start " + keymap.Quote(p.server)
+			}
+			return "stopped" + env.Glyphs.Separator + how
 		}
 	}
 	return ""

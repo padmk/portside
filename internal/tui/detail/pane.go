@@ -294,7 +294,7 @@ func (c *Pane) View(env *ui.Env, w, h int, focused bool) string {
 func (c *Pane) content(env *ui.Env, v supervisor.View, ok bool, cw, ch int, focused bool) ([]string, string) {
 	s := env.Styles
 	if c.tab == tabLogs {
-		return strings.Split(c.logs.View(env, cw, ch, false), "\n"), c.logs.Status()
+		return strings.Split(c.logs.View(env, cw, ch, focused), "\n"), c.logs.Status()
 	}
 	if !ok {
 		return []string{note(env, "Select a server to see its details", s.Muted, cw)}, ""
