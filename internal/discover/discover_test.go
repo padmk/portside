@@ -100,3 +100,20 @@ func TestDetectPython(t *testing.T) {
 		})
 	}
 }
+
+// Workspaces of another shape than a list of globs or an object with a
+// list of packages declare no workspace, also when some of the entries are
+// globs: the file is taken whole or not at all.
+func TestMalformedWorkspacesDeclareNone(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "apps", "web"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "apps", "web", "package.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pkg := pkgJSON{Workspaces: []byte(`{"packages": ["apps/*", 1]}`)}
+	if root, packages := workspaceRoot(dir, pkg); root || len(packages) != 0 {
+		t.Errorf("workspaceRoot = %v, %v; want no workspace", root, packages)
+	}
+}

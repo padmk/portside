@@ -32,7 +32,8 @@ func workspaceRoot(dir string, pkg pkgJSON) (bool, []string) {
 }
 
 // packageJSONWorkspaces reads package.json workspaces, a list of globs or an
-// object with packages.
+// object with packages. Workspaces of another shape declare none, as an
+// unreadable lerna.json does.
 func packageJSONWorkspaces(raw json.RawMessage) []string {
 	var list []string
 	if json.Unmarshal(raw, &list) == nil {
@@ -41,7 +42,9 @@ func packageJSONWorkspaces(raw json.RawMessage) []string {
 	var obj struct {
 		Packages []string `json:"packages"`
 	}
-	json.Unmarshal(raw, &obj)
+	if json.Unmarshal(raw, &obj) != nil {
+		return nil
+	}
 	return obj.Packages
 }
 
