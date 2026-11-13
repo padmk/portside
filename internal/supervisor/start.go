@@ -246,6 +246,19 @@ func (s *Supervisor) currentLocked(p *proc, token int) bool {
 	return !s.closing && !p.removed && s.procs[p.cfg.Name] == p && p.startingWith(token)
 }
 
+// settleStart ends p's start under way with token as failed with status
+// and note, when it is still current: a launch that returned without a
+// process. One that a Stop, a newer start or the daemon's end replaced is
+// left to them, and during an upgrade in place the next daemon goes on
+// with it.
+func (s *Supervisor) settleStart(p *proc, token int, status Status, note string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.currentLocked(p, token) {
+		s.transitionLocked(p, evLaunchFailed{status: status, note: note})
+	}
+}
+
 // failStart reports a failed start, unless a newer start or a Stop took
 // over, or startOne itself failed and reported it.
 func (s *Supervisor) failStart(p *proc, token int, msg string) {
@@ -258,7 +271,22 @@ func (s *Supervisor) failStart(p *proc, token int, msg string) {
 
 // startOne launches p while token is its start under way. It holds p
 // itself, so a rename during the preflight does not end the start.
-func (s *Supervisor) startOne(p *proc, opt StartOptions, token int) error {
+func (s *Supervisor) startOne(p *proc, opt StartOptions, token int) (err error) {
+	// Every way out that leaves this start under way without a process,
+	// an error or a panic among them, ends it as failed, so the server is
+	// neither left starting nor wanted for a start that will not come.
+	defer func() {
+		if v := recover(); v != nil {
+			// The lock may be this goroutine's: settle once it is free.
+			go s.settleStart(p, token, Crashed, fmt.Sprintf("failed to start: %v", v))
+			panic(v)
+		}
+		note := "the start ended before its process did"
+		if err != nil {
+			note = err.Error()
+		}
+		s.settleStart(p, token, Crashed, note)
+	}()
 	s.mu.Lock()
 	if p.live() != nil {
 		s.mu.Unlock()
