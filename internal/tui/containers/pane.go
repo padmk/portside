@@ -14,6 +14,7 @@ import (
 	"github.com/padmk/portside/internal/tui/keymap"
 	"github.com/padmk/portside/internal/tui/theme"
 	"github.com/padmk/portside/internal/tui/ui"
+	"github.com/padmk/portside/internal/viewfmt"
 )
 
 const (
@@ -372,6 +373,12 @@ func paint(env *ui.Env, segs []seg, w int) string {
 // line joins left and right segments in w cells, right at the right end
 // when both fit, else left alone.
 func line(env *ui.Env, s theme.Styles, left, right []seg, w int) string {
+	// Names come from the engine: made safe before they are measured.
+	for _, segs := range [][]seg{left, right} {
+		for i := range segs {
+			segs[i].text = viewfmt.PlainText(segs[i].text)
+		}
+	}
 	lw, rw := width(left), width(right)
 	if rw == 0 || lw+1+rw > w {
 		return paint(env, left, w)

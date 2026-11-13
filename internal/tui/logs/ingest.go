@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	// maxPartial bounds an unfinished line: past it, the line so far is
-	// kept as a line of its own.
+	// maxPartial bounds a line: past it, an unfinished line so far is kept
+	// as a line of its own and a longer complete line is split, so the
+	// work of cleaning, matching and drawing one line stays bounded.
 	maxPartial = 64 << 10
 	// maxRedraw is how many recent terminal rows a line moving the cursor
 	// up can write over, as supervisor.CursorUp bounds it.
@@ -115,6 +116,16 @@ func (p *Pane) ingest(data string, at time.Time) {
 		if i == 0 {
 			t = first
 		}
+		// The carriage return a terminal ends lines with is no part of
+		// their text, and must not become a row of its own.
+		if len(raw) > maxPartial {
+			raw = strings.TrimRight(raw, "\r")
+		}
+		for len(raw) > maxPartial {
+			cut := safeCut(raw, maxPartial)
+			p.place(raw[:cut], t)
+			raw = raw[cut:]
+		}
 		p.place(raw, t)
 	}
 	if len(complete) > 0 {
@@ -148,10 +159,15 @@ func safeCut(s string, n int) int {
 }
 
 // complete reports whether s, which starts with ESC, holds a whole escape
-// sequence.
+// sequence. The pattern also takes ESC and an introducer of a longer
+// sequence (CSI "[", OSC "]", DCS, SOS, PM, APC) as a two-byte escape, so
+// that one is whole only when nothing follows the introducer in s.
 func complete(s string) bool {
 	loc := escape.FindStringIndex(s)
-	return loc != nil && loc[0] == 0
+	if loc == nil || loc[0] != 0 {
+		return false
+	}
+	return !(loc[1] == 2 && len(s) > 2 && strings.IndexByte("[]PX^_", s[1]) >= 0)
 }
 
 // place writes one complete raw line on its terminal row: a new row at

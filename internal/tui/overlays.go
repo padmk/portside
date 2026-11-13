@@ -45,12 +45,14 @@ type toastHit struct {
 }
 
 // contextMenu is the menu of a pane's actions (x or a right click) at x, y
-// for the pane at index pane; target is what its server actions act on,
-// taken when it opened.
+// for pane, kept by identity since the left column's panes come and go
+// while it is open; target is what its server actions act on, taken when
+// it opened.
 type contextMenu struct {
 	overlay.Menu
-	x, y, pane int
-	target     ui.Selection
+	x, y   int
+	pane   ui.Pane
+	target ui.Selection
 }
 
 // paletteBox is the open command palette and where it was drawn.
@@ -169,7 +171,7 @@ func (m *model) openMenu(pane, x, y int) tea.Cmd {
 	m.fitMenu(&menu)
 	w, h := menu.Size()
 	top := m.bodyTop()
-	m.menu = &contextMenu{Menu: menu, x: max(0, min(x, m.width-w)), y: max(top, min(y, m.height-1-h)), pane: pane, target: target}
+	m.menu = &contextMenu{Menu: menu, x: max(0, min(x, m.width-w)), y: max(top, min(y, m.height-1-h)), pane: m.panes()[pane], target: target}
 	return nil
 }
 
@@ -381,7 +383,13 @@ func (m *model) menuRun(i int) tea.Cmd {
 	if it.Off != "" {
 		return m.warn(strings.TrimSpace(it.Label + ": " + it.Off))
 	}
-	m.focusPane(c.pane)
+	pane := slices.Index(m.panes(), c.pane)
+	if pane < 0 {
+		// syncLeft closes the menu of a pane that left; nothing runs on
+		// a pane that is not shown.
+		return nil
+	}
+	m.focusPane(pane)
 	switch c.target.Kind {
 	case ui.SelectContainer, ui.SelectProject, ui.SelectPort:
 		// Every container, project and port action of a menu runs on
@@ -394,7 +402,7 @@ func (m *model) menuRun(i int) tea.Cmd {
 			return m.act(it.ActionID, c.target)
 		}
 	}
-	scope := m.panes()[c.pane].Scope()
+	scope := c.pane.Scope()
 	for _, a := range m.env.Keys.InScope(scope, keymap.ScopeGlobal) {
 		if a.ID == it.ActionID {
 			return m.run(a)

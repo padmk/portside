@@ -23,6 +23,10 @@ import (
 type StartOptions struct {
 	// Takeover stops a foreign process holding the port before starting.
 	Takeover bool
+	// TakeoverPID, when set, limits Takeover to that process: a port held
+	// by another one (the confirmed process exited and something else took
+	// the port) leaves the server blocked, as without Takeover.
+	TakeoverPID int
 	// Since is when the start was asked for, now when zero. A task that a
 	// server depends on counts as done after a successful run that ended at
 	// or after it, so starts asked for together (a bulk start) share one run.
@@ -329,7 +333,17 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	}
 	if sv.Port > 0 && ports.Listening(sv.Port) && !composeOwnsPort(name, sv.Cmd, sv.Port, published) {
 		owner, found := ports.Owner(context.Background(), sv.Port)
-		if !opt.Takeover || !found {
+		if found && opt.TakeoverPID != 0 && owner.PID != opt.TakeoverPID {
+			// Several processes can share a listening socket (a prefork
+			// server and its workers): the confirmed one may be among them.
+			for _, l := range ports.List(context.Background()) {
+				if l.Port == sv.Port && l.PID == opt.TakeoverPID {
+					owner = l
+				}
+			}
+		}
+		takeover := opt.Takeover && (opt.TakeoverPID == 0 || owner.PID == opt.TakeoverPID)
+		if !takeover || !found {
 			s.mu.Lock()
 			s.awaitHandoffLocked()
 			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.pid != 0 {

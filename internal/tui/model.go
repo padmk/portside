@@ -231,6 +231,8 @@ func (m *model) handle(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.after(m.mouse(msg))
 	case ui.ActMsg:
 		return m, m.after(m.actMsg(msg))
+	case takeoverMsg:
+		return m, m.after(m.takeoverConfirmed(msg))
 	case ui.HidePaneMsg:
 		if msg.Scope == keymap.ScopePorts && m.showPorts {
 			return m, m.hidePorts()

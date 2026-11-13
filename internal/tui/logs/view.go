@@ -279,8 +279,21 @@ func (p *Pane) lineRows(env *ui.Env, abs int) []string {
 	if gutter != "" {
 		gutter = env.Styles.Muted.Render(strings.TrimSuffix(gutter, " ")) + " "
 	}
-	text := highlight(env.Styles, l, p.search.re, abs == p.search.current)
-	rows := Rows(text, gutter, p.width, p.wrap, p.left, ellipsis)
+	from, to, left := 0, len(l.Plain), p.left
+	// A line no longer in bytes than the cells shown fits whole: no
+	// character takes more cells than bytes.
+	if !p.wrap && (p.left > 0 || len(l.Plain) > p.width) {
+		// Only the cells on screen are styled: from a cell before the
+		// first shown, so the cut still marks text before it, to two
+		// past the last, so it marks text after it.
+		if p.left > 1 {
+			from = len(ansi.Truncate(l.Plain, p.left-1, ""))
+		}
+		to = len(ansi.Truncate(l.Plain, p.left+p.width+2, ""))
+		left = p.left - ansi.StringWidth(l.Plain[:from])
+	}
+	text := highlight(env.Styles, l, p.search.re, abs == p.search.current, from, to)
+	rows := Rows(text, gutter, p.width, p.wrap, left, ellipsis)
 	for i, r := range rows {
 		if strings.Contains(r, "\x1b") {
 			// Styles and links end with their row, not in the border.

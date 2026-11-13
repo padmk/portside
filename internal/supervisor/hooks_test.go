@@ -1,6 +1,8 @@
 package supervisor
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/padmk/portside/internal/app"
 	"github.com/padmk/portside/internal/config"
+	"github.com/padmk/portside/internal/ports"
 )
 
 // crashHookSupervisor runs script as server web with an on_crash command
@@ -363,5 +366,31 @@ func TestOwnEnvironment(t *testing.T) {
 		if err := s.Stop("web"); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A takeover limited to the process a client confirmed leaves a port held
+// by another process alone, with the server blocked as without takeover.
+func TestTakeoverOnlyStopsTheConfirmedProcess(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	if _, found := ports.Owner(context.Background(), port); !found {
+		t.Skip("no tool here tells which process listens on a port (lsof, ss)")
+	}
+	s, _ := crashHookSupervisor(t, "sleep 60", config.RestartNo)
+	s.procs["web"].cfg.Port = port
+	err = s.Start("web", StartOptions{Takeover: true, TakeoverPID: os.Getpid() + 1})
+	if !errors.Is(err, ErrPortBusy) {
+		t.Fatalf("Start = %v, want the port busy", err)
+	}
+	s.mu.Lock()
+	holder := s.procs["web"].external
+	s.mu.Unlock()
+	if holder == nil || holder.PID != os.Getpid() {
+		t.Errorf("web shows %+v as the port's holder", holder)
 	}
 }

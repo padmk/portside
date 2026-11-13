@@ -176,11 +176,12 @@ func (c *CmdLine) View(s theme.Styles, w int) string {
 		return ""
 	}
 	room := max(w-2, 1)
+	shown := cleanRunes(c.text)
 	from := 0
-	for from < c.cursor && ansi.StringWidth(string(c.text[from:c.cursor])) >= room {
+	for from < c.cursor && ansi.StringWidth(string(shown[from:c.cursor])) >= room {
 		from++
 	}
-	text := c.text[from:]
+	text := shown[from:]
 	at := c.cursor - from
 	under := " "
 	after := ""
@@ -218,12 +219,13 @@ func (c *CmdLine) candidates(s theme.Styles, w int) string {
 	var parts []string
 	used := 0
 	for i := first; i < len(items); i++ {
-		part := s.Text2.Render(" " + items[i] + " ")
+		item := " " + clean(items[i]) + " "
+		part := s.Text2.Render(item)
 		switch {
 		case i == next:
-			part = s.OverlaySelected.Render(" " + items[i] + " ")
+			part = s.OverlaySelected.Render(item)
 		case next < 0 && i == 0:
-			part = s.AccentBold.Render(" " + items[i] + " ")
+			part = s.AccentBold.Render(item)
 		}
 		pw := ansi.StringWidth(part) + 1
 		if used+pw > w-cueW-moreW && len(parts) > 0 {

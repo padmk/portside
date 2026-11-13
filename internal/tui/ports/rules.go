@@ -162,14 +162,19 @@ func Off(env *ui.Env, id string, l Listener) string {
 }
 
 // TakeoverOff is why a server cannot start taking over its port: only a
-// server shown as waiting for a port another process holds can.
+// server whose port the daemon reports held by another process can, shown
+// as waiting for it or blocked by a start that found it taken, as the
+// dashboard's port banner offers it.
 func TakeoverOff(env *ui.Env, name string) string {
 	v, ok := findServer(env, name)
 	switch {
 	case !ok:
 		return "no server named " + name
-	case v.Display() != supervisor.DisplayExternal:
+	case v.External == nil || v.HasProcess():
 		return "its port is not held by another process"
+	case v.External.PID == 0:
+		// Nothing to confirm: the daemon would stop whatever it finds.
+		return fmt.Sprintf("port %d is taken, but the process holding it is not known", v.External.Port)
 	}
 	return ""
 }
@@ -201,15 +206,64 @@ func Kill(c *client.Client, op int, l Listener) tea.Cmd {
 	}
 }
 
+// ConfirmTakeover asks before a takeover stops holder, the process on the
+// port server is configured for, naming it, its PID, the port and what
+// happens; yes runs it. Cancel is the dialog's default.
+func ConfirmTakeover(server string, holder Listener, yes tea.Cmd) tea.Cmd {
+	return func() tea.Msg {
+		return ui.ConfirmMsg{
+			Title: fmt.Sprintf("Take over port %d for %s?", holder.Port, server),
+			Body: fmt.Sprintf("%s (pid %d) holds port %d, which %s is configured for. It is sent SIGTERM, and SIGKILL if it has not ended after 5 seconds; then %s starts on the port. Unsaved work in that process is lost.",
+				holder.Command, holder.PID, holder.Port, server, server),
+			Confirm: "Take over",
+			Yes:     yes,
+		}
+	}
+}
+
 // Takeover starts a server telling the daemon to take over its port from
-// the process holding it, as operation op.
-func Takeover(c *client.Client, op int, name string) tea.Cmd {
+// holder, the process the user confirmed, as operation op. It first reads
+// the port's owner again and stops if another process holds it now; the
+// daemon checks once more (takeoverPid) right before it signals.
+func Takeover(c *client.Client, op int, name string, holder Listener) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		err := c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(name)+"/start", map[string]bool{"takeover": true}, nil)
-		return ui.OpDoneMsg{ID: op, Label: "take over the port for " + name, Items: []ui.Selection{ui.ServerItem(name)}, Err: err}
+		done := ui.OpDoneMsg{ID: op, Label: "take over the port for " + name, Items: []ui.Selection{ui.ServerItem(name)}}
+		var body struct {
+			Listeners []Listener `json:"listeners"`
+		}
+		if err := c.Do(ctx, http.MethodGet, "/api/listeners", nil, &body); err != nil {
+			done.Err = fmt.Errorf("could not check who holds port %d, so nothing was stopped: %w", holder.Port, err)
+			return done
+		}
+		if other := changedHolder(body.Listeners, holder); other != nil {
+			done.Err = fmt.Errorf("port %d is now held by %s (pid %d), not the process you confirmed; nothing was stopped", other.Port, other.Command, other.PID)
+			return done
+		}
+		done.Err = c.Do(ctx, http.MethodPost, "/api/servers/"+url.PathEscape(name)+"/start", map[string]any{"takeover": true, "takeoverPid": holder.PID}, nil)
+		return done
 	}
+}
+
+// changedHolder is a process listening on holder's port when holder no
+// longer does, nil while it still holds the port or the port is free.
+// Several processes can listen on one socket (a prefork server and its
+// workers), so the port changed hands only when holder is not among them.
+func changedHolder(listeners []Listener, holder Listener) *Listener {
+	var other *Listener
+	for _, l := range listeners {
+		if l.Port != holder.Port {
+			continue
+		}
+		if l.PID == holder.PID {
+			return nil
+		}
+		if other == nil {
+			other = &l
+		}
+	}
+	return other
 }
 
 // PaletteActions are the port actions the palette lists for each port;

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -97,18 +98,27 @@ func execDone(gen int, done tea.ExecCallback) tea.ExecCallback {
 // Streams runs the live state stream of the current session: Start stops
 // the previous session's stream and starts one for the new client, whose
 // messages carry the session's generation.
+//
+// A stream never waits for the program: while the UI is suspended (an
+// attached terminal, a shell, the editor) the program reads no messages,
+// and a stream that stopped reading would be dropped by the daemon. Its
+// messages go to a mailbox that keeps the latest snapshot and the latest
+// connection report of each session, and one goroutine hands them to the
+// program in the order they last arrived.
 type Streams struct {
 	ctx    context.Context
-	send   func(tea.Msg)
 	wg     sync.WaitGroup
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	box    mailbox
 }
 
 // NewStreams returns the streams of a program: they end with ctx and
-// deliver their messages with send.
+// deliver their messages with send, which may block.
 func NewStreams(ctx context.Context, send func(tea.Msg)) *Streams {
-	return &Streams{ctx: ctx, send: send}
+	st := &Streams{ctx: ctx, box: mailbox{ready: make(chan struct{}, 1)}}
+	st.wg.Go(func() { st.box.deliver(ctx, send) })
+	return st
 }
 
 // Start stops the running stream and runs s for client c as session gen.
@@ -121,13 +131,84 @@ func (st *Streams) Start(s *live.Stream, c *client.Client, gen int) {
 	ctx, cancel := context.WithCancel(st.ctx)
 	st.cancel = cancel
 	st.wg.Go(func() {
-		defer ui.Recover(st.send)
-		s.Run(ctx, c, func(msg tea.Msg) { st.send(ui.GenMsg{Gen: gen, Msg: msg}) })
+		defer ui.Recover(st.box.put)
+		s.Run(ctx, c, func(msg tea.Msg) { st.box.put(ui.GenMsg{Gen: gen, Msg: msg}) })
 	})
 }
 
 // Wait returns when every stream has ended (the program's context ended).
 func (st *Streams) Wait() { st.wg.Wait() }
+
+// mailbox holds the stream messages the program has not taken yet: at
+// most one snapshot and one connection report per session, since each
+// replaces the one before, and every panic.
+type mailbox struct {
+	mu    sync.Mutex
+	queue []tea.Msg
+	ready chan struct{}
+}
+
+// put queues msg without waiting, replacing a queued message it
+// supersedes.
+func (b *mailbox) put(msg tea.Msg) {
+	b.mu.Lock()
+	if k, ok := supersedes(msg); ok {
+		b.queue = slices.DeleteFunc(b.queue, func(q tea.Msg) bool {
+			qk, ok := supersedes(q)
+			return ok && qk == k
+		})
+	}
+	b.queue = append(b.queue, msg)
+	b.mu.Unlock()
+	select {
+	case b.ready <- struct{}{}:
+	default:
+	}
+}
+
+// deliver hands queued messages to send until ctx ends.
+func (b *mailbox) deliver(ctx context.Context, send func(tea.Msg)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.ready:
+		}
+		b.mu.Lock()
+		queue := b.queue
+		b.queue = nil
+		b.mu.Unlock()
+		for _, msg := range queue {
+			if ctx.Err() != nil {
+				return
+			}
+			send(msg)
+		}
+	}
+}
+
+// boxKey is what a queued message replaces: the message of the same kind
+// from the same session.
+type boxKey struct {
+	gen  int
+	kind int
+}
+
+// supersedes is the key of a message that replaces an earlier one with
+// the same key: a session's snapshot or connection report.
+func supersedes(msg tea.Msg) (boxKey, bool) {
+	g, ok := msg.(ui.GenMsg)
+	if !ok {
+		return boxKey{}, false
+	}
+	switch g.Msg.(type) {
+	case ui.StateMsg:
+		return boxKey{g.Gen, 1}, true
+	case ui.ConnMsg:
+		return boxKey{g.Gen, 2}, true
+	}
+	return boxKey{}, false
+}
 
 // SwitchedMsg is the outcome of :on: the client and connection of the
 // computer the session now targets (Computer "" for this one), or why the

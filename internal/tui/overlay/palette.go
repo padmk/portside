@@ -271,7 +271,7 @@ func (p *Palette) row(pn pen, e shownItem, inner int, selected bool) string {
 			rightAt = append(rightAt, i+1)
 		}
 	}
-	rightText := marked{text: []rune(right), at: rightAt}
+	rightText := marked{text: cleanRunes([]rune(right)), at: rightAt}
 	if limit := rightColumn(inner); ansi.StringWidth(right) > limit {
 		rightText = rightText.tail(limit-ansi.StringWidth(pn.g.Ellipsis), pn.g.Ellipsis)
 	}
@@ -280,7 +280,7 @@ func (p *Palette) row(pn pen, e shownItem, inner int, selected bool) string {
 	if right != "" {
 		room -= rightText.width() + labelGap
 	}
-	labelText := marked{text: []rune(it.Label), at: e.label}
+	labelText := marked{text: cleanRunes([]rune(it.Label)), at: e.label}
 	// A command that does not fit its column would show only the tail of
 	// a name the label already carries (":restart" plus a long container
 	// name): the label takes the row and the detail line shows the command.
@@ -324,13 +324,13 @@ func (p *Palette) detail(pn pen, e shownItem, inner int) []string {
 		room -= min(ansi.StringWidth(right), rightColumn(inner)) + labelGap
 	}
 	if ansi.StringWidth(it.Label) > room {
-		parts = append(parts, pn.s.Text.Render(it.Label))
+		parts = append(parts, pn.s.Text.Render(clean(it.Label)))
 	}
 	if it.Command != "" {
-		parts = append(parts, pn.s.Muted.Render(":"+it.Command))
+		parts = append(parts, pn.s.Muted.Render(clean(":"+it.Command)))
 	}
 	if it.Off != "" {
-		parts = append(parts, pn.s.Warn.Render(it.Off))
+		parts = append(parts, pn.s.Warn.Render(clean(it.Off)))
 	}
 	if len(parts) == 0 {
 		return nil

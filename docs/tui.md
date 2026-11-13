@@ -222,7 +222,7 @@ The container actions run in the daemon, which runs `docker compose` for the rec
 
 `d` kills the process on the port under the cursor, after a dialog that names the process, its PID and the port; on the port of a server the daemon manages it asks to stop the server instead (`Stop server api on port 3102?`). `:kill 3016` or `:kill 5141` names the port or the PID instead of the row and opens the pane for it; when several processes listen on the port, it asks for the PID. Processes the daemon protects (itself, and what looks like a system or container service, such as the runtime that publishes container ports) cannot be killed here, and the menu says why.
 
-A server whose port another process holds (`◎`) starts with `t` on that port's row, or `:takeover` on the server, which stops the other process first.
+A server whose port another process holds (`◎`, or blocked by a start that found the port taken) starts with `t` on that port's row, or `:takeover` on the server, which stops the other process first. It asks first, naming the process, its PID and the port, with Cancel selected; once you confirm, nothing is stopped if another process holds the port by then.
 
 ## Editing the config
 

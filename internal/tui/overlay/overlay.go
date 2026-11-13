@@ -12,7 +12,28 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/padmk/portside/internal/tui/theme"
+	"github.com/padmk/portside/internal/viewfmt"
 )
+
+// Overlays draw text their callers build from names the daemon reports
+// (servers, groups, containers, projects) and from its messages. Every
+// such text is made safe here, where it is drawn: clean, cleanLines or
+// cleanRunes (viewfmt), so a name holding a newline, an escape sequence
+// or a bidirectional override can neither break a box nor reorder a row.
+func clean(s string) string { return viewfmt.PlainText(s) }
+
+// cleanLines is clean for text whose own line breaks are wanted (a
+// dialog's body): each line is cleaned.
+func cleanLines(s string) string { return strings.Join(viewfmt.PlainLines(s), "\n") }
+
+// cleanRunes is clean rune by rune, keeping positions in rs.
+func cleanRunes(rs []rune) []rune {
+	out := make([]rune, len(rs))
+	for i, r := range rs {
+		out[i] = viewfmt.PlainRune(r)
+	}
+	return out
+}
 
 // KeyLabel is the display form of a key as the keymap writes it: "ctrl+d"
 // is "^d", "space" is "␣", "enter" is "↵"; ascii keeps to ASCII.
@@ -128,6 +149,7 @@ func (p pen) box(title string, lines []string, inner int) string {
 	b := p.g.Border
 	w := inner + 2
 	head := ""
+	title = clean(title)
 	if title != "" {
 		// The title lies on the border, over the border's background.
 		head = p.border.Render(" ") + p.border.Foreground(p.s.Palette.AccentText).Bold(true).Render(title) + p.border.Render(" ")

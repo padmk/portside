@@ -188,7 +188,7 @@ const (
 // label is an item's text: a toggle's mark (or room for it) and its
 // label, cut to max cells with tail.
 func (it MenuItem) label(max int, tail, mark string) string {
-	l := it.Label
+	l := clean(it.Label)
 	switch it.Check {
 	case CheckOn:
 		l = mark + " " + l
@@ -239,7 +239,7 @@ func (m Menu) Size() (w, h int) {
 }
 
 // reason is why item i is off, as a line under the list says it.
-func (m Menu) reason(i int) string { return m.Items[i].Label + ": " + m.Items[i].Off }
+func (m Menu) reason(i int) string { return clean(m.Items[i].Label + ": " + m.Items[i].Off) }
 
 // reasonLines wraps item i's reason into at most reasonRows lines of w
 // cells, the last one cut with tail.
@@ -310,7 +310,7 @@ func (m Menu) View(s theme.Styles, g theme.Glyphs) string {
 	}
 	for _, l := range lines[start:end] {
 		if l.item < 0 {
-			rows = append(rows, pn.s.Muted.Render(ansi.Truncate(l.section, inner, g.Ellipsis)))
+			rows = append(rows, pn.s.Muted.Render(ansi.Truncate(clean(l.section), inner, g.Ellipsis)))
 			continue
 		}
 		i, it := l.item, m.Items[l.item]

@@ -89,6 +89,9 @@ func (m *model) syncLeft() {
 	if focused != panes[m.focus] {
 		m.leftActive = 0
 	}
+	if m.menu != nil && !slices.Contains(panes, m.menu.pane) {
+		m.menu = nil
+	}
 	if owner != nil {
 		if i := slices.Index(panes, owner); i >= 0 {
 			m.modeOwner = i
@@ -388,14 +391,38 @@ func confirmStopOnPort(l ports.Listener, yes tea.Cmd) tea.Cmd {
 	}
 }
 
-// takeover starts a server whose port another process holds, telling the
-// daemon to take the port over.
+// takeoverMsg is a confirmed takeover of the port name is configured for
+// from holder, the process the dialog named.
+type takeoverMsg struct {
+	name   string
+	holder ports.Listener
+}
+
+// takeover asks before starting a server whose port another process
+// holds, which stops that process: the dialog names it from the snapshot.
 func (m *model) takeover(name string) tea.Cmd {
-	items := []ui.Selection{ui.ServerItem(name)}
+	if why := ports.TakeoverOff(&m.env, name); why != "" {
+		return m.warn("takeover " + name + ": " + why)
+	}
+	v, _ := m.server(name)
+	holder := ports.Listener{Listener: *v.External}
+	return ports.ConfirmTakeover(name, holder, func() tea.Msg { return takeoverMsg{name: name, holder: holder} })
+}
+
+// takeoverConfirmed runs a confirmed takeover if the port is still held by
+// the process the dialog named.
+func (m *model) takeoverConfirmed(msg takeoverMsg) tea.Cmd {
+	if why := ports.TakeoverOff(&m.env, msg.name); why != "" {
+		return m.warn("takeover " + msg.name + ": " + why)
+	}
+	if v, _ := m.server(msg.name); v.External.PID != msg.holder.PID {
+		return m.warn(fmt.Sprintf("takeover %s: port %d is now held by %s (pid %d); nothing was stopped", msg.name, v.External.Port, v.External.Command, v.External.PID))
+	}
+	items := []ui.Selection{ui.ServerItem(msg.name)}
 	if cmd := m.busy(items); cmd != nil {
 		return cmd
 	}
-	return tea.Batch(ports.Takeover(m.env.Client, m.begin("start", items), name), m.spin())
+	return tea.Batch(ports.Takeover(m.env.Client, m.begin("start", items), msg.name, msg.holder), m.spin())
 }
 
 // selectContainer selects a container and focuses the containers list.

@@ -1,11 +1,15 @@
 package tui
 
 import (
+	tea "charm.land/bubbletea/v2"
+
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/padmk/portside/internal/docker"
+	procports "github.com/padmk/portside/internal/ports"
+	"github.com/padmk/portside/internal/supervisor"
 	"github.com/padmk/portside/internal/tui/keymap"
 	"github.com/padmk/portside/internal/tui/overlay"
 	"github.com/padmk/portside/internal/tui/ports"
@@ -314,5 +318,102 @@ func TestPaletteRanksTheActionWordFirst(t *testing.T) {
 	}
 	if !slices.Contains(shown("rw"), "Restart web") {
 		t.Error("rw does not find Restart web")
+	}
+}
+
+// A menu stays with its pane when the left column changes under it: the
+// containers pane going (its last container removed from another client)
+// leaves the main panel's menu on the main panel, and a menu of the pane
+// that went closes.
+func TestMenuKeepsItsPaneWhenTheContainersPaneGoes(t *testing.T) {
+	noContainers := func(m *model) {
+		st := *m.env.State
+		st.Docker = docker.State{Status: docker.Ready}
+		m.Update(ui.StateMsg{State: &st})
+	}
+	m := testModel(t)
+	withContainers(m)
+	press(m, "0", "x")
+	if m.menu == nil || m.menu.pane != m.right {
+		t.Fatalf("x on the main panel opens %+v", m.menu)
+	}
+	noContainers(m)
+	if m.menu == nil {
+		t.Fatal("the main panel's menu closed")
+	}
+	press(m, "enter")
+	if m.focused() != m.right {
+		t.Errorf("the menu ran on %s", m.focused().Scope())
+	}
+	press(m, "esc")
+
+	withContainers(m)
+	press(m, "2", "x")
+	if m.menu == nil || m.menu.pane.Scope() != keymap.ScopeContainers {
+		t.Fatalf("x on the containers opens %+v", m.menu)
+	}
+	noContainers(m)
+	if m.menu != nil {
+		t.Errorf("the menu of the containers pane stayed open after the pane went")
+	}
+	press(m, "enter")
+}
+
+// A takeover stops another process, so it asks first, naming the process,
+// its PID, the port and what happens, with Cancel as the default; once
+// confirmed it runs only while that process still holds the port.
+func TestTakeoverAsksAndChecksTheHolderAgain(t *testing.T) {
+	m := testModel(t)
+	hold := func(pid int, command string) {
+		st := *m.env.State
+		st.Servers = slices.Clone(st.Servers)
+		for i := range st.Servers {
+			if st.Servers[i].Name == "blog" {
+				st.Servers[i].External = &procports.Listener{Port: 3000, PID: pid, Command: command}
+			}
+		}
+		m.Update(ui.StateMsg{State: &st})
+	}
+	hold(4242, "python3")
+	// A start that found the port taken leaves the server blocked, with
+	// the holder known: it can take the port over as well.
+	blocked := *m.env.State
+	blocked.Servers = slices.Clone(blocked.Servers)
+	for i := range blocked.Servers {
+		if blocked.Servers[i].Name == "blog" {
+			blocked.Servers[i].Status = supervisor.Blocked
+		}
+	}
+	m.Update(ui.StateMsg{State: &blocked})
+	if why := m.off("takeover", ui.ServerItem("blog")); why != "" {
+		t.Errorf("takeover on a blocked server: %q", why)
+	}
+	ask := func() {
+		_, cmd := m.Update(ui.ActMsg{ID: "takeover", Item: ui.ServerItem("blog")})
+		drive(m, cmd)
+	}
+	ask()
+	if m.confirm == nil {
+		t.Fatal("takeover started without asking")
+	}
+	for _, want := range []string{"python3 (pid 4242)", "port 3000", "SIGTERM", "blog starts"} {
+		if !strings.Contains(m.confirm.Title+" "+m.confirm.Body, want) {
+			t.Errorf("the dialog %q / %q does not say %q", m.confirm.Title, m.confirm.Body, want)
+		}
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	drive(m, cmd)
+	if m.confirm != nil || len(m.ops) != 0 {
+		t.Fatalf("enter on the default: dialog %v, operations %v", m.confirm != nil, m.ops)
+	}
+
+	// Another process took the port while the dialog was open.
+	ask()
+	yes := m.confirm.Yes
+	hold(5555, "node")
+	m.confirm = nil
+	drive(m, yes)
+	if len(m.ops) != 0 || m.notice == nil || !strings.Contains(m.notice.Text, "node (pid 5555)") {
+		t.Errorf("a changed holder: operations %v, notice %+v", m.ops, m.notice)
 	}
 }

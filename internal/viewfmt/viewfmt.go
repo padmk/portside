@@ -153,6 +153,15 @@ func PlainText(s string) string {
 	}, s)
 }
 
+// PlainRune is PlainText for one character: U+FFFD for an unsafe one, so
+// text cleaned rune by rune keeps its rune positions.
+func PlainRune(r rune) rune {
+	if unsafeRune(r) {
+		return '\uFFFD'
+	}
+	return r
+}
+
 func unsafeRune(r rune) bool {
 	if r == '\u200c' || r == '\u200d' {
 		return false

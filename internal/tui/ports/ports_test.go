@@ -185,3 +185,29 @@ func TestRemoteAuxiliaryPortHasNoProxyFallback(t *testing.T) {
 		t.Errorf("a forwarded auxiliary port opens at %q", got)
 	}
 }
+
+// A takeover goes ahead while the confirmed process still listens on the
+// port, also among the workers of a prefork server sharing its socket,
+// and only on a holder the daemon could name.
+func TestTakeoverChecksTheConfirmedHolder(t *testing.T) {
+	holder := listener(3002, 20, "gunicorn")
+	workers := []Listener{listener(3002, 20, "gunicorn"), listener(3002, 21, "gunicorn"), listener(4000, 9, "x")}
+	if got := changedHolder(workers, holder); got != nil {
+		t.Errorf("the confirmed master among its workers: changed to %+v", got)
+	}
+	if got := changedHolder([]Listener{listener(3002, 21, "gunicorn"), listener(3002, 20, "gunicorn")}, holder); got != nil {
+		t.Errorf("the confirmed process listed after a worker: changed to %+v", got)
+	}
+	if got := changedHolder([]Listener{listener(3002, 55, "node")}, holder); got == nil || got.PID != 55 {
+		t.Errorf("another process on the port: %+v", got)
+	}
+	if got := changedHolder(nil, holder); got != nil {
+		t.Errorf("a free port: %+v", got)
+	}
+	env := &ui.Env{State: &server.State{Servers: []supervisor.View{
+		{Name: "api", Status: supervisor.Blocked, Port: 3002, External: &ports.Listener{Port: 3002}},
+	}}}
+	if why := TakeoverOff(env, "api"); !strings.Contains(why, "not known") {
+		t.Errorf("takeover with an unknown holder: %q", why)
+	}
+}

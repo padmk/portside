@@ -30,13 +30,13 @@ func (d *Dialog) Toggle() { d.Choice = 1 - d.Choice }
 func (d *Dialog) View(s theme.Styles, g theme.Glyphs, w int) string {
 	pn := newPen(s, g)
 	inner := max(16, min(52, w-6))
-	label := d.Confirm
+	label := clean(d.Confirm)
 	if label == "" {
 		label = "Confirm"
 	}
 	var lines []string
 	if d.Body != "" {
-		body := lipgloss.NewStyle().Width(inner).Render(d.Body)
+		body := lipgloss.NewStyle().Width(inner).Render(cleanLines(d.Body))
 		for l := range strings.SplitSeq(body, "\n") {
 			lines = append(lines, pn.s.Text.Render(strings.TrimRight(l, " ")))
 		}

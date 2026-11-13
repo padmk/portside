@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/padmk/portside/internal/supervisor"
+	"github.com/padmk/portside/internal/viewfmt"
 )
 
 // Line is one log line.
@@ -29,13 +30,17 @@ const tabWidth = 8
 
 // Clean removes terminal controls except colors and hyperlinks: the
 // line's cursor redraws are replayed by supervisor.RedrawLine, tabs become
-// spaces up to the next tab stop and every other control character is
-// dropped, so the text holds no control character outside the SGR and
-// hyperlink sequences it keeps.
+// spaces up to the next tab stop, every other control character is
+// dropped and format characters that reorder or hide text become U+FFFD
+// (viewfmt.PlainRune), so the text holds no control character outside the
+// SGR and hyperlink sequences it keeps.
 func Clean(raw string, at time.Time) Line {
 	raw = supervisor.RedrawLine(raw, keepSequence)
 	var out strings.Builder
 	color := false
+	// col is the width of the text up to stop, the end of the last tab's
+	// spaces, so each tab measures only the text since the one before.
+	col, stop := 0, 0
 	for len(raw) > 0 {
 		loc := escape.FindStringIndex(raw)
 		part := raw
@@ -44,10 +49,14 @@ func Clean(raw string, at time.Time) Line {
 		}
 		for _, r := range part {
 			if r == '\t' {
-				col := ansi.StringWidth(out.String())
-				out.WriteString(strings.Repeat(" ", tabWidth-col%tabWidth))
+				col += ansi.StringWidth(out.String()[stop:])
+				pad := tabWidth - col%tabWidth
+				out.WriteString(strings.Repeat(" ", pad))
+				col, stop = col+pad, out.Len()
 			} else if !unicode.IsControl(r) {
-				out.WriteRune(r)
+				// Format characters that reorder or hide text show as U+FFFD,
+				// as everywhere the UI draws untrusted text.
+				out.WriteRune(viewfmt.PlainRune(r))
 			}
 		}
 		if loc == nil {

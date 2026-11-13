@@ -70,9 +70,9 @@ func Toasts(s theme.Styles, g theme.Glyphs, ts []Toast, now time.Time, maxW int,
 	y := 0
 	for _, t := range live {
 		bar := levelStyle(pn.s, t.Level).Render(mark) + pn.space(1)
-		rows := []string{bar + pn.s.Bold.Render(t.Title)}
+		rows := []string{bar + pn.s.Bold.Render(clean(t.Title))}
 		if t.Body != "" {
-			body := lipgloss.NewStyle().Width(inner - 2).Render(t.Body)
+			body := lipgloss.NewStyle().Width(inner - 2).Render(cleanLines(t.Body))
 			for j, l := range strings.Split(body, "\n") {
 				if j == bodyLines {
 					break

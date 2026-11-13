@@ -281,8 +281,10 @@ func (u *usageWatch) close() {
 // ── actions ──────────────────────────────────────────────────────────────
 
 type actionBody struct {
-	Takeover bool   `json:"takeover"`
-	Timeout  string `json:"timeout,omitempty"`
+	Takeover bool `json:"takeover"`
+	// TakeoverPID limits the takeover to the process a client confirmed.
+	TakeoverPID int    `json:"takeoverPid,omitempty"`
+	Timeout     string `json:"timeout,omitempty"`
 }
 
 func (s *Server) action(kind string) http.HandlerFunc {
@@ -302,7 +304,7 @@ func (s *Server) action(kind string) http.HandlerFunc {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		opt := supervisor.StartOptions{Takeover: body.Takeover, Since: time.Now()}
+		opt := supervisor.StartOptions{Takeover: body.Takeover, TakeoverPID: body.TakeoverPID, Since: time.Now()}
 		switch kind {
 		case "start":
 			err = s.sup.Start(name, opt)
