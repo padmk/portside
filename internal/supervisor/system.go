@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/padmk/portside/internal/ports"
 )
 
 // system is what the lifecycle of a server's process asks of the operating
@@ -34,6 +36,9 @@ type system interface {
 	signalGroup(pgid int, sig syscall.Signal) error
 	// groupMembers returns the start times of the members of group pgid.
 	groupMembers(pgid int) []time.Time
+	// portInUse reports whether something listens on port, as a start
+	// checks before it launches a server on it.
+	portInUse(port int) bool
 	// afterFunc calls f in its own goroutine after d.
 	afterFunc(d time.Duration, f func())
 	// after delivers the time on the returned channel after d.
@@ -72,6 +77,7 @@ func (hostSystem) findProcess(pid int) (process, error) {
 func (hostSystem) processStart(pid int) string            { return processStart(pid) }
 func (hostSystem) sameStart(pid int, saved string) bool   { return sameStart(pid, saved) }
 func (hostSystem) groupMembers(pgid int) []time.Time      { return groupMembers(pgid) }
+func (hostSystem) portInUse(port int) bool                { return ports.Listening(port) }
 func (hostSystem) afterFunc(d time.Duration, f func())    { time.AfterFunc(d, f) }
 func (hostSystem) after(d time.Duration) <-chan time.Time { return time.After(d) }
 

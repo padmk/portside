@@ -455,8 +455,9 @@ func newHarness(t modelTB) *harness {
 	return &harness{w: newFakeWorld(), dir: root, stateDir: root + "/state", gate: newPreflightGate(), calls: &sync.WaitGroup{}}
 }
 
-// freeModelPort returns a loopback port nothing listens on, for a server
-// whose start runs the port release (the preflight gate).
+// freeModelPort returns a port for a server whose start runs the port
+// release (the preflight gate). Starts ask the fake system whether it is in
+// use; one nothing listens on keeps readiness probes from finding a stranger.
 func freeModelPort(t modelTB) int {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

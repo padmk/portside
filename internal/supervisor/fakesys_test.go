@@ -223,6 +223,10 @@ func (f *fakeSystem) sameStart(pid int, saved string) bool {
 
 func (f *fakeSystem) groupMembers(int) []time.Time { return nil }
 
+// portInUse: the fake processes listen nowhere, and the real ports of the
+// machine are not the model's concern.
+func (f *fakeSystem) portInUse(int) bool { return false }
+
 func (f *fakeSystem) signalGroup(pgid int, sig syscall.Signal) error {
 	w := f.w
 	w.mu.Lock()

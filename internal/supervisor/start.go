@@ -324,16 +324,16 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	if sv.Port > 0 && release != nil {
 		release(sv.Port)
 	}
-	if sv.Port > 0 && ports.Listening(sv.Port) {
+	if sv.Port > 0 && s.sys.portInUse(sv.Port) {
 		s.mu.Lock()
 		recent := !p.exitedAt.IsZero() && time.Since(p.exitedAt) < 10*time.Second
 		s.mu.Unlock()
 		// A server that just exited may need a moment to release its port.
-		for i := 0; recent && i < 30 && ports.Listening(sv.Port); i++ {
+		for i := 0; recent && i < 30 && s.sys.portInUse(sv.Port); i++ {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	if sv.Port > 0 && ports.Listening(sv.Port) && !composeOwnsPort(name, sv.Cmd, sv.Port, published) {
+	if sv.Port > 0 && s.sys.portInUse(sv.Port) && !composeOwnsPort(name, sv.Cmd, sv.Port, published) {
 		owner, found := ports.Owner(context.Background(), sv.Port)
 		if found && opt.TakeoverPID != 0 && owner.PID != opt.TakeoverPID {
 			// Several processes can share a listening socket (a prefork
