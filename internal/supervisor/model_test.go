@@ -676,3 +676,37 @@ func modelChecks() {
 		_ = flag.Set("rapid.checks", "20")
 	}
 }
+
+// A start that arrives after the leader exited and before wait reaped it
+// survives an upgrade in place: the handoff carries it, and the new daemon
+// runs it once it has reaped the ended run.
+func TestUpgradeKeepsAStartAfterTheExit(t *testing.T) {
+	h := newHarness(t)
+	defer func() { _ = os.RemoveAll(h.dir) }()
+	h.name, h.port = modelServer, freeModelPort(t)
+	h.m = model{restart: config.RestartNo}
+	h.s = h.newSupervisor(h.config())
+	defer h.cleanup()
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.m.start(false)
+	h.settle(t)
+
+	p := h.live()
+	h.w.mu.Lock()
+	h.w.exitLocked(p, 0, false)
+	h.w.mu.Unlock()
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if !h.upgrade(t) {
+		t.Fatal("PrepareHandoff refused")
+	}
+	h.w.mu.Lock()
+	h.w.reapableLocked(p)
+	h.w.mu.Unlock()
+	h.m.again = true
+	h.m.ended(0, true, false)
+	h.settle(t)
+}

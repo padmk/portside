@@ -99,10 +99,12 @@ type evCancelPending struct{}
 // blocked server waited for is free.
 type evSettle struct{ status Status }
 
-// evAdopt is a live process taken over from the daemon this one replaced.
+// evAdopt is a live process taken over from the daemon this one replaced,
+// with the start asked for after its run, if any.
 type evAdopt struct {
 	run   *run
 	ready bool
+	next  *startRequest
 }
 
 func (evRequest) isEvent()       {}
@@ -208,7 +210,7 @@ func (s *Supervisor) transitionLocked(p *proc, ev event) []effect {
 			p.ph = idle{status: ev.status, pending: p.pending()}
 		}
 	case evAdopt:
-		p.ph = running{run: ev.run, ready: ev.ready}
+		p.ph = running{run: ev.run, ready: ev.ready, next: ev.next}
 	}
 	return nil
 }

@@ -238,9 +238,9 @@ func (s *Supervisor) Recover(restore bool) {
 	// restore says; a stop requested meanwhile (restore false) wins.
 	started := map[string]bool{}
 	if restore {
-		for _, name := range exited {
-			started[name] = true
-			_ = s.start(name, StartOptions{}) // the round its restarts belong to goes on
+		for _, r := range exited {
+			started[r.name] = true
+			_ = s.start(r.name, StartOptions{trigger: r.trigger})
 		}
 	}
 	s.mu.Lock()

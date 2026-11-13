@@ -195,7 +195,7 @@ type Supervisor struct {
 	// and handoffRestarts those of them that their restart policy restarts;
 	// Recover reads both.
 	handoffExited   map[string]bool
-	handoffRestarts []string
+	handoffRestarts []handoffRestart
 	// upgraded says this daemon took over from an upgrade in place, which
 	// keeps pending retries whatever restore says.
 	upgraded bool

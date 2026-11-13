@@ -50,9 +50,30 @@ type Handoff struct {
 	MissingSince time.Time `json:"missingSince,omitzero"`
 	Cols         uint16    `json:"cols"`
 	Rows         uint16    `json:"rows"`
-	// StartAfterExit says a start was asked for after the process ended,
-	// while its output still drained: the new daemon runs it.
-	StartAfterExit bool `json:"startAfterExit,omitempty"`
+	// Next is the start asked for after the process ended (also before
+	// it was reaped), while its output still drained: the new daemon runs
+	// it. StartAfterExit says the same for a daemon before Next.
+	Next           *HandoffStart `json:"next,omitempty"`
+	StartAfterExit bool          `json:"startAfterExit,omitempty"`
+}
+
+// HandoffStart is a start request in a handoff: what asked for it and
+// when.
+type HandoffStart struct {
+	Trigger string    `json:"trigger,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+// next returns the start h asks for after its run, nil for none; a daemon
+// before Next only said that there was one.
+func (h Handoff) next() *startRequest {
+	switch {
+	case h.Next != nil:
+		return &startRequest{trigger: h.Next.Trigger, at: h.Next.At}
+	case h.StartAfterExit && h.Want:
+		return &startRequest{trigger: triggerStart}
+	}
+	return nil
 }
 
 // pauseTimeout bounds how long PrepareHandoff waits for a terminal's reader.
@@ -137,6 +158,9 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 			Cols: p.cols, Rows: p.rows, LogReady: &logReady, LogLine: logLine, MissingSince: p.missingSince,
 			StartAfterExit: p.next() != nil,
 		})
+		if next := p.next(); next != nil {
+			out[len(out)-1].Next = &HandoffStart{Trigger: next.trigger, At: next.at}
+		}
 	}
 	return out, nil
 }
@@ -264,7 +288,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		r.reader = newOutputReader(f, p.logs)
 		// A server is wanted while it runs; a stop under way blocked the
 		// upgrade.
-		s.transitionLocked(p, evAdopt{run: r, ready: h.Status == Running})
+		s.transitionLocked(p, evAdopt{run: r, ready: h.Status == Running, next: h.next()})
 		p.running = h.Config
 		p.runningEnv = h.Env
 		p.runningShell = h.Shell
@@ -320,11 +344,11 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 		s.handoffExited = map[string]bool{}
 	}
 	s.handoffExited[h.Name] = true
-	if h.StartAfterExit && h.Want {
+	if next := h.next(); next != nil {
 		// Started again after it ended, before the upgrade: Recover runs it.
 		log.Printf("handoff: %s exited before the upgrade and was started again", h.Name)
 		p.note = ""
-		s.handoffRestarts = append(s.handoffRestarts, h.Name)
+		s.handoffRestarts = append(s.handoffRestarts, handoffRestart{name: h.Name, trigger: next.trigger})
 		s.changedLocked()
 		return
 	}
@@ -346,7 +370,7 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	if h.Want && p.cfg.Restart != config.RestartNo && p.retries < maxRetries {
 		// Recover restarts it as one more restart of the round.
 		p.retries++
-		s.handoffRestarts = append(s.handoffRestarts, h.Name)
+		s.handoffRestarts = append(s.handoffRestarts, handoffRestart{name: h.Name})
 	} else {
 		s.reportCrashLocked(p, nil, p.exitedAt.Sub(h.StartedAt))
 		if h.Want {
@@ -354,6 +378,14 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 		}
 	}
 	s.changedLocked()
+}
+
+// handoffRestart is a server Recover starts after it exited during an
+// upgrade in place: with the trigger of a start asked for after its run,
+// or "" for an automatic restart, which goes on with its round.
+type handoffRestart struct {
+	name    string
+	trigger string
 }
 
 // inheritTerminal checks that the handed-off descriptor is a terminal and
