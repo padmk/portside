@@ -71,7 +71,7 @@ func (h Handoff) next() *startRequest {
 	case h.Next != nil:
 		return &startRequest{trigger: h.Next.Trigger, at: h.Next.At}
 	case h.StartAfterExit && h.Want:
-		return &startRequest{trigger: triggerStart}
+		return &startRequest{trigger: triggerStart} // when, it did not say
 	}
 	return nil
 }
@@ -348,7 +348,7 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 		// Started again after it ended, before the upgrade: Recover runs it.
 		log.Printf("handoff: %s exited before the upgrade and was started again", h.Name)
 		p.note = ""
-		s.handoffRestarts = append(s.handoffRestarts, handoffRestart{name: h.Name, trigger: next.trigger})
+		s.handoffRestarts = append(s.handoffRestarts, handoffRestart{name: h.Name, req: next})
 		s.changedLocked()
 		return
 	}
@@ -381,11 +381,11 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 }
 
 // handoffRestart is a server Recover starts after it exited during an
-// upgrade in place: with the trigger of a start asked for after its run,
-// or "" for an automatic restart, which goes on with its round.
+// upgrade in place: the start asked for after its run, with its trigger
+// and time, or nil for an automatic restart, which goes on with its round.
 type handoffRestart struct {
-	name    string
-	trigger string
+	name string
+	req  *startRequest
 }
 
 // inheritTerminal checks that the handed-off descriptor is a terminal and

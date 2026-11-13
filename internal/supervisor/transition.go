@@ -361,9 +361,15 @@ func (s *Supervisor) endedLocked(p *proc, ev evEnded) []effect {
 		again = true
 	}
 	if again {
+		// The start keeps the time it was asked for: a task it waits for
+		// that ran since serves it (a bulk start shares that run).
 		req := startRequest{trigger: triggerStart, at: time.Now()}
 		if ph.next != nil {
-			req.trigger = cmp.Or(ph.next.trigger, triggerStart)
+			req = *ph.next
+			req.trigger = cmp.Or(req.trigger, triggerStart)
+			if req.at.IsZero() {
+				req.at = time.Now() // handed over by a daemon that did not say when
+			}
 		}
 		p.ph = starting{req: req, token: p.startSeq}
 		return []effect{effLaunch{p: p, deps: s.cfg.WithDeps(p.cfg.DependsOn), opt: StartOptions{trigger: req.trigger, Since: req.at}, token: p.startSeq}}

@@ -391,3 +391,80 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A bulk start that finds the server's run ended, before the run is
+// recorded or drained, keeps its request time: the dependency task the
+// same bulk start ran serves it, so the task does not run again when the
+// server starts. With held, the ended run's terminal stays open, the
+// daemon upgrades in place before the run is drained, and the new daemon
+// starts the server for that request.
+func TestBulkStartAfterTheRunKeepsItsRequestTime(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(map[bool]string{false: "same daemon", true: "across an upgrade"}[held], func(t *testing.T) {
+			d := newDepsHarness(t)
+			defer d.cleanup()
+			runs := func() (int, int) {
+				d.w.mu.Lock()
+				defer d.w.mu.Unlock()
+				return d.w.launches[d.taskDir], d.w.launches[d.webDir]
+			}
+			eventually := func(what string, cond func() bool) {
+				t.Helper()
+				for deadline := time.Now().Add(10 * time.Second); !cond(); time.Sleep(5 * time.Millisecond) {
+					if time.Now().After(deadline) {
+						task, web := runs()
+						t.Fatalf("%s: task runs %d, server runs %d", what, task, web)
+					}
+				}
+			}
+			exitLive := func(dir string, code int, orphan, release bool) {
+				p := d.liveIn(dir)
+				if p == nil {
+					t.Fatalf("nothing runs in %s", dir)
+				}
+				d.w.mu.Lock()
+				p.orphan = orphan
+				d.w.exitLocked(p, code, release)
+				d.w.mu.Unlock()
+			}
+			if err := d.s.Start(depsServer, StartOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			eventually("the task's first run", func() bool { task, _ := runs(); return task == 1 && d.liveIn(d.taskDir) != nil })
+			exitLive(d.taskDir, 0, false, true)
+			eventually("the server's first run", func() bool { _, web := runs(); return web == 1 && d.liveIn(d.webDir) != nil })
+
+			// The server's run ends; its terminal stays open (held) or its
+			// zombie is not reaped yet.
+			ended := d.liveIn(d.webDir)
+			exitLive(d.webDir, 0, held, held)
+			since := time.Now()
+			for _, name := range []string{depsTask, depsServer} {
+				if err := d.s.Start(name, StartOptions{Since: since}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			eventually("the bulk start's task run", func() bool { task, _ := runs(); return task == 2 && d.liveIn(d.taskDir) != nil })
+			exitLive(d.taskDir, 0, false, true)
+			eventually("the task done for the bulk start", func() bool {
+				d.s.mu.Lock()
+				defer d.s.mu.Unlock()
+				return d.s.procs[depsTask].succeeded()
+			})
+			if held {
+				if !d.upgrade(t) {
+					t.Fatal("PrepareHandoff refused")
+				}
+			} else {
+				d.w.mu.Lock()
+				d.w.reapableLocked(ended)
+				d.w.mu.Unlock()
+			}
+			eventually("the server's start for the bulk start", func() bool { _, web := runs(); return web == 2 && d.liveIn(d.webDir) != nil })
+			quiet(d.s, 100*time.Millisecond)
+			if task, _ := runs(); task != 2 {
+				t.Fatalf("the task ran %d times, want 2: the bulk start's run serves the server", task)
+			}
+		})
+	}
+}

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -240,7 +241,11 @@ func (s *Supervisor) Recover(restore bool) {
 	if restore {
 		for _, r := range exited {
 			started[r.name] = true
-			_ = s.start(r.name, StartOptions{trigger: r.trigger})
+			if r.req == nil {
+				_ = s.start(r.name, StartOptions{}) // the round its restarts belong to goes on
+				continue
+			}
+			s.startAfterHandoff(r.name, *r.req)
 		}
 	}
 	s.mu.Lock()
@@ -344,6 +349,28 @@ func (s *Supervisor) Recover(restore bool) {
 	for _, name := range removed {
 		go func() { _ = s.Stop(name) }()
 	}
+}
+
+// startAfterHandoff runs the start req asked for after name's run, which
+// ended during the upgrade, as wait would have: with the request's own
+// time, so a task it waits for that ran since serves it, and without the
+// check of a task's own run, which ended before the request.
+func (s *Supervisor) startAfterHandoff(name string, req startRequest) {
+	s.mu.Lock()
+	p := s.procs[name]
+	if p == nil || p.live() != nil || p.request() != nil || s.closing {
+		s.mu.Unlock()
+		return
+	}
+	if req.at.IsZero() {
+		req.at = time.Now() // a daemon before Next did not say when
+	}
+	req.trigger = cmp.Or(req.trigger, triggerStart)
+	p.retries = 0
+	s.transitionLocked(p, evRequest{req: req})
+	deps, token := s.cfg.WithDeps(p.cfg.DependsOn), p.startSeq
+	s.mu.Unlock()
+	_ = s.launch(p, deps, StartOptions{trigger: req.trigger, Since: req.at}, token)
 }
 
 // restoreHistoryLocked brings back what the hooks knew about each server
