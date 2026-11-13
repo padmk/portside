@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 - **Terminal UI:** `portside tui` is a full-screen client of the daemon for Linux, SSH sessions and anyone who prefers the terminal, also on another computer with `--on`. Keys follow lazygit and lazydocker; the footer, `?`, the `x` menu, the `:` command line (completion, history, argument checks) and the `ctrl+p` palette come from one action table ([Terminal UI](docs/tui.md)).
 - **Terminal UI, servers and logs:** start, stop and restart, also per group with the dashboard's rules, attach, open, filter and a shell in the server's folder with `E`; logs with search (`re:` for a regular expression), only matching lines, follow, wrap, a time column, line selection and copy over OSC 52 and sideways scrolling; details, environment and metrics.
@@ -9,6 +9,8 @@
 - **Terminal UI, other computers and the daemon:** `C` lists your computers (pairing with a hidden code, sharing, forwarded ports) and `:on` switches the session in place; `:daemon` shows the daemon, `:upgrade` and `:restart-daemon` replace or restart it in place, and `:setup` and `:doctor` set up and check the coding agents. Tailscale setup, revoking a paired device and forwarding a port to another local port stay in the dashboard and the CLI.
 - **Fixed, logs:** terminal escape sequences that save and restore the cursor, such as docker compose's key bar, no longer leak into kept log lines; a line's cursor moves are replayed instead (overwrites, erases, a redraw of the rows above). This affects `portside logs`, the logs API that the dashboard and the MCP tools read, and the terminal UI.
 - **Fixed, logs:** `portside logs` prints characters that reorder or hide text, such as a right-to-left override, as `�`, as the terminal UI shows them, so a log line cannot disguise what it says; `--raw` keeps every byte.
+- **Fixed, upgrades in place:** a server waiting for a task during an upgrade no longer runs the task again for the start it already served, also when the task failed.
+- **Fixed:** a failed port takeover settles the server as `blocked` instead of leaving the start wanted across a daemon upgrade; config edits through a symlinked config file take the lock of the file they write; a disconnect or a later connect to another computer wins over a connect still under way; `package.json` files with `workspaces` of another shape no longer count as workspaces in `scan`; opening a server or log in a browser reaps the opener process once it exits; secret masking in URLs and environment variables covers empty usernames, slashes in passwords, query-string credentials and `JWT`, `bearer` and `pwd` names.
 
 ## 0.11.3
 
