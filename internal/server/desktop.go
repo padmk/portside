@@ -164,8 +164,9 @@ func (s *Server) setApp(w http.ResponseWriter, r *http.Request) {
 }
 
 // launch starts a desktop helper and reaps it in the background so finished
-// launchers do not linger as zombies.
-func launch(c *exec.Cmd) error {
+// launchers do not linger as zombies. Tests replace it to see what would
+// be started without starting it.
+var launch = func(c *exec.Cmd) error {
 	if err := c.Start(); err != nil {
 		return err
 	}

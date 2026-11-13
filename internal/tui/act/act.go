@@ -207,7 +207,7 @@ func OpenURL(env *ui.Env, v supervisor.View, alias bool) tea.Cmd {
 	}
 	name := v.Name
 	return func() tea.Msg {
-		if err := exec.Command(args[0], args[1:]...).Start(); err != nil {
+		if err := browser.Open(args); err != nil {
 			return ui.NoticeMsg{Level: ui.LevelError, Text: fmt.Sprintf("open %s: %v", name, err)}
 		}
 		return ui.NoticeMsg{Level: ui.LevelSuccess, Text: "opened " + name + " in the browser"}

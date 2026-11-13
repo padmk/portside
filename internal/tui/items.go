@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"slices"
 	"strings"
@@ -445,7 +444,7 @@ func openAddress(what, u string) tea.Cmd {
 		return copyAddress(u)
 	}
 	return func() tea.Msg {
-		if err := exec.Command(args[0], args[1:]...).Start(); err != nil {
+		if err := browser.Open(args); err != nil {
 			return ui.NoticeMsg{Text: "open " + what + ": " + err.Error(), Level: ui.LevelError}
 		}
 		return ui.NoticeMsg{Text: "opened " + u + " in the browser", Level: ui.LevelSuccess}

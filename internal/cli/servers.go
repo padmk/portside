@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -408,7 +407,7 @@ func cmdOpen(e *env, args []string) error {
 					return nil
 				}
 				if argv := browser.Command(runtime.GOOS, os.Getenv, target); argv != nil {
-					return exec.Command(argv[0], argv[1:]...).Start()
+					return browser.Open(argv)
 				}
 				return nil
 			}
@@ -442,7 +441,7 @@ func cmdOpen(e *env, args []string) error {
 		argv = browser.Command(runtime.GOOS, os.Getenv, link.URL)
 	}
 	if argv != nil {
-		return exec.Command(argv[0], argv[1:]...).Start()
+		return browser.Open(argv)
 	}
 	fmt.Fprintf(e.out, "\nOpen this link to sign in; it works once, within two minutes, from your account:\n%s\n", link.URL)
 	if os.Getenv("SSH_CONNECTION") != "" {

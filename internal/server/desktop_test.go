@@ -5,30 +5,27 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/padmk/portside/internal/config"
 	"github.com/padmk/portside/internal/paths"
 	"github.com/padmk/portside/internal/supervisor"
 )
 
+// The log opener gets a server's log, never a path a name leads to. The
+// command is recorded instead of started: a started opener reports nothing
+// back, so waiting for its effect raced with how fast the system started it.
 func TestOpenLogsRefusesPaths(t *testing.T) {
-	// Fake desktop openers on an otherwise empty PATH record what they
-	// are asked to open instead of opening it.
-	bin := t.TempDir()
-	launched := filepath.Join(bin, "launched.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + launched + "\n"
-	for _, name := range []string{"open", "xdg-open"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	var launched [][]string
+	old := launch
+	launch = func(c *exec.Cmd) error {
+		launched = append(launched, c.Args)
+		return nil
 	}
-	t.Setenv("PATH", bin)
+	t.Cleanup(func() { launch = old })
 
 	state := t.TempDir()
 	sup := supervisor.New(&config.Config{Servers: []config.Server{{Name: "web"}}}, state)
@@ -46,8 +43,9 @@ func TestOpenLogsRefusesPaths(t *testing.T) {
 			t.Errorf("open logs %q: status %d, want 400", name, code)
 		}
 	}
-	// A plain server name opens its log, which shows the openers work and
-	// gives any launch for a refused name time to show up.
+	if len(launched) != 0 {
+		t.Fatalf("refused names launched %q", launched)
+	}
 	if code := open("web"); code != http.StatusOK {
 		t.Fatalf("open logs web: status %d, want 200", code)
 	}
@@ -56,16 +54,7 @@ func TestOpenLogsRefusesPaths(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		want = paths.LogDir(state)
 	}
-	var got string
-	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if b, err := os.ReadFile(launched); err == nil && strings.Contains(string(b), want) {
-			time.Sleep(100 * time.Millisecond)
-			b, _ = os.ReadFile(launched)
-			got = string(b)
-			break
-		}
-	}
-	if lines := strings.Split(strings.TrimSpace(got), "\n"); len(lines) != 1 || !strings.HasSuffix(lines[0], want) {
-		t.Errorf("launched %q, want only %s", got, want)
+	if len(launched) != 1 || launched[0][len(launched[0])-1] != want {
+		t.Errorf("launched %q, want only %s", launched, want)
 	}
 }

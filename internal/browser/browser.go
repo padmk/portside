@@ -64,3 +64,20 @@ func isWSL() bool {
 	data, err := os.ReadFile("/proc/version")
 	return err == nil && strings.Contains(strings.ToLower(string(data)), "microsoft")
 }
+
+// Open runs argv, a Command, without waiting for the browser: the opener
+// hands the address over and exits, and a goroutine reaps it so a
+// long-running caller keeps no exited child.
+func Open(argv []string) error {
+	// The opener is not bounded: xdg-open may run the browser itself, and
+	// ending it would close the browser.
+	c := exec.Command(argv[0], argv[1:]...) //nolint:noctx // see above
+	if err := c.Start(); err != nil {
+		return err
+	}
+	go func() {
+		// The opener's exit status says nothing the caller acts on.
+		_ = c.Wait()
+	}()
+	return nil
+}
