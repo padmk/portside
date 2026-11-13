@@ -51,7 +51,7 @@ Do not run `make app-install` or `make install` there: the first replaces the ap
 go test ./internal/supervisor -run TestModelLifecycle -rapid.checks=2000 -rapid.steps=60
 ```
 
-A failure prints the steps, shrunk to a short sequence, and saves them under `internal/supervisor/testdata/rapid` (ignored by git); `-rapid.failfile=<file>` replays one. Steps that reproduce a reported defect still open are listed in `skipFinding` and run only when `MODEL_FINDINGS` names them (`MODEL_FINDINGS=RenameInPreflight go test ...`).
+`TestModelDependencies` (`model_deps_test.go`) does the same for a server that depends on a task (a migration): the task runs once for every start that needs it, also across upgrades in place, and the server starts only after the task succeeded. A failure prints the steps (`ran <step>` lines), shrunk to a short sequence, and saves them under `internal/supervisor/testdata/rapid` (ignored by git); `-rapid.failfile=<file>` replays one. Steps that reproduce a reported defect still open are listed in `skipFinding` and run only when `MODEL_FINDINGS` names them (`MODEL_FINDINGS=RenameInPreflight go test ...`).
 
 ## Idle benchmark
 

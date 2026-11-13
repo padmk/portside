@@ -66,6 +66,10 @@ type proc struct {
 	startAfterExit bool
 	// doneAt is when the task's last run that exited with code 0 ended.
 	doneAt time.Time
+	// requestedAt is when the latest start request that waits for its
+	// dependencies was made; its dependencies' runs count from then (see
+	// taskStateLocked), also after an upgrade in place.
+	requestedAt time.Time
 	// reapedAt is when wait saw the process of the current run end, zero
 	// before.
 	reapedAt      time.Time

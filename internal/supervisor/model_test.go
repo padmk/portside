@@ -221,7 +221,7 @@ func (g *preflightGate) open(abandon bool) {
 	}
 }
 
-func (g *preflightGate) await(t *rapid.T) {
+func (g *preflightGate) await(t modelTB) {
 	select {
 	case <-g.arrived:
 	case <-time.After(10 * time.Second):
@@ -336,7 +336,7 @@ func (h *harness) mismatch(o observed) string {
 
 // settle waits until the supervisor agrees with the model and stays so
 // for a moment, which also catches a launch too many.
-func (h *harness) settle(t *rapid.T) {
+func (h *harness) settle(t modelTB) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -363,22 +363,7 @@ func (h *harness) settle(t *rapid.T) {
 	}
 }
 
-// quiet waits until the supervisor has reported no change for d, at most
-// a few seconds.
-func (h *harness) quiet(d time.Duration) {
-	ch := h.s.Subscribe()
-	defer h.s.Unsubscribe(ch)
-	limit := time.After(3 * time.Second)
-	for {
-		select {
-		case <-ch:
-		case <-time.After(d):
-			return
-		case <-limit:
-			return
-		}
-	}
-}
+func (h *harness) quiet(d time.Duration) { quiet(h.s, d) }
 
 func (h *harness) live() *fakeProc {
 	h.w.mu.Lock()
@@ -408,7 +393,7 @@ func (h *harness) tick() {
 
 // upgrade replaces the daemon in place, as exec would; it reports false
 // when the supervisor refused the handoff.
-func (h *harness) upgrade(t *rapid.T) bool {
+func (h *harness) upgrade(t modelTB) bool {
 	hs, err := h.s.PrepareHandoff()
 	if err != nil {
 		return false
@@ -462,7 +447,7 @@ func (h *harness) cleanup() {
 	}
 }
 
-func newHarness(t *rapid.T) *harness {
+func newHarness(t modelTB) *harness {
 	root, err := os.MkdirTemp("", "model-*")
 	if err != nil {
 		t.Fatal(err)
@@ -472,7 +457,7 @@ func newHarness(t *rapid.T) *harness {
 
 // freeModelPort returns a loopback port nothing listens on, for a server
 // whose start runs the port release (the preflight gate).
-func freeModelPort(t *rapid.T) int {
+func freeModelPort(t modelTB) int {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

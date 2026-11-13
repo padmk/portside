@@ -12,6 +12,14 @@ import (
 	"github.com/creack/pty"
 )
 
+// modelTB is what the model harnesses need of a test: a *testing.T or a
+// *rapid.T.
+type modelTB interface {
+	Helper()
+	Fatal(args ...any)
+	Fatalf(format string, args ...any)
+}
+
 // fakeWorld is the process table and the clock that the daemons of one
 // model run share (see model_test.go). Its processes are leaders of their
 // own group with a real terminal, whose process side the world holds open

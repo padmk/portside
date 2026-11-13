@@ -57,6 +57,13 @@ type exitState struct {
 	Schedule string    `json:"schedule,omitempty"`
 	NextRun  time.Time `json:"nextRun,omitzero"`
 	LastRun  time.Time `json:"lastRun,omitzero"`
+	// When a task's latest run or start attempt ended and its last run
+	// that succeeded did (settledAt and doneAt), and when the start of a
+	// server still waiting for its dependencies was asked for: an upgrade
+	// in place goes on with that request, which runs it served count for.
+	SettledAt   time.Time `json:"settledAt,omitzero"`
+	DoneAt      time.Time `json:"doneAt,omitzero"`
+	RequestedAt time.Time `json:"requestedAt,omitzero"`
 }
 
 type pidStamp struct {
@@ -118,6 +125,12 @@ func (s *Supervisor) stateLocked() persisted {
 			Trigger: p.trigger, Streak: p.streak, Incident: p.incident, IncidentSince: p.incidentSince,
 			Schedule: p.scheduleExpr, NextRun: p.nextRun, LastRun: p.lastRun,
 			ScheduleReserved: p.scheduleReserved,
+			SettledAt:        p.settledAt, DoneAt: p.doneAt,
+		}
+		if p.pid == 0 && p.want {
+			e := st.Servers[name]
+			e.RequestedAt = p.requestedAt
+			st.Servers[name] = e
 		}
 		if p.restartPending {
 			e := st.Servers[name]
@@ -303,9 +316,16 @@ func (s *Supervisor) Recover(restore bool) {
 			if ok && upgrade && p.trigger != "" {
 				trigger = p.trigger
 			}
+			// The request the previous daemon was serving, when the server
+			// waited for its dependencies: a task's run that served it
+			// serves it still.
+			requested := since
+			if ok && upgrade && !p.requestedAt.IsZero() {
+				requested = p.requestedAt
+			}
 			s.mu.Unlock()
 			if enabled {
-				_ = s.Start(name, StartOptions{trigger: trigger, Since: since})
+				_ = s.Start(name, StartOptions{trigger: trigger, Since: requested})
 			}
 		}
 	}
@@ -323,13 +343,15 @@ func (s *Supervisor) Recover(restore bool) {
 // restoreHistoryLocked brings back what the hooks knew about each server
 // before this daemon started: the trigger of its round of runs, its crash
 // streak and the problem a hook reported, so reports from an upgrade or a
-// restart on continue them, and each schedule's next and latest run, so a
-// run is neither repeated nor lost.
+// restart on continue them, each schedule's next and latest run, so a run
+// is neither repeated nor lost, and when a task's runs ended and a waiting
+// server's start was asked for, so that request is not served twice.
 func (s *Supervisor) restoreHistoryLocked(saved map[string]exitState) {
 	for name, last := range saved {
 		if p := s.procs[name]; p != nil {
 			p.trigger, p.streak, p.incident, p.incidentSince = last.Trigger, last.Streak, last.Incident, last.IncidentSince
 			p.scheduleExpr, p.nextRun, p.lastRun = last.Schedule, last.NextRun, last.LastRun
+			p.settledAt, p.doneAt, p.requestedAt = last.SettledAt, last.DoneAt, last.RequestedAt
 		}
 	}
 }

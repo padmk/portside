@@ -107,6 +107,7 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 	}
 	s.mu.Lock()
 	if p := s.procs[name]; p != nil && p.pid == 0 && p.startSeq == token {
+		p.requestedAt = opt.Since
 		p.status = Starting
 		p.note = "waiting for " + strings.Join(deps, ", ")
 		if opt.trigger != "" {

@@ -160,7 +160,8 @@ depends_on = ["migrate"]
 - Every start runs the task again, so its command must be safe to repeat, as migrations are. That includes a start through a server that depends on it, `portside ensure`, `up --wait` and `ensure_server`, which wait until it exits and succeed only with code 0 (printing its last lines otherwise). A start while the task runs waits for that run, so servers started together, such as `portside up shop` for a group, share one run.
 - A server that depends on a task waits up to 3 minutes for it, as for any dependency, and `up --wait` as long; `ensure` and `ensure_server` wait for their timeout (`--timeout`, `timeout`, 90 s unless set). A longer task keeps running, but the wait fails.
 - A task has no port and no automatic port. `port` other than `0`, `health`, `ready_log`, `ready_after` and `restart = "always"` are errors.
-- A task that ends while the daemon upgrades in place has an unknown exit code: it shows as `exited` with the note `ended during the upgrade; exit code unknown`, and is neither restarted, retried nor reported by `on_crash`. A server that was waiting for it starts it again when the daemon brings that server back.
+- A task that ends while the daemon upgrades in place has an unknown exit code: it shows as `exited` with the note `ended during the upgrade; exit code unknown`, and is neither restarted, retried nor reported by `on_crash`. A server that was waiting for it does not run it again: its start fails with the note, and its next start runs the task.
+- An upgrade in place goes on with the starts under way: a task run that already served a waiting server's start, done or failed, serves it in the new daemon too, so the task does not run a second time for it.
 - A successful run counts as ready for the hooks: it ends the crash streak (`PORTSIDE_STREAK`) and runs `on_recover` after a reported crash. `on_unready` never runs for a task.
 
 ### Schedules
