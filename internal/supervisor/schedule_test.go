@@ -269,7 +269,7 @@ func TestTemporaryCopyIgnoresSchedule(t *testing.T) {
 	}
 	s.mu.Lock()
 	temp := s.procs["job--wt"]
-	status, want, next := temp.status, temp.want, temp.nextRun
+	status, want, next := temp.status(), temp.wanted(), temp.nextRun
 	s.mu.Unlock()
 	if status != Stopped || want || !next.IsZero() {
 		t.Errorf("temporary copy: %s, want %v, next %s", status, want, next)
@@ -301,7 +301,7 @@ func TestReservedScheduledRunStartsAfterACrash(t *testing.T) {
 		t.Fatalf("%d runs, want 1", n)
 	}
 	s.mu.Lock()
-	trigger, reserved := s.procs["job"].trigger, (s.procs["job"].req != nil)
+	trigger, reserved := s.procs["job"].trigger, (s.procs["job"].request() != nil)
 	s.mu.Unlock()
 	if trigger != triggerSchedule || reserved {
 		t.Errorf("trigger %q, reserved %v", trigger, reserved)

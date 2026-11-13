@@ -3,7 +3,6 @@ package supervisor
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 )
@@ -23,53 +22,21 @@ func (s *Supervisor) Stop(name string) error {
 		s.mu.Unlock()
 		return errors.New("the daemon is upgrading in place; try again in a moment")
 	}
-	p.want = false
-	p.pending = nil
-	p.req, p.next = nil, nil
 	p.retries = 0
-	p.startSeq++ // cancels any start still in preflight
-	if p.live() == nil {
-		if p.status == Starting || p.status == Blocked || p.status == Crashed || p.status == Exited {
-			p.status = Stopped
-			p.note = ""
-			p.settledAt = time.Now()
-		}
-		s.changedLocked()
-		s.saveLocked()
-		ending := p.ending
-		s.mu.Unlock()
-		if ending != nil {
-			<-ending // a stop still ending the group after its leader exited
-		}
-		return nil
-	}
-	pid := p.live().pid
-	done := p.live().done
-	if ending := p.ending; ending != nil && !isClosed(ending) {
-		// Already stopping: a second Ctrl-C would make tools such as
-		// docker compose abort their own graceful shutdown. A stop for
-		// memory_limit under way becomes this one, so the server ends up
-		// stopped rather than crashed.
-		if !stopAskedLocked(p) {
-			p.stop = &stopRequest{cause: stopAsked}
-			p.note = ""
-			s.changedLocked()
-			s.saveLocked()
-		}
-		s.mu.Unlock()
-		<-ending
-		return nil
-	}
-	p.stop = &stopRequest{cause: stopAsked}
-	p.status = Stopping
-	grace := p.running.Stop
-	ending := s.beginEndingLocked(p)
-	s.changedLocked()
-	s.saveLocked()
+	effs := s.transitionLocked(p, evStop{})
+	// Without an end of its own to wait for, a stop waits for the one
+	// under way: a second Ctrl-C would make tools such as docker compose
+	// abort their own graceful shutdown. That is also one still ending the
+	// group after its leader exited.
+	ending := p.ending
 	s.mu.Unlock()
-
-	terminate(s.sys, pid, done, grace)
-	s.endEnding(ending)
+	if len(effs) > 0 {
+		s.runEffects(effs)
+		return nil
+	}
+	if ending != nil {
+		<-ending
+	}
 	return nil
 }
 
@@ -88,10 +55,6 @@ const (
 	stopAsked stopCause = iota + 1
 	stopMemory
 )
-
-// stopAskedLocked reports whether p's live run is ending because a stop
-// was asked for.
-func stopAskedLocked(p *proc) bool { return p.stop != nil && p.stop.cause == stopAsked }
 
 // beginEndingLocked records that p's process group is being ended and
 // returns the channel endEnding closes once it is.
@@ -128,14 +91,19 @@ func (s *Supervisor) endingLocked(name string) chan struct{} {
 // groups, whose ids an unrelated program may get before the next start.
 func (s *Supervisor) Shutdown() {
 	s.mu.Lock()
-	for _, p := range s.procs {
-		// No automatic restart follows a shutdown.
-		if p.pending != nil {
-			p.pending = nil
-			p.note, _, _ = strings.Cut(p.note, restartingNote)
+	st := s.stateLocked()
+	for name, p := range s.procs {
+		// No automatic restart follows a shutdown; the server stays among
+		// those to restore.
+		if p.pending() != nil {
+			s.transitionLocked(p, evCancelPending{})
+			if e, ok := st.Servers[name]; ok {
+				e.RetryAt, e.RestartAt, e.Retries = time.Time{}, time.Time{}, 0
+				e.Note = p.note
+				st.Servers[name] = e
+			}
 		}
 	}
-	st := s.stateLocked()
 	s.savedLocked(writeState(s.state, st))
 	s.closing = true
 	s.handoff = false
@@ -148,17 +116,14 @@ func (s *Supervisor) Shutdown() {
 		wg.Go(func() { <-ending })
 	}
 	for _, p := range s.procs {
-		if p.live() == nil || (p.ending != nil && !isClosed(p.ending)) {
-			continue
+		switch {
+		case p.request() != nil:
+			s.transitionLocked(p, evStop{}) // a start under way goes no further
+		case p.live() == nil || (p.ending != nil && !isClosed(p.ending)):
+		default:
+			effs := s.transitionLocked(p, evStop{})
+			wg.Go(func() { s.runEffects(effs) })
 		}
-		p.stop = &stopRequest{cause: stopAsked}
-		p.status = Stopping
-		ending := s.beginEndingLocked(p)
-		pid, done, grace := p.live().pid, p.live().done, p.running.Stop
-		wg.Go(func() {
-			terminate(s.sys, pid, done, grace)
-			s.endEnding(ending)
-		})
 	}
 	s.changedLocked()
 	s.mu.Unlock()

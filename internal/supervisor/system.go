@@ -54,6 +54,9 @@ type process interface {
 	// reaped: its state says so, not its pid, which another process may
 	// have by now.
 	reaped() bool
+	// exited reports whether the process has ended, reaped or not yet (a
+	// zombie that wait is about to reap).
+	exited() bool
 }
 
 type hostSystem struct{}
@@ -92,4 +95,9 @@ func (h hostProcess) wait() int { return exitCode(h.p.Wait()) }
 
 func (h hostProcess) reaped() bool {
 	return errors.Is(h.p.Signal(syscall.Signal(0)), os.ErrProcessDone)
+}
+
+func (h hostProcess) exited() bool {
+	// Reaped first: once it is, the pid may belong to another process.
+	return h.reaped() || zombie(h.p.Pid)
 }

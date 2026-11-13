@@ -84,7 +84,7 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	var waiting []string
 	for _, name := range s.order {
 		if p := s.procs[name]; p != nil && p.live() != nil {
-			awaits := p.status == Starting && p.running.ReadyLog != "" && !p.logReady.Load()
+			awaits := p.status() == Starting && p.running.ReadyLog != "" && !p.logReady.Load()
 			reader := p.live().reader
 			s.paused = append(s.paused, reader)
 			paused.Go(func() {
@@ -131,11 +131,11 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 		out = append(out, Handoff{
 			Name: name, PID: r.pid, PIDStart: r.pidStart, pty: r.pty,
 			Config: p.running, Env: slices.Clone(p.runningEnv), Shell: p.runningShell, Tool: p.runningTool, Launch: p.launch,
-			Status: p.status, Note: p.note, Want: p.want, Retries: p.retries,
+			Status: p.status(), Note: p.note, Want: p.wanted(), Retries: p.retries,
 			StartedAt: p.startedAt, ReadyAt: p.readyAt,
 			ListenHost: p.listenHost, ListenPorts: slices.Clone(p.listenPorts),
 			Cols: p.cols, Rows: p.rows, LogReady: &logReady, LogLine: logLine, MissingSince: p.missingSince,
-			StartAfterExit: p.next != nil,
+			StartAfterExit: p.next() != nil,
 		})
 	}
 	return out, nil
@@ -242,10 +242,6 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 			f.Close()
 			continue
 		}
-		status := h.Status
-		if status != Running {
-			status = Starting
-		}
 		p.gen++
 		gen := p.gen
 		// A server still waiting for its ready_log line keeps waiting; the
@@ -266,17 +262,16 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 			r.pidStart = now
 		}
 		r.reader = newOutputReader(f, p.logs)
-		p.cur = r
-		p.reapedAt = time.Time{}
+		// A server is wanted while it runs; a stop under way blocked the
+		// upgrade.
+		s.transitionLocked(p, evAdopt{run: r, ready: h.Status == Running})
 		p.running = h.Config
 		p.runningEnv = h.Env
 		p.runningShell = h.Shell
 		p.runningTool = h.Tool
 		p.launch = h.Launch
 		p.detected = nil
-		p.status = status
 		p.note = h.Note
-		p.want = h.Want
 		p.retries = h.Retries
 		p.startedAt = h.StartedAt
 		p.readyAt = h.ReadyAt
@@ -285,10 +280,8 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		if h.Cols > 0 && h.Rows > 0 {
 			p.cols, p.rows = h.Cols, h.Rows
 		}
-		p.pending = nil
 		p.missingSince = h.MissingSince
 		p.hasExit = false
-		p.stop = nil
 		p.external = nil
 		p.listening = false
 		p.hist.reset()
@@ -299,7 +292,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 			defer close(r.copied)
 			r.reader.run()
 		}()
-		go s.wait(h.Name, p, r, gen)
+		go s.wait(p, r, gen)
 		go s.watchReady(h.Name, p, gen)
 		adopted = append(adopted, h.Name)
 	}
@@ -330,8 +323,7 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	if h.StartAfterExit && h.Want {
 		// Started again after it ended, before the upgrade: Recover runs it.
 		log.Printf("handoff: %s exited before the upgrade and was started again", h.Name)
-		p.status, p.note = Stopped, ""
-		p.want = true
+		p.note = ""
 		s.handoffRestarts = append(s.handoffRestarts, h.Name)
 		s.changedLocked()
 		return
@@ -342,7 +334,7 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 		return
 	}
 	log.Printf("handoff: %s exited during the upgrade", h.Name)
-	p.status = Crashed
+	s.transitionLocked(p, evSettle{status: Crashed})
 	p.note = "exited during the upgrade"
 	p.hasExit = false
 	p.exitedAt = time.Now()
@@ -350,16 +342,15 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	if p.exitedAt.Sub(h.StartedAt) > time.Minute {
 		p.retries = 0 // as backoffLocked: a long run ends the round
 	}
-	p.want = h.Want
 	fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  exited during the upgrade ──\x1b[0m\r\n", p.exitedAt.Format("15:04:05"))
-	if p.want && p.cfg.Restart != config.RestartNo && p.retries < maxRetries {
+	if h.Want && p.cfg.Restart != config.RestartNo && p.retries < maxRetries {
 		// Recover restarts it as one more restart of the round.
 		p.retries++
 		s.handoffRestarts = append(s.handoffRestarts, h.Name)
 	} else {
 		s.reportCrashLocked(p, nil, p.exitedAt.Sub(h.StartedAt))
-		if !s.retryLocked(p) {
-			p.want = false
+		if h.Want {
+			s.retryLocked(p)
 		}
 	}
 	s.changedLocked()

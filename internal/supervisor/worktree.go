@@ -256,12 +256,11 @@ func (s *Supervisor) addTemporary(origin config.Server, top, rel string) (string
 
 func (s *Supervisor) addTemporaryLocked(origin config.Server, t *temporary) {
 	s.procs[t.Name] = &proc{
-		cfg:    temporaryConfig(origin, t),
-		temp:   t,
-		status: Stopped,
-		logs:   newLogBuffer(s.logDir, t.Name),
-		cols:   defaultCols,
-		rows:   defaultRows,
+		cfg:  temporaryConfig(origin, t),
+		temp: t,
+		logs: newLogBuffer(s.logDir, t.Name),
+		cols: defaultCols,
+		rows: defaultRows,
 	}
 }
 

@@ -63,7 +63,7 @@ func (s *Supervisor) checkExposure(ctx context.Context, table map[int]procSample
 	s.exposureWanted, s.exposureAt = false, now
 	own := s.tailnet
 	for name, p := range s.procs {
-		if p.live() != nil && p.status == Running {
+		if p.live() != nil && p.status() == Running {
 			targets = append(targets, target{name, p.live().pid, p.gen, p.running.Port, p.running.Dir, p.running.Cmd})
 		}
 	}

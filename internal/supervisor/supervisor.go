@@ -53,54 +53,34 @@ type proc struct {
 	runningTool  string        // version manager the live process runs under, "" for none
 	launch       *launchInputs // what runningEnv was built from; nil when unknown
 	detected     *string       // tool detection for cfg as last sampled; nil before the first sample
-	// pending is the automatic restart or retry that starts the server
-	// again at its time, nil for none.
-	pending *pendingStart
-	// req is the start under way while no process runs (waiting for
-	// dependencies, for the previous process group or in its preflight);
-	// nil otherwise. Its dependencies' runs count from req.at (see
-	// taskStateLocked), also after an upgrade in place.
-	req *startRequest
-	// next is a start asked for once the live run ends: while a stop is
-	// under way, or after the process ended on its own while wait still
-	// drains its output. wait launches it; a Stop withdraws it.
-	next *startRequest
-	// lastRequestAt is req.at of the latest start, kept after it failed
-	// while the server stays wanted.
-	lastRequestAt time.Time
+	// ph is where the server is in its lifecycle (phase.go), which its
+	// status and whether it is wanted follow from; only transition.go
+	// changes it.
+	ph phase
 	// doneAt is when the task's last run that exited with code 0 ended.
-	doneAt time.Time
-	// reapedAt is when wait saw the process of the current run end, zero
-	// before.
-	reapedAt      time.Time
+	doneAt        time.Time
 	listenPorts   []int
 	listenHost    string
 	missingSince  time.Time
 	externalStart string
 	running       config.Server // configuration the live process was started with
-	status        Status
-	note          string // short human explanation of the status
-	// cur is the live process, nil when none runs (see live).
-	cur        *run
-	startedAt  time.Time
-	readyAt    time.Time
-	logReady   atomic.Bool   // a line of this generation's output matched ready_log
-	readyMatch *readyMatcher // matches ready_log while waiting for it; nil otherwise
-	exitedAt   time.Time
+	note          string        // short human explanation of the status
+	startedAt     time.Time
+	readyAt       time.Time
+	logReady      atomic.Bool   // a line of this generation's output matched ready_log
+	readyMatch    *readyMatcher // matches ready_log while waiting for it; nil otherwise
+	exitedAt      time.Time
 	// settledAt is when the latest run or start attempt ended: an exit, a
 	// failed start or a stop of a server waiting to start. A task's waiters
 	// compare it with when they asked (see taskStateLocked).
 	settledAt time.Time
 	exitCode  int
 	hasExit   bool
-	// stop is the end of the live run under way, nil for none.
-	stop *stopRequest
 	// ending is closed once the latest Stop or Shutdown has ended the whole
 	// process group, which can outlive the leader; nil before the first
 	// (see Supervisor.endings).
 	ending   chan struct{}
-	want     bool // the user wants this server running
-	startSeq int  // bumped by every Start and Stop; a launch proceeds only with the latest
+	startSeq int // bumped by every start request and Stop; a launch proceeds only with the latest
 	retries  int
 	trigger  string // what began the latest round of runs and automatic restarts (triggerStart and others)
 	// streak counts crash reports in a row without the server ready in
@@ -143,9 +123,6 @@ type run struct {
 	done     chan struct{} // closed once wait has recorded the exit
 	copied   chan struct{} // closed when all terminal output has been read
 }
-
-// live returns p's live process, or nil when none runs.
-func (p *proc) live() *run { return p.cur }
 
 // livePID is the pid of p's live process, 0 when none runs.
 func (p *proc) livePID() int {
@@ -351,7 +328,7 @@ func (s *Supervisor) Unsubscribe(ch chan struct{}) { s.changes.Unsubscribe(ch) }
 func (s *Supervisor) changedLocked() {
 	active := map[int]bool{}
 	for _, p := range s.procs {
-		if p.status != Starting && p.status != Running {
+		if st := p.status(); st != Starting && st != Running {
 			continue
 		}
 		if p.live() != nil {
@@ -382,7 +359,6 @@ func (s *Supervisor) Apply(cfg *config.Config) {
 // ApplyRenamed preserves a live process and its logs when an edit renames it.
 func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 	s.mu.Lock()
-	restart := false
 	if old != name {
 		if p := s.procs[old]; p != nil && s.procs[name] == nil {
 			delete(s.procs, old)
@@ -392,13 +368,9 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 			p.logs.retarget(s.logDir, name)
 			// A stop still ending its group goes with it, so a start of the
 			// new name waits for that group.
+			// A start under way goes on: it holds the server, not its name.
 			if _, ok := s.endings[p.ending]; ok && p.ending != nil {
 				s.endings[p.ending] = name
-			}
-			if p.live() == nil && p.status == Starting {
-				p.startSeq++
-				restart = p.want
-				p.status = Stopped
 			}
 		}
 		for _, q := range s.procs {
@@ -414,9 +386,6 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 	s.mu.Unlock()
 	for _, n := range removed {
 		_ = s.Stop(n)
-	}
-	if restart {
-		_ = s.Start(name, StartOptions{})
 	}
 }
 
@@ -441,11 +410,10 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 			continue
 		}
 		s.procs[sv.Name] = &proc{
-			cfg:    sv,
-			status: Stopped,
-			logs:   newLogBuffer(s.logDir, sv.Name),
-			cols:   defaultCols,
-			rows:   defaultRows,
+			cfg:  sv,
+			logs: newLogBuffer(s.logDir, sv.Name),
+			cols: defaultCols,
+			rows: defaultRows,
 		}
 	}
 	var removed []string
@@ -464,8 +432,8 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	// After temporary copies took their origin's new settings.
 	cancelled := false
 	for _, p := range s.procs {
-		if pd := p.pending; pd != nil && ((pd.kind == pendingRetry && !p.cfg.RetriesAfterGivingUp()) || (pd.kind == pendingRestart && p.cfg.Restart == config.RestartNo)) {
-			cancelPendingLocked(p)
+		if pd := p.pending(); pd != nil && ((pd.kind == pendingRetry && !p.cfg.RetriesAfterGivingUp()) || (pd.kind == pendingRestart && p.cfg.Restart == config.RestartNo)) {
+			s.transitionLocked(p, evCancelPending{})
 			cancelled = true
 		}
 	}
@@ -478,11 +446,12 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 }
 
 func (p *proc) alive() bool {
-	return p.status == Starting || p.status == Running || p.status == Stopping
+	st := p.status()
+	return st == Starting || st == Running || st == Stopping
 }
 
 func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool) bool {
-	if p.live() == nil || p.status == Stopping {
+	if p.live() == nil || p.status() == Stopping {
 		return false
 	}
 	a, b := p.running, p.cfg

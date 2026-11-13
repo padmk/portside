@@ -86,7 +86,7 @@ func (s *Supervisor) checkSchedules() {
 	}
 	now := s.now()
 	type run struct {
-		name  string
+		p     *proc
 		deps  []string
 		token int
 	}
@@ -108,7 +108,7 @@ func (s *Supervisor) checkSchedules() {
 		switch {
 		case !p.cfg.Enabled:
 		case p.alive():
-			fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  scheduled run skipped: %s ──\x1b[0m\r\n", now.Format("15:04:05"), p.status)
+			fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  scheduled run skipped: %s ──\x1b[0m\r\n", now.Format("15:04:05"), p.status())
 		default:
 			// Reserved together with moving nextRun on, so an upgrade in
 			// place starting meanwhile keeps the run: the new daemon starts
@@ -117,7 +117,7 @@ func (s *Supervisor) checkSchedules() {
 			// run starts leaves it to the next one (see Recover).
 			p.lastRun = now
 			deps, token := s.reserveStartLocked(p, triggerSchedule)
-			due = append(due, run{name, deps, token})
+			due = append(due, run{p, deps, token})
 		}
 	}
 	if changed {
@@ -126,8 +126,8 @@ func (s *Supervisor) checkSchedules() {
 	}
 	s.mu.Unlock()
 	for _, r := range due {
-		if err := s.launch(r.name, r.deps, StartOptions{trigger: triggerSchedule}, r.token); err != nil {
-			log.Printf("schedule: %s: %v", r.name, err)
+		if err := s.launch(r.p, r.deps, StartOptions{trigger: triggerSchedule}, r.token); err != nil {
+			log.Printf("schedule: %s: %v", r.p.cfg.Name, err)
 		}
 	}
 }

@@ -10,5 +10,5 @@ import (
 )
 
 func main() {
-	unitchecker.Main(httpClientTimeout)
+	unitchecker.Main(httpClientTimeout, phaseAssign)
 }

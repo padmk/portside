@@ -213,7 +213,7 @@ func (d *depsHarness) liveIn(dir string) *fakeProc {
 func (d *depsHarness) mismatch() string {
 	d.s.mu.Lock()
 	web := d.s.procs[depsServer]
-	pid, want, status := web.livePID(), web.want, web.status
+	pid, want, status := web.livePID(), web.wanted(), web.status()
 	d.s.mu.Unlock()
 	d.w.mu.Lock()
 	taskRuns, webRuns := d.w.launches[d.taskDir], d.w.launches[d.webDir]
@@ -239,7 +239,9 @@ func (d *depsHarness) mismatch() string {
 			diffs = append(diffs, "server not waiting to start")
 		}
 	case webDown:
-		if pid != 0 || webLive || (status != Stopped && status != Crashed) {
+		// Down and not wanted: a failed start is not started again, also
+		// not by the next daemon after an upgrade in place.
+		if pid != 0 || webLive || want || (status != Stopped && status != Crashed) {
 			diffs = append(diffs, "server not down")
 		}
 	}
@@ -356,7 +358,7 @@ func TestUpgradeDoesNotRunAServedTaskAgain(t *testing.T) {
 				waitFor(t, "the failed start", func() bool {
 					d.s.mu.Lock()
 					defer d.s.mu.Unlock()
-					return d.s.procs[depsServer].status == Crashed
+					return d.s.procs[depsServer].status() == Crashed
 				})
 			}
 			if !d.upgrade(t) {

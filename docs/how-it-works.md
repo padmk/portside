@@ -10,7 +10,7 @@ Each server runs as `<shell> -c <cmd>` (`bash` unless the config sets [`shell`](
 
 Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log`, rotated at 10 MiB. When the daemon restarts or upgrades, it reloads the last 256 KiB of the current and rotated files into scrollback, followed by a `daemon restarted` separator unless the output already ends with one. Restored output has no line timestamps.
 
-`~/.local/state/portside/state.json` holds which servers you want running, the process groups in flight and the last exit codes, times and notes. A daemon that stops removes the groups once its servers have exited. `last-good-config.json` beside it is a validated copy of the config, used when the file stops loading.
+`~/.local/state/portside/state.json` holds which servers you want running, the process groups in flight and the last exit codes, times and notes. A server is wanted while it runs, while its start is under way and while an automatic restart or a `retry_after` retry is due; one whose start failed (a taken port, a missing folder, a failed dependency) is not, so neither a restart of the daemon nor an upgrade in place starts it again and reports the same failure twice. A daemon that stops removes the groups once its servers have exited. `last-good-config.json` beside it is a validated copy of the config, used when the file stops loading.
 
 The config and server logs can hold environment values and credentials, so:
 

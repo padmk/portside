@@ -69,22 +69,23 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		// exit in between cannot miss it. A task's run in progress
 		// satisfies a start asked for together with others (Since), as it
 		// does a dependency.
-		s.markStartAfterExitLocked(p, opt.Since)
-		s.reserveLocked(p, startRequest{trigger: opt.trigger, at: opt.Since})
+		s.transitionLocked(p, evRequest{req: startRequest{trigger: opt.trigger, at: opt.Since}, after: s.startAfterRunLocked(p, opt.Since)})
 		s.mu.Unlock()
 		return nil
 	}
-	pending := p.want && p.status == Starting
+	// A start under way serves this one too, unless this one may take
+	// the port over: it replaces that start.
+	pending := p.request() != nil && !opt.Takeover
 	// A task whose run since this request ended (one a dependent of it in
 	// the same bulk start ran) is not run again for it, done or failed.
 	done := false
-	if p.cfg.Oneshot && !opt.Since.IsZero() && p.live() == nil && !p.settledAt.Before(opt.Since) {
+	if p.cfg.Oneshot && !opt.Since.IsZero() && !p.settledAt.Before(opt.Since) {
 		state := taskStateLocked(p, opt.Since)
 		done = state == taskDone || state == taskFailed
 	}
 	if pending || done {
 		s.mu.Unlock()
-		return nil // a start (e.g. waiting for dependencies) is already under way
+		return nil
 	}
 	// Dependencies come from the definition, so a temporary server shares
 	// its origin's dependencies. They are read under the lock that reserves
@@ -93,27 +94,28 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 	if opt.Since.IsZero() {
 		opt.Since = time.Now()
 	}
-	token := s.reserveLocked(p, startRequest{trigger: opt.trigger, at: opt.Since})
+	s.transitionLocked(p, evRequest{req: startRequest{trigger: opt.trigger, at: opt.Since}})
+	token := p.startSeq
 	s.mu.Unlock()
-	return s.launch(name, deps, opt, token)
+	return s.launch(p, deps, opt, token)
 }
 
-// launch starts deps in order and then name, while token is the latest
-// start request for name.
-func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token int) error {
+// launch starts deps in order and then p, while token is p's start under
+// way. The start holds p itself, so a rename meanwhile does not end it.
+func (s *Supervisor) launch(p *proc, deps []string, opt StartOptions, token int) error {
+	s.mu.Lock()
 	if opt.Since.IsZero() {
+		// The request's own time, which a task it waits for is measured by.
 		opt.Since = time.Now()
+		if req := p.request(); req != nil && p.startingWith(token) {
+			opt.Since = req.at
+		}
 	}
 	if len(deps) == 0 {
-		return s.startOne(name, opt, token)
+		s.mu.Unlock()
+		return s.startOne(p, opt, token)
 	}
-	s.mu.Lock()
-	if p := s.procs[name]; p != nil && p.live() == nil && p.startSeq == token {
-		if p.req != nil {
-			p.req.at = opt.Since
-		}
-		p.lastRequestAt = opt.Since
-		p.status = Starting
+	if p.startingWith(token) {
 		p.note = "waiting for " + strings.Join(deps, ", ")
 		if opt.trigger != "" {
 			p.trigger = opt.trigger
@@ -125,35 +127,35 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 	// A Stop of the target (or shutdown) cancels the rest of the chain.
 	go func() {
 		for _, d := range deps {
-			if !s.current(name, token) {
+			if !s.current(p, token) {
 				return
 			}
 			dep := s.reserveDependency(d, opt.Since)
 			switch {
-			case dep.done:
+			case dep.p == nil || dep.done:
 				continue // a run since the request satisfies it
 			case dep.failed != "":
 				// A run since the request failed: the same request does not
 				// run it again.
-				s.failStart(name, token, fmt.Sprintf("dependency %s failed: %s", d, dep.failed))
+				s.failStart(p, token, fmt.Sprintf("dependency %s failed: %s", d, dep.failed))
 				return
 			}
 			task := dep.task
-			if err := s.startOne(d, StartOptions{trigger: triggerStart}, dep.token); err != nil {
-				s.failStart(name, token, fmt.Sprintf("dependency %s failed: %v", d, err))
+			if err := s.startOne(dep.p, StartOptions{trigger: triggerStart}, dep.token); err != nil {
+				s.failStart(p, token, fmt.Sprintf("dependency %s failed: %v", d, err))
 				return
 			}
 			if err := s.WaitReady(context.Background(), d, opt.Since, 3*time.Minute); err != nil {
 				if f, ok := errors.AsType[*waitFailure](err); ok && task {
-					s.failStart(name, token, fmt.Sprintf("dependency %s failed: %s", d, f.reason))
+					s.failStart(p, token, fmt.Sprintf("dependency %s failed: %s", d, f.reason))
 				} else {
-					s.failStart(name, token, fmt.Sprintf("dependency %s did not become ready: %v", d, err))
+					s.failStart(p, token, fmt.Sprintf("dependency %s did not become ready: %v", d, err))
 				}
 				return
 			}
 		}
-		if err := s.startOne(name, opt, token); err != nil {
-			s.failStart(name, token, err.Error())
+		if err := s.startOne(p, opt, token); err != nil {
+			s.failStart(p, token, err.Error())
 		}
 	}()
 	return nil
@@ -162,6 +164,7 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 // dependency is how reserveDependency left a dependency: a task done or
 // failed in a run since the request, or reserved with token.
 type dependency struct {
+	p          *proc
 	task, done bool
 	failed     string // why a task's run since the request failed
 	token      int
@@ -181,73 +184,46 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 	if task := p.cfg.Oneshot; task && p.live() == nil && !p.settledAt.Before(since) {
 		switch taskStateLocked(p, since) {
 		case taskDone:
-			return dependency{task: true, done: true}
+			return dependency{p: p, task: true, done: true}
 		case taskFailed:
-			return dependency{task: true, failed: cmp.Or(p.note, string(p.status))}
+			return dependency{p: p, task: true, failed: cmp.Or(p.note, string(p.status()))}
 		case taskPending:
 			// Under way or on its way: reserved below, and waited for.
 		}
 	}
 	p.retries = 0
-	s.markStartAfterExitLocked(p, since)
-	return dependency{task: p.cfg.Oneshot, token: s.reserveLocked(p, startRequest{trigger: triggerStart, at: since})}
+	s.transitionLocked(p, evRequest{req: startRequest{trigger: triggerStart, at: since}, after: s.startAfterRunLocked(p, since)})
+	return dependency{p: p, task: p.cfg.Oneshot, token: p.startSeq}
 }
 
-// markStartAfterExitLocked records that a start of p, whose pid is still
-// set, comes after its process ended on its own and was reaped, so wait
-// runs it (p.next, which reserveLocked fills in) once it has recorded the
-// exit. A task's run that ended at or
-// after since (non-zero for a dependency or a start asked for together
-// with others) serves the start instead. A stopping server starts again
-// through its own path in wait.
-func (s *Supervisor) markStartAfterExitLocked(p *proc, since time.Time) {
-	if s.requestedExitLocked(p) || p.stop != nil {
-		return
+// startAfterRunLocked reports whether a start of p asked for now comes
+// after the end of its live run, which ended on its own: its process has
+// ended (also before wait has reaped it), so wait runs the start once it
+// has recorded the exit. A task's run that ended at or after since
+// (non-zero for a dependency or a start asked for together with others)
+// serves the start instead. A stopping server starts again through its
+// own path in wait.
+func (s *Supervisor) startAfterRunLocked(p *proc, since time.Time) bool {
+	if p.live() == nil || s.requestedExitLocked(p) || p.stopping() != nil {
+		return false
 	}
-	ended := false
 	if p.cfg.Oneshot && !since.IsZero() {
 		// Ordered by wait's record of the end, which becomes the run's
 		// settledAt: a request from before it shares the run.
 		at, ok := reapedLocked(p)
-		ended = ok && at.Before(since)
-	} else {
-		ended = processEndedLocked(p)
+		return ok && at.Before(since)
 	}
-	if ended {
-		p.next = &startRequest{}
-		// The ended run is not ready for anyone waiting: the next one is
-		// on its way.
-		p.status, p.note = Starting, ""
-		s.changedLocked()
-	}
+	return processEndedLocked(p)
 }
 
-// processEndedLocked reports whether p's process, whose pid is still set,
-// has been reaped, also before wait has recorded it. The process's own
-// state says so, not its pid, which another process may have by now.
-func processEndedLocked(p *proc) bool {
-	if p.live() == nil {
-		return false
-	}
-	return !p.reapedAt.IsZero() || p.live().process.reaped()
-}
-
-// reapedLocked reports whether wait has recorded the end of p's process,
-// whose pid is still set, and when.
-func reapedLocked(p *proc) (time.Time, bool) {
-	if p.live() == nil || p.reapedAt.IsZero() {
-		return time.Time{}, false
-	}
-	return p.reapedAt, true
-}
-
-// reserveStartLocked records a start of p, which is down, for launch with
-// trigger, as Start does: a fresh round of automatic restarts, and the
-// dependencies to start first.
+// reserveStartLocked records a start of p, which is down, with trigger, as
+// Start does: a fresh round of automatic restarts, and the dependencies to
+// start first. It returns them and the start's token.
 func (s *Supervisor) reserveStartLocked(p *proc, trigger string) (deps []string, token int) {
 	p.retries = 0
 	p.trigger = trigger
-	return s.cfg.WithDeps(p.cfg.DependsOn), s.reserveLocked(p, startRequest{trigger: trigger})
+	s.transitionLocked(p, evRequest{req: startRequest{trigger: trigger}})
+	return s.cfg.WithDeps(p.cfg.DependsOn), p.startSeq
 }
 
 // startRequest is a start asked for: what asked for it ("" for an
@@ -257,71 +233,43 @@ type startRequest struct {
 	at      time.Time
 }
 
-// reserveLocked records the start request req for p and returns its
-// token. Without a live process it is the start under way (p.req); with
-// one, it is the start after the run ends (p.next) when the run is ending:
-// stopped, over its memory_limit, or ended on its own (see
-// markStartAfterExitLocked). A start of a run that goes on asks for nothing.
-func (s *Supervisor) reserveLocked(p *proc, req startRequest) int {
-	if req.at.IsZero() {
-		req.at = time.Now()
-	}
-	p.want = true
-	p.pending = nil
-	p.startSeq++
-	p.lastRequestAt = req.at
-	if p.live() == nil {
-		p.req = &req
-	} else if p.next != nil || s.requestedExitLocked(p) || p.stop != nil {
-		p.next = &req
-	}
-	s.saveLocked()
-	return p.startSeq
-}
-
-// current reports whether token is still the latest start request for name.
-func (s *Supervisor) current(name string, token int) bool {
+// current reports whether token is still p's start under way.
+func (s *Supervisor) current(p *proc, token int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.awaitHandoffLocked()
-	p := s.procs[name]
-	return p != nil && !s.closing && p.want && (token == 0 || p.startSeq == token)
+	return s.currentLocked(p, token)
 }
 
-// failStart reports a failed start, unless a newer Start or a Stop took over.
-func (s *Supervisor) failStart(name string, token int, msg string) {
+// currentLocked is current with s.mu held.
+func (s *Supervisor) currentLocked(p *proc, token int) bool {
+	return !s.closing && !p.removed && s.procs[p.cfg.Name] == p && p.startingWith(token)
+}
+
+// failStart reports a failed start, unless a newer start or a Stop took
+// over, or startOne itself failed and reported it.
+func (s *Supervisor) failStart(p *proc, token int, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if p, ok := s.procs[name]; ok && p.live() == nil && p.startSeq == token && p.want {
-		if p.status == Crashed || p.status == Blocked {
-			return // startOne itself failed and reported it
-		}
-		p.status = Crashed
-		p.note = msg
-		s.startFailedLocked(p)
-		s.saveLocked()
-		s.changedLocked()
+	if p.startingWith(token) {
+		s.transitionLocked(p, evLaunchFailed{status: Crashed, note: msg})
 	}
 }
 
-// startOne launches one server while its start request token is current.
-func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
+// startOne launches p while token is its start under way. It holds p
+// itself, so a rename during the preflight does not end the start.
+func (s *Supervisor) startOne(p *proc, opt StartOptions, token int) error {
 	s.mu.Lock()
-	p, ok := s.procs[name]
-	if !ok {
-		s.mu.Unlock()
-		return fmt.Errorf("unknown server %q", name)
-	}
 	if p.live() != nil {
 		s.mu.Unlock()
 		return nil
 	}
 	s.awaitHandoffLocked()
-	if s.closing || !p.want || (token != 0 && p.startSeq != token) {
+	if !s.currentLocked(p, token) {
 		s.mu.Unlock()
 		return nil
 	}
-	p.pending = nil
+	name := p.cfg.Name
 	if opt.trigger != "" {
 		p.trigger = opt.trigger
 	}
@@ -329,15 +277,14 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		// The leader has exited, but a Stop is still ending the rest of its
 		// group (also one of a server of this name removed and added again),
 		// which may hold the port; start once it is gone.
-		p.status = Starting
 		p.note = "waiting for the previous process to exit"
 		s.changedLocked()
 		s.mu.Unlock()
 		<-ending
-		if !s.current(name, token) {
+		if !s.current(p, token) {
 			return nil
 		}
-		return s.startOne(name, opt, token)
+		return s.startOne(p, opt, token)
 	}
 	sv := p.cfg
 	shell := s.cfg.Shell
@@ -374,37 +321,29 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		if !takeover || !found {
 			s.mu.Lock()
 			s.awaitHandoffLocked()
-			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.live() != nil {
+			if !s.currentLocked(p, token) {
 				s.mu.Unlock()
 				return nil
 			}
-			p.status = Blocked
+			note := fmt.Sprintf("port %d is already in use", sv.Port)
 			if found {
 				p.external = &owner
-				p.note = fmt.Sprintf("port %d is used by %s (pid %d)", sv.Port, owner.Command, owner.PID)
-			} else {
-				p.note = fmt.Sprintf("port %d is already in use", sv.Port)
+				note = fmt.Sprintf("port %d is used by %s (pid %d)", sv.Port, owner.Command, owner.PID)
 			}
-			note := p.note
-			s.startFailedLocked(p)
-			s.saveLocked()
-			s.changedLocked()
+			s.transitionLocked(p, evLaunchFailed{status: Blocked, note: note})
 			s.mu.Unlock()
 			return fmt.Errorf("%w: %s", ErrPortBusy, note)
 		}
-		if !s.current(name, token) {
+		if !s.current(p, token) {
 			return nil
 		}
 		if err := s.killForeign(owner); err != nil {
 			s.mu.Lock()
 			s.awaitHandoffLocked()
-			if s.procs[name] == p && p.want && p.startSeq == token && !s.closing && p.live() == nil {
-				p.status = Blocked
+			// The port stays taken: blocked, as without a takeover.
+			if s.currentLocked(p, token) {
 				p.external = &owner
-				p.note = fmt.Sprintf("port %d: taking it over from %s (pid %d) failed: %v", sv.Port, owner.Command, owner.PID, err)
-				s.startFailedLocked(p)
-				s.saveLocked()
-				s.changedLocked()
+				s.transitionLocked(p, evLaunchFailed{status: Blocked, note: fmt.Sprintf("port %d: taking it over from %s (pid %d) failed: %v", sv.Port, owner.Command, owner.PID, err)})
 			}
 			s.mu.Unlock()
 			return err
@@ -415,15 +354,11 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		msg := "directory not found: " + paths.ShortenHome(sv.Dir)
 		s.mu.Lock()
 		s.awaitHandoffLocked()
-		if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.live() != nil {
+		if !s.currentLocked(p, token) {
 			s.mu.Unlock()
 			return nil
 		}
-		p.status = Crashed
-		p.note = msg
-		s.startFailedLocked(p)
-		s.saveLocked()
-		s.changedLocked()
+		s.transitionLocked(p, evLaunchFailed{status: Crashed, note: msg})
 		s.mu.Unlock()
 		fmt.Fprintf(p.logs, "\r\n\x1b[31m%s\x1b[0m\r\n", msg)
 		return errors.New(msg)
@@ -441,24 +376,13 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 
 	s.mu.Lock()
 	s.awaitHandoffLocked()
-	if p.live() != nil { // lost a race with another Start
-		s.mu.Unlock()
-		return nil
-	}
 	// Preflight can take seconds (port release, takeover, shell environment);
-	// a Stop or shutdown in the meantime wins.
-	if cur, ok := s.procs[name]; !ok || cur != p || p.removed || s.closing || !p.want || (token != 0 && p.startSeq != token) {
-		// Stopped meanwhile: reflect it. Superseded by a newer start: leave
-		// the status to that one.
-		if (s.closing || !p.want) && p.status == Starting {
-			p.status = Stopped
-			p.note = ""
-			s.changedLocked()
-		}
+	// a Stop, a newer start or the shutdown in the meantime wins, and the
+	// phase already says so.
+	if !s.currentLocked(p, token) {
 		s.mu.Unlock()
 		return nil
 	}
-	p.req = nil // the start, a scheduled run among them, has begun
 	size := &pty.Winsize{Cols: p.cols, Rows: p.rows}
 	stamp := time.Now().Format("15:04:05")
 	fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  %s ──\x1b[0m\r\n\x1b[2m$ %s\x1b[0m\r\n", stamp, "start", script)
@@ -475,11 +399,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	f, leader, err := s.sys.startInTerminal(cmd, size)
 	if err != nil {
 		installReadyLog(p, "", nil)
-		p.status = Crashed
-		p.note = "failed to start: " + err.Error()
-		s.startFailedLocked(p)
-		s.saveLocked()
-		s.changedLocked()
+		s.transitionLocked(p, evLaunchFailed{status: Crashed, note: "failed to start: " + err.Error()})
 		s.mu.Unlock()
 		return err
 	}
@@ -489,26 +409,21 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	r := &run{pid: leader.pid(), process: leader, pty: f, done: make(chan struct{}), copied: make(chan struct{})}
 	r.pidStart = s.sys.processStart(r.pid)
 	r.reader = newOutputReader(f, p.logs)
-	p.cur = r
-	p.reapedAt = time.Time{}
+	s.transitionLocked(p, evLaunched{run: r})
 	p.running = sv
 	p.runningEnv = slices.Clone(env)
 	p.runningShell = shell
 	p.runningTool = tool.name
 	p.launch = &launchInputs{Base: slices.Clone(base), Path: slices.Clone(prepend), Env: maps.Clone(globalEnv), Detect: choice.key()}
 	p.detected = nil
-	p.pending = nil
 	p.listenPorts = nil
 	p.listenHost = ""
 	p.missingSince = time.Time{}
 	p.exposure, p.kind = "", ""
-	p.status = Starting
 	p.note = ""
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
 	p.hasExit = false
-	p.stop = nil
-	p.want = true
 	p.external = nil
 	p.listening = false
 	p.hist.reset()
@@ -520,7 +435,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		defer close(r.copied)
 		r.reader.run()
 	}()
-	go s.wait(name, p, r, gen)
+	go s.wait(p, r, gen)
 	go s.watchReady(name, p, gen)
 	return nil
 }

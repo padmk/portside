@@ -22,18 +22,7 @@ func (s *Supervisor) Restart(name string, opt StartOptions) error {
 // after a crash that continues its round of restarts. A start or stop
 // meanwhile cancels it.
 func (s *Supervisor) scheduleRestartLocked(p *proc, now, at time.Time) {
-	pd := &pendingStart{kind: pendingRestart, at: at}
-	p.pending = pd
-	left := pendingNoteLocked(p, now, at)
-	gen, token := p.gen, p.startSeq
-	s.afterLocked(left, func() func() {
-		if s.procs[p.cfg.Name] != p || p.removed || p.gen != gen || p.startSeq != token || p.pending != pd || !p.want || p.alive() || s.closing {
-			return nil
-		}
-		name := p.cfg.Name
-		p.req = &startRequest{at: time.Now()}
-		return func() { _ = s.startOne(name, StartOptions{}, token) }
-	})
+	s.transitionLocked(p, evPending{kind: pendingRestart, now: now, at: at})
 }
 
 // pendingNoteLocked ends p's note with when its pending restart at the time
@@ -75,7 +64,7 @@ func (s *Supervisor) afterLocked(d time.Duration, f func() func()) {
 func (s *Supervisor) retryLocked(p *proc) bool {
 	// During an upgrade in place the retry waits for it to end (afterLocked):
 	// a failed upgrade must keep it.
-	if !p.cfg.RetriesAfterGivingUp() || !p.want || p.removed || (s.closing && !s.handoff) {
+	if !p.cfg.RetriesAfterGivingUp() || p.removed || (s.closing && !s.handoff) {
 		return false
 	}
 	now := s.now()
@@ -87,28 +76,7 @@ func (s *Supervisor) retryLocked(p *proc) bool {
 // automatic restarts. A start or stop meanwhile cancels it, and so does a
 // config that no longer asks for retries.
 func (s *Supervisor) scheduleRetryLocked(p *proc, now, at time.Time) {
-	pd := &pendingStart{kind: pendingRetry, at: at}
-	p.pending = pd
-	left := pendingNoteLocked(p, now, at)
-	token := p.startSeq
-	s.afterLocked(left, func() func() {
-		name := p.cfg.Name
-		if s.procs[name] != p || p.startSeq != token || p.pending != pd || !p.want || p.live() != nil || p.alive() || p.removed || s.closing {
-			return nil
-		}
-		p.retries = 0
-		p.pending = nil // under way, also while its dependencies start
-		p.req = &startRequest{trigger: triggerRetry, at: time.Now()}
-		deps := s.cfg.WithDeps(p.cfg.DependsOn)
-		return func() { _ = s.launch(name, deps, StartOptions{trigger: triggerRetry}, token) }
-	})
-}
-
-// cancelPendingLocked drops p's pending restart or retry, leaving it down.
-func cancelPendingLocked(p *proc) {
-	p.pending = nil
-	p.note, _, _ = strings.Cut(p.note, restartingNote)
-	p.want = false
+	s.transitionLocked(p, evPending{kind: pendingRetry, now: now, at: at})
 }
 
 // pendingStart is an automatic start of a server that is down: a restart

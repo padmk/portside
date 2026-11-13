@@ -1,13 +1,10 @@
 package supervisor
 
 import (
-	"cmp"
 	"fmt"
 	"os"
 	"syscall"
 	"time"
-
-	"github.com/padmk/portside/internal/config"
 )
 
 // exitCode is a shell-style exit code: 128 plus the signal for a process
@@ -22,17 +19,18 @@ func exitCode(st *os.ProcessState, err error) int {
 	return st.ExitCode()
 }
 
-// wait reaps the process and decides what happens next. The process is a
-// child of this daemon, also when it was adopted from the binary this one
-// replaced, so waiting on its pid works either way.
-func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
+// wait reaps the process and records what happens next (endedLocked). The
+// process is a child of this daemon, also when it was adopted from the
+// binary this one replaced, so waiting on its pid works either way.
+func (s *Supervisor) wait(p *proc, r *run, gen int) {
 	code := r.process.wait()
 	pgid := r.pid
 	s.mu.Lock()
-	// Read and recorded under the lock that start checks it under, so a
-	// request is ordered against the run's end the same way as its time.
-	p.reapedAt = time.Now()
-	stopping := s.requestedExitLocked(p) || p.stop != nil
+	// Recorded under the lock that start checks it under, so a request is
+	// ordered against the run's end the same way as its time.
+	reaped := time.Now()
+	s.transitionLocked(p, evReaped{at: reaped})
+	stopping := s.requestedExitLocked(p) || p.stopping() != nil
 	s.mu.Unlock()
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
@@ -47,7 +45,7 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 	}
 
 	s.mu.Lock()
-	if p.gen != gen {
+	if p.gen != gen || p.live() != r {
 		s.mu.Unlock()
 		return
 	}
@@ -56,117 +54,19 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 	p.exitedAt = time.Now()
 	// The run ended when its process did, before its output drained: a
 	// request from after that is not served by it.
-	p.settledAt = p.reapedAt
+	p.settledAt = reaped
 	p.exitCode = code
 	p.hasExit = true
-	p.cur = nil
 	p.cpu, p.mem = 0, 0
 	p.listening = false
 	close(r.done)
-	stamp := p.exitedAt.Format("15:04:05")
-	overMemory := ""
-	if p.stop != nil && p.stop.cause == stopMemory {
-		overMemory = p.stop.note
-	}
-
-	var restartIn time.Duration
-	again := false
-	switch {
-	case s.requestedExitLocked(p):
-		p.status = Stopped
-		p.note = ""
-		fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  stopped ──\x1b[0m\r\n", stamp)
-		// Started again while it was stopping, with no Stop since.
-		if stopAskedLocked(p) && p.next != nil && !p.removed && !s.closing {
-			again = true
-			p.status = Starting
-		}
-	case overMemory != "" && p.next != nil && !p.removed && !s.closing:
-		// Started again while the memory limit stopped it.
-		p.status = Starting
-		p.note = ""
-		fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  stopped: %s ──\x1b[0m\r\n", stamp, overMemory)
-		again = true
-	case overMemory != "":
-		// Whatever the exit code, also a task's: the limit ended it.
-		p.status = Crashed
-		p.note = overMemory
-		fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  crashed: %s ──\x1b[0m\r\n", stamp, overMemory)
-		if p.cfg.Restart != config.RestartNo {
-			restartIn = s.backoffLocked(p, uptime)
-		}
-	case code == 0 && p.running.Oneshot:
-		s.taskDoneLocked(p, stamp)
-	case code == 0:
-		p.status = Exited
-		p.note = "exited on its own"
-		fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  exited (code 0) ──\x1b[0m\r\n", stamp)
-		if p.cfg.Restart == config.RestartAlways {
-			restartIn = s.backoffLocked(p, uptime)
-		}
-	default:
-		p.status = Crashed
-		p.note = fmt.Sprintf("exited with code %d", code)
-		fmt.Fprintf(p.logs, "\r\n\x1b[31m── %s  crashed (code %d) ──\x1b[0m\r\n", stamp, code)
-		if p.cfg.Restart != config.RestartNo {
-			restartIn = s.backoffLocked(p, uptime)
-		}
-	}
-	if !again && !s.requestedExitLocked(p) && p.next != nil && !p.removed {
-		// Started again after it ended on its own, while its last output
-		// drained: run it now instead of what the exit alone would decide.
-		// During an upgrade in place the launch waits for its end; the
-		// next daemon starts the server, which stays wanted.
-		p.status = Starting
-		p.note = ""
-		p.retries = 0
-		restartIn = 0
-		again = true
-	}
-	p.pending = nil
-	if p.status == Crashed || p.status == Exited {
-		// Down for good: a crash nothing restarts, or restart = "always"
-		// gave up on a server meant to keep running.
-		down := restartIn == 0 && (p.status == Crashed || (p.cfg.Restart == config.RestartAlways && p.retries >= maxRetries))
-		retrying := false
-		if restartIn > 0 {
-			now := s.now()
-			s.scheduleRestartLocked(p, now, now.Add(restartIn))
-		} else if down {
-			s.reportCrashLocked(p, &code, uptime)
-			if p.status == Crashed && s.cfg.Notify && s.notifier != nil && s.desktopClients == 0 {
-				msg := fmt.Sprintf("Exited with code %d after %s", code, uptime.Round(time.Second))
-				if overMemory != "" {
-					msg = fmt.Sprintf("Stopped after %s: %s", uptime.Round(time.Second), overMemory)
-				}
-				go s.notifier(name+" crashed", msg)
-			}
-			retrying = s.retryLocked(p)
-		}
-		if restartIn == 0 && !retrying {
-			p.want = false // nothing to restore after a daemon restart
-		}
-	}
-	name = p.cfg.Name
-	token := p.startSeq
+	effs := s.transitionLocked(p, evEnded{code: code, uptime: uptime})
+	name := p.cfg.Name
 	removed := p.removed
-	var deps []string
-	trigger := triggerStart
-	if p.next != nil {
-		trigger = cmp.Or(p.next.trigger, triggerStart)
-	}
-	if again {
-		deps = s.cfg.WithDeps(p.cfg.DependsOn)
-		p.req = p.next
-	}
-	p.next, p.stop = nil, nil
 	s.changedLocked()
 	s.saveLocked()
-	s.mu.Unlock()
-
 	if removed {
-		s.mu.Lock()
-		if q, ok := s.procs[name]; ok && q == p && q.removed {
+		if q, ok := s.procs[name]; ok && q == p && q.removed && p.live() == nil {
 			q.logs.Close()
 			delete(s.procs, name)
 			for i, n := range s.order {
@@ -180,10 +80,8 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 		s.mu.Unlock()
 		return
 	}
-	if again {
-		_ = s.launch(name, deps, StartOptions{trigger: trigger}, token)
-		return
-	}
+	s.mu.Unlock()
+	s.runEffects(effs)
 }
 
 // requestedExitLocked reports whether p's process was asked to exit: by a
@@ -195,7 +93,7 @@ func (s *Supervisor) requestedExitLocked(p *proc) bool {
 
 // backoffLocked returns the delay before an automatic restart, or 0 to give up.
 func (s *Supervisor) backoffLocked(p *proc, uptime time.Duration) time.Duration {
-	if !p.want {
+	if !p.wanted() {
 		return 0
 	}
 	if uptime > time.Minute {

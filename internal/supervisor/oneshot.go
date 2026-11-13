@@ -20,17 +20,7 @@ const (
 
 // succeeded reports whether p is a task whose last run exited with code 0.
 func (p *proc) succeeded() bool {
-	return p.cfg.Oneshot && p.status == Exited && p.hasExit && p.exitCode == 0
-}
-
-// taskDoneLocked records a task's run that exited with code 0. Being done
-// ends its crash streak, as readiness does for a server.
-func (s *Supervisor) taskDoneLocked(p *proc, stamp string) {
-	p.status = Exited
-	p.note = noteDone
-	fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  done (code 0) ──\x1b[0m\r\n", stamp)
-	p.doneAt = p.settledAt
-	s.readyLocked(p, p.exitedAt)
+	return p.cfg.Oneshot && p.status() == Exited && p.hasExit && p.exitCode == 0
 }
 
 // taskState is how far a task got for a waiter.
@@ -53,15 +43,15 @@ func taskStateLocked(p *proc, since time.Time) taskState {
 		// A run since the request succeeded, also while a later start runs
 		// it again. A wait without a request (zero since) is for the last run.
 		return taskDone
-	case p.status == Starting || p.status == Stopping || p.status == Running:
+	case p.status() == Starting || p.status() == Stopping || p.status() == Running:
 		return taskPending
 	case fresh && p.succeeded():
 		return taskDone
-	case fresh && p.status == Crashed && p.pending != nil && p.pending.kind == pendingRestart:
+	case fresh && p.status() == Crashed && p.pending() != nil && p.pending().kind == pendingRestart:
 		return taskPending // an automatic restart follows
-	case fresh && p.status != Stopped:
+	case fresh && p.status() != Stopped:
 		return taskFailed
-	case p.want:
+	case p.wanted():
 		return taskPending // a start is on its way
 	}
 	return taskFailed
@@ -73,12 +63,11 @@ func taskStateLocked(p *proc, since time.Time) taskState {
 // restarted or retried, and it satisfies no one waiting for it.
 func (s *Supervisor) taskEndedInHandoffLocked(p *proc, h Handoff) {
 	log.Printf("handoff: task %s ended during the upgrade", h.Name)
-	p.status = Exited
+	s.transitionLocked(p, evSettle{status: Exited})
 	p.note = noteEndedInHandoff
 	p.hasExit = false
 	p.exitedAt = time.Now()
 	p.settledAt = p.exitedAt
 	p.retries = h.Retries
-	p.want = false
 	fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  ended during the upgrade (exit code unknown) ──\x1b[0m\r\n", p.exitedAt.Format("15:04:05"))
 }

@@ -283,7 +283,7 @@ func (h *harness) observe() observed {
 	h.s.mu.Lock()
 	var o observed
 	if p := h.s.procs[h.name]; p != nil {
-		o.status, o.pid, o.want, o.pending = p.status, p.livePID(), p.want, p.pending != nil
+		o.status, o.pid, o.want, o.pending = p.status(), p.livePID(), p.wanted(), p.pending() != nil
 	}
 	h.s.mu.Unlock()
 	h.w.mu.Lock()
@@ -329,6 +329,10 @@ func (h *harness) mismatch(o observed) string {
 		}
 		if o.pending != (m.pending != noPending) {
 			diffs = append(diffs, fmt.Sprintf("restart pending %v, want %v", o.pending, m.pending != noPending))
+		}
+		// Down, it is wanted only for the restart or retry that is due.
+		if o.want != o.pending {
+			diffs = append(diffs, fmt.Sprintf("wanted %v, restart pending %v", o.want, o.pending))
 		}
 	}
 	return strings.Join(diffs, "; ")
@@ -587,9 +591,6 @@ func TestModelLifecycle(t *testing.T) {
 			// A start that arrives after the leader exited and before wait
 			// reaped it.
 			"ExitThenStart": func(t *rapid.T) {
-				if skipFinding["ExitThenStart"] {
-					t.Skip("known finding")
-				}
 				p := h.live()
 				if p == nil || h.m.phase != mUp {
 					t.Skip("nothing runs")
@@ -628,10 +629,9 @@ func TestModelLifecycle(t *testing.T) {
 				h.m.upgrade()
 				h.settle(t)
 			},
+			// A rename also while a start waits in its preflight: the start
+			// goes on under the new name.
 			"Rename": func(t *rapid.T) {
-				if h.m.phase == mPreflight && skipFinding["RenameInPreflight"] {
-					t.Skip("known finding")
-				}
 				old := h.name
 				h.name = map[string]string{modelServer: modelServer + "-renamed", modelServer + "-renamed": modelServer}[old]
 				s, cfg, name := h.s, h.config(), h.name
@@ -665,16 +665,6 @@ func logSteps(steps map[string]func(*rapid.T)) map[string]func(*rapid.T) {
 		}
 	}
 	return out
-}
-
-// skipFinding names the steps that reproduce a reported defect still open.
-// They are left out unless MODEL_FINDINGS names them (comma-separated).
-var skipFinding = map[string]bool{"ExitThenStart": true, "RenameInPreflight": true}
-
-func init() {
-	for name := range strings.SplitSeq(os.Getenv("MODEL_FINDINGS"), ",") {
-		delete(skipFinding, strings.TrimSpace(name))
-	}
 }
 
 // modelChecks makes the default run short enough for every go test; the

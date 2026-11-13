@@ -187,17 +187,6 @@ func (s *Supervisor) reportCrashLocked(p *proc, exitCode *int, uptime time.Durat
 	}
 }
 
-// startFailedLocked reports a start that failed and schedules the next try
-// when retry_after asks for one.
-func (s *Supervisor) startFailedLocked(p *proc) {
-	p.req = nil // the start, a scheduled run among them, failed
-	p.settledAt = time.Now()
-	s.reportCrashLocked(p, nil, 0)
-	if !s.retryLocked(p) {
-		p.want = false
-	}
-}
-
 // unreadyLocked runs on_unready once a running server has not answered for
 // its unready_after, once per problem.
 func (s *Supervisor) unreadyLocked(p *proc, now time.Time) {

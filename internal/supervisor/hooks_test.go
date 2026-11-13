@@ -253,7 +253,7 @@ func TestUnreadyAndRecoveryReportedOnce(t *testing.T) {
 	})
 	s.mu.Lock()
 	p := s.procs["web"]
-	p.status = Running
+	s.transitionLocked(p, evReady{})
 	lost := time.Now()
 	for _, at := range []time.Duration{0, 29 * time.Second, 30 * time.Second, time.Minute} {
 		s.updateReadinessLocked(p, false, "", "health /healthz answers 503", nil, false, lost.Add(at))
@@ -415,7 +415,7 @@ func TestFailedTakeoverSettlesTheStart(t *testing.T) {
 	}
 	s.mu.Lock()
 	p := s.procs["web"]
-	status, wanted, holder := p.status, p.want, p.external
+	status, wanted, holder := p.status(), p.wanted(), p.external
 	st := s.stateLocked()
 	s.mu.Unlock()
 	if status != Blocked || wanted || holder == nil || holder.PID != os.Getpid() {

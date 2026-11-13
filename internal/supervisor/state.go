@@ -121,18 +121,18 @@ func (s *Supervisor) stateLocked() persisted {
 			continue
 		}
 		st.Servers[name] = exitState{
-			Status: p.status, Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt,
+			Status: p.status(), Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt,
 			Trigger: p.trigger, Streak: p.streak, Incident: p.incident, IncidentSince: p.incidentSince,
 			Schedule: p.scheduleExpr, NextRun: p.nextRun, LastRun: p.lastRun,
-			ScheduleReserved: p.req != nil && p.req.trigger == triggerSchedule,
+			ScheduleReserved: p.request() != nil && p.request().trigger == triggerSchedule,
 			SettledAt:        p.settledAt, DoneAt: p.doneAt,
 		}
-		if p.live() == nil && p.want {
+		if req := p.request(); req != nil {
 			e := st.Servers[name]
-			e.RequestedAt = p.lastRequestAt
+			e.RequestedAt = req.at
 			st.Servers[name] = e
 		}
-		if pd := p.pending; pd != nil {
+		if pd := p.pending(); pd != nil {
 			e := st.Servers[name]
 			if pd.kind == pendingRetry {
 				e.RetryAt = pd.at
@@ -141,7 +141,7 @@ func (s *Supervisor) stateLocked() persisted {
 			}
 			st.Servers[name] = e
 		}
-		if p.want {
+		if p.wanted() {
 			st.Running = append(st.Running, name)
 		}
 		if p.live() != nil {
@@ -211,7 +211,7 @@ func (s *Supervisor) Recover(restore bool) {
 			p.exitCode, p.hasExit, p.exitedAt = last.Code, last.HasExit, last.At
 			if last.Status == Crashed || last.Status == Exited || last.Status == Blocked {
 				// A restart it announced is scheduled again below, or not at all.
-				p.status = last.Status
+				s.transitionLocked(p, evSettle{status: last.Status})
 				p.note, _, _ = strings.Cut(last.Note, restartingNote)
 			}
 		}
@@ -267,13 +267,17 @@ func (s *Supervisor) Recover(restore bool) {
 				continue
 			}
 			started[name] = true
-			p.want = true
 			s.changedLocked()
 		}
 	}
 	// A scheduled run that was due but had not begun starts now, whatever
 	// restore says, as a run missed while the daemon was down would.
-	var scheduled []string
+	type reserved struct {
+		p     *proc
+		deps  []string
+		token int
+	}
+	var scheduled []reserved
 	if restore {
 		for name, last := range st.Servers {
 			p := s.procs[name]
@@ -284,8 +288,8 @@ func (s *Supervisor) Recover(restore bool) {
 			}
 			started[name] = true
 			// Reserved until the run begins, also across another crash.
-			p.req = &startRequest{trigger: triggerSchedule, at: time.Now()}
-			scheduled = append(scheduled, name)
+			deps, token := s.reserveStartLocked(p, triggerSchedule)
+			scheduled = append(scheduled, reserved{p, deps, token})
 		}
 	}
 	// An upgrade in place keeps every wanted server, such as one that was
@@ -313,7 +317,7 @@ func (s *Supervisor) Recover(restore bool) {
 			p, ok := s.procs[name]
 			// A restart or retry already pending keeps its time, and an
 			// adopted server runs.
-			enabled := ok && p.cfg.Enabled && !p.removed && p.pending == nil && p.live() == nil
+			enabled := ok && p.cfg.Enabled && !p.removed && p.pending() == nil && p.live() == nil
 			trigger := triggerRestore
 			if ok && upgrade && p.trigger != "" {
 				trigger = p.trigger
@@ -331,8 +335,8 @@ func (s *Supervisor) Recover(restore bool) {
 			}
 		}
 	}
-	for _, name := range scheduled {
-		_ = s.Start(name, StartOptions{trigger: triggerSchedule})
+	for _, r := range scheduled {
+		_ = s.launch(r.p, r.deps, StartOptions{trigger: triggerSchedule}, r.token)
 	}
 	s.mu.Lock()
 	s.saveLocked()

@@ -34,7 +34,7 @@ Do not run `make app-install` or `make install` there: the first replaces the ap
 
 `make lint` builds golangci-lint and `tools/lintcheck` into `bin/` from the separate module `tools/go.mod`, with this module's toolchain, and runs:
 
-1. `go vet -vettool=bin/lintcheck`: the project's own analyzers. `httpclienttimeout` reports an `http.Client` literal without `Timeout`; a client whose requests carry their own deadline, or one for a WebSocket or another long-lived stream, sets `Timeout: 0` with a comment saying why.
+1. `go vet -vettool=bin/lintcheck`: the project's own analyzers. `httpclienttimeout` reports an `http.Client` literal without `Timeout`; a client whose requests carry their own deadline, or one for a WebSocket or another long-lived stream, sets `Timeout: 0` with a comment saying why. `phaseassign` reports a change of a server's phase (`proc.ph` in `internal/supervisor`) outside `transition.go`; tests may set one by hand.
 2. golangci-lint with `.golangci.yml`, without `noctx` and `contextcheck`.
 3. `noctx` and `contextcheck` over code changed since `LINT_BASE` only (default: the merge base with `origin/main`), since older code calls `exec.Command`, `net.Dial` and the like without a context.
 4. `funlen` and `gocognit`, which only print warnings (`LINT_WARN=0` leaves them out).
@@ -51,7 +51,7 @@ Do not run `make app-install` or `make install` there: the first replaces the ap
 go test ./internal/supervisor -run TestModelLifecycle -rapid.checks=2000 -rapid.steps=60
 ```
 
-`TestModelDependencies` (`model_deps_test.go`) does the same for a server that depends on a task (a migration): the task runs once for every start that needs it, also across upgrades in place, and the server starts only after the task succeeded. A failure prints the steps (`ran <step>` lines), shrunk to a short sequence, and saves them under `internal/supervisor/testdata/rapid` (ignored by git); `-rapid.failfile=<file>` replays one. Steps that reproduce a reported defect still open are listed in `skipFinding` and run only when `MODEL_FINDINGS` names them (`MODEL_FINDINGS=RenameInPreflight go test ...`).
+`TestModelDependencies` (`model_deps_test.go`) does the same for a server that depends on a task (a migration): the task runs once for every start that needs it, also across upgrades in place, and the server starts only after the task succeeded. A failure prints the steps (`ran <step>` lines), shrunk to a short sequence, and saves them under `internal/supervisor/testdata/rapid` (ignored by git); `-rapid.failfile=<file>` replays one.
 
 ## Idle benchmark
 

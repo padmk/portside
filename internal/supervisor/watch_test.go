@@ -176,7 +176,7 @@ func TestWatchIgnoresStoppedServer(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	waitRuns(t, runs, 1)
 	s.mu.Lock()
-	st, files := s.procs["web"].status, s.procs["web"].watch.files
+	st, files := s.procs["web"].status(), s.procs["web"].watch.files
 	s.mu.Unlock()
 	if st != Stopped || files != nil {
 		t.Errorf("status %s, scanned %v", st, files)

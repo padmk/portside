@@ -79,13 +79,13 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 	var lastPorts time.Time
 	for range tick.C {
 		s.mu.Lock()
-		if p.gen != gen || (p.status != Starting && p.status != Running) || p.live() == nil {
+		if p.gen != gen || (p.status() != Starting && p.status() != Running) || p.live() == nil {
 			s.mu.Unlock()
 			return
 		}
 		port, health, started, pid := p.running.Port, p.running.Health, p.startedAt, p.livePID()
 		readyLog := ""
-		if p.status == Starting && !p.logReady.Load() {
+		if p.status() == Starting && !p.logReady.Load() {
 			readyLog = p.running.ReadyLog
 		}
 		after := p.running.ReadyAfter
@@ -93,7 +93,7 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 			after = 1500 * time.Millisecond
 		}
 		next := startingProbe
-		if p.status == Running {
+		if p.status() == Running {
 			next = runningProbe
 		}
 		s.mu.Unlock()
@@ -132,7 +132,7 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 			slices.Sort(listenPorts)
 		}
 		s.mu.Lock()
-		if p.gen == gen && p.live() != nil && (p.status == Starting || p.status == Running) {
+		if p.gen == gen && p.live() != nil && (p.status() == Starting || p.status() == Running) {
 			s.updateReadinessLocked(p, ready, host, reason, listenPorts, inspect, time.Now())
 		}
 		s.mu.Unlock()
@@ -154,10 +154,10 @@ func inProcessTree(table map[int]procSample, pid, root int) bool {
 }
 
 func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason string, listenPorts []int, inspect bool, now time.Time) {
-	if p.next != nil {
+	if p.next() != nil {
 		return // the run ended and the next one is on its way: nothing of it is news
 	}
-	oldNote, oldStatus, oldListening, oldHost := p.note, p.status, p.listening, p.listenHost
+	oldNote, oldStatus, oldListening, oldHost := p.note, p.status(), p.listening, p.listenHost
 	p.listening = host != "" && p.running.Port > 0
 	if host != "" {
 		p.listenHost = host
@@ -166,8 +166,9 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 		p.missingSince = time.Time{}
 		p.note = ""
 		p.listenPorts = nil
-		if p.status == Starting {
-			p.status, p.readyAt = Running, now
+		if p.status() == Starting {
+			s.transitionLocked(p, evReady{})
+			p.readyAt = now
 			s.requestExposureLocked()
 		}
 		s.readyLocked(p, now)
@@ -175,7 +176,7 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 		if inspect {
 			p.listenPorts = listenPorts
 		}
-		if p.status == Running {
+		if p.status() == Running {
 			if p.missingSince.IsZero() {
 				p.missingSince = now
 			}
@@ -197,7 +198,7 @@ func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason str
 			}
 		}
 	}
-	if oldNote != p.note || oldStatus != p.status || oldListening != p.listening || oldHost != p.listenHost || inspect {
+	if oldNote != p.note || oldStatus != p.status() || oldListening != p.listening || oldHost != p.listenHost || inspect {
 		s.changedLocked()
 	}
 }
@@ -231,7 +232,7 @@ func (s *Supervisor) WaitReady(ctx context.Context, name string, since time.Time
 		var tail []string
 		var progress taskState
 		if ok {
-			st, note, wanted, port, health, gen = p.status, p.note, p.want, p.running.Port, p.running.Health, p.gen
+			st, note, wanted, port, health, gen = p.status(), p.note, p.wanted(), p.running.Port, p.running.Health, p.gen
 			if st == Crashed || st == Exited {
 				tail = p.logs.Tail(5, 240)
 			}
@@ -254,7 +255,7 @@ func (s *Supervisor) WaitReady(ctx context.Context, name string, since time.Time
 			}
 			host, reason := probeReady(port, health)
 			s.mu.Lock()
-			current := p.gen == gen && p.status == Running
+			current := p.gen == gen && p.status() == Running
 			if current {
 				s.updateReadinessLocked(p, host != "" && reason == "", host, reason, nil, false, time.Now())
 			}

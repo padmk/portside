@@ -78,14 +78,14 @@ func watchModeLocked(p *proc) watchMode {
 	switch {
 	case p.removed || !p.cfg.Enabled:
 		return watchOff
-	case p.watch.restarting || p.status == Stopping:
+	case p.watch.restarting || p.status() == Stopping:
 		return watchAbsorb
 	case p.cfg.Oneshot:
-		if p.status == Starting {
+		if p.status() == Starting {
 			return watchOn
 		}
 		return watchOff
-	case p.status == Starting || p.status == Running || p.status == Crashed || p.status == Exited:
+	case p.status() == Starting || p.status() == Running || p.status() == Crashed || p.status() == Exited:
 		return watchOn
 	}
 	return watchOff
@@ -238,7 +238,7 @@ func (s *Supervisor) checkWatches(now time.Time) bool {
 		if len(w.changed) == 0 || now.Sub(w.lastChange) < s.watchQuiet*9/10 {
 			continue
 		}
-		alive := p.status == Starting || p.status == Running
+		alive := p.status() == Starting || p.status() == Running
 		verb := "starting"
 		if alive {
 			verb = "restarting"
@@ -284,20 +284,14 @@ func (s *Supervisor) watchRestart(st watchStart) {
 		// throughout and nothing waiting for it sees it stopped; wait
 		// launches it once the group has exited, unless a stop comes first.
 		s.mu.Lock()
-		if s.procs[st.name] != p || p.startSeq != st.seq || p.live() == nil || p.stop != nil || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
+		if s.procs[st.name] != p || p.startSeq != st.seq || p.live() == nil || p.stopping() != nil || p.next() != nil || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
 			s.mu.Unlock()
 			return
 		}
 		p.retries = 0
-		p.stop = &stopRequest{cause: stopAsked}
-		s.reserveLocked(p, startRequest{trigger: triggerWatch})
-		p.status = Stopping
-		pid, done, grace := p.live().pid, p.live().done, p.running.Stop
-		ending := s.beginEndingLocked(p)
-		s.changedLocked()
+		effs := s.transitionLocked(p, evRestartRun{req: startRequest{trigger: triggerWatch}})
 		s.mu.Unlock()
-		terminate(s.sys, pid, done, grace)
-		s.endEnding(ending)
+		s.runEffects(effs)
 		return
 	}
 	// Reserved under the lock that checks nothing else started or stopped
@@ -309,7 +303,7 @@ func (s *Supervisor) watchRestart(st watchStart) {
 	}
 	deps, token := s.reserveStartLocked(p, triggerWatch)
 	s.mu.Unlock()
-	if err := s.launch(st.name, deps, StartOptions{trigger: triggerWatch}, token); err != nil {
+	if err := s.launch(p, deps, StartOptions{trigger: triggerWatch}, token); err != nil {
 		log.Printf("watch: %s: %v", st.name, err)
 	}
 }

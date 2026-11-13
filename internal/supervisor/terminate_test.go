@@ -181,13 +181,14 @@ func TestReadinessDiagnosticsAndReloadGrace(t *testing.T) {
 	s := lifecycleSupervisor(t, "sleep 60", config.RestartNo)
 	p := s.procs["web"]
 	p.running.Port = 4802
-	p.status, p.startedAt = Starting, t0
+	setPhase(t, p, running{run: &run{}})
+	p.startedAt = t0
 	s.updateReadinessLocked(p, false, "", "waiting for port 4802", []int{4803}, true, t0.Add(11*time.Second))
 	if !strings.Contains(p.note, "listening on 4803, not 4802") {
 		t.Fatalf("wrong-port note: %s", p.note)
 	}
 	s.updateReadinessLocked(p, true, "::1", "", nil, false, t0.Add(12*time.Second))
-	if p.status != Running || p.note != "" || len(p.listenPorts) != 0 {
+	if p.status() != Running || p.note != "" || len(p.listenPorts) != 0 {
 		t.Fatalf("ready state: %+v", p)
 	}
 	lost := t0.Add(13 * time.Second)
@@ -203,8 +204,7 @@ func TestReadinessDiagnosticsAndReloadGrace(t *testing.T) {
 	if p.note != "" {
 		t.Fatal("recovery did not clear degraded note")
 	}
-	p.cur = &run{pid: 1}
-	t.Cleanup(func() { p.cur = nil })
+	setPhase(t, p, running{run: &run{pid: 1}, ready: true})
 	if got := s.Snapshot(19000)[0].URL; got != "http://[::1]:4802" {
 		t.Fatal(got)
 	}
@@ -218,7 +218,8 @@ func TestWaitReadyRechecksListenerAndHealth(t *testing.T) {
 	h := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
 	addr := h.Listener.Addr().(*net.TCPAddr)
 	p := s.procs["web"]
-	p.running.Port, p.running.Health, p.status = addr.Port, "/health", Running
+	p.running.Port, p.running.Health = addr.Port, "/health"
+	setPhase(t, p, running{run: &run{}, ready: true})
 	if err := s.WaitReady(context.Background(), "web", time.Time{}, time.Second); err == nil || !strings.Contains(err.Error(), "health /health answers 500") {
 		t.Fatalf("health error: %v", err)
 	}

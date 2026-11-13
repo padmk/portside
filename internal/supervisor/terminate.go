@@ -20,6 +20,10 @@ func Terminate(pgid int, done <-chan struct{}, grace time.Duration) {
 }
 
 func terminate(sys system, pgid int, done <-chan struct{}, grace time.Duration) {
+	if pgid <= 1 {
+		// -0 is this daemon's own group and -1 every process it may signal.
+		return
+	}
 	if grace <= 0 {
 		grace = 10 * time.Second
 	}

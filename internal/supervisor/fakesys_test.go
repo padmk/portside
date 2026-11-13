@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/creack/pty"
@@ -303,7 +304,24 @@ func (h *fakeHandle) reaped() bool {
 	return h.p.reaped
 }
 
+func (h *fakeHandle) exited() bool {
+	select {
+	case <-h.p.exited:
+		return true
+	default:
+		return false
+	}
+}
+
 func syscallDup(fd int) (int, error) { return syscall.Dup(fd) }
+
+// setPhase puts p in ph for a test that builds a state by hand, and puts
+// it back down when the test ends, before the supervisor's own cleanup.
+func setPhase(t *testing.T, p *proc, ph phase) {
+	t.Helper()
+	p.ph = ph
+	t.Cleanup(func() { p.ph = idle{status: Stopped} })
+}
 
 // retireDaemon ends what a daemon of a model run leaves behind once the run
 // is over, as its exit would: readiness loops (they see a newer

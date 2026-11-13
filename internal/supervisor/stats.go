@@ -205,7 +205,7 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 		cfg  config.Server
 	}
 	var detections []detection
-	var overLimit []memoryStop
+	var overLimit [][]effect
 	s.mu.Lock()
 	prepend, globalEnv := s.cfg.PathPrepend, s.cfg.Env
 	for name, p := range s.procs {
@@ -218,13 +218,13 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 				p.cpu, p.mem = cpu, mem
 				p.hist.add(cpu, mem, now)
 				changed = true
-				if stop, over := s.overMemoryLocked(p, mem); over {
-					overLimit = append(overLimit, stop)
+				if effs := s.overMemoryLocked(p, mem); len(effs) > 0 { //nolint:contextcheck // what a transition starts (hooks, launches) lives as long as the daemon, not this sample
+					overLimit = append(overLimit, effs)
 				}
 			}
 		}
 		// watchReady keeps the listener of a starting or running server current.
-		if p.cfg.Port > 0 && p.status != Starting && p.status != Stopping && !(p.live() != nil && p.status == Running) {
+		if p.cfg.Port > 0 && p.status() != Starting && p.status() != Stopping && !(p.live() != nil && p.status() == Running) {
 			port := p.cfg.Port
 			if p.live() != nil {
 				port = p.running.Port
@@ -238,11 +238,8 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 		}
 	}
 	s.mu.Unlock()
-	for _, stop := range overLimit {
-		go func() {
-			terminate(s.sys, stop.pid, stop.done, stop.grace)
-			s.endEnding(stop.ending)
-		}()
+	for _, effs := range overLimit {
+		go s.runEffects(effs) //nolint:contextcheck // what a transition starts (hooks, launches) lives as long as the daemon, not this sample
 	}
 
 	if len(detections) > 0 {
@@ -288,15 +285,15 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 					// A blocked server with a retry pending stays blocked, so
 					// the retry (which now finds the port free) can still be
 					// stopped.
-					if p.status == Blocked && p.pending != nil {
+					if p.status() == Blocked && p.pending() != nil {
 						_, at, _ := strings.Cut(p.note, restartingNote)
 						p.note = fmt.Sprintf("port %d is free now", c.port) + restartingNote + at
 					}
 					changed = true
 				}
-				if p.status == Blocked && p.pending == nil {
+				if p.status() == Blocked && p.pending() == nil {
 					// Also once a retry that kept it blocked is cancelled.
-					p.status = Stopped
+					s.transitionLocked(p, evSettle{status: Stopped}) //nolint:contextcheck // what a transition starts (hooks, launches) lives as long as the daemon, not this sample
 					p.note = ""
 					changed = true
 				}
