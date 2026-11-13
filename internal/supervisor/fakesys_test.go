@@ -304,3 +304,19 @@ func (h *fakeHandle) reaped() bool {
 }
 
 func syscallDup(fd int) (int, error) { return syscall.Dup(fd) }
+
+// retireDaemon ends what a daemon of a model run leaves behind once the run
+// is over, as its exit would: readiness loops (they see a newer
+// generation), terminals and log files. Without it they add up over a long
+// run and slow the tests after it.
+func retireDaemon(s *Supervisor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.procs {
+		p.gen++
+		if p.pty != nil {
+			_ = p.pty.Close()
+		}
+		p.logs.Close()
+	}
+}

@@ -434,16 +434,8 @@ func (h *harness) cleanup() {
 	h.w.mu.Unlock()
 	h.gate.open(false)
 	h.calls.Wait()
-	// A replaced daemon no longer runs; its terminals would otherwise stay
-	// open until the system has none left.
-	for _, s := range h.replaced {
-		s.mu.Lock()
-		for _, p := range s.procs {
-			if p.pty != nil {
-				_ = p.pty.Close()
-			}
-		}
-		s.mu.Unlock()
+	for _, s := range append(h.replaced, h.s) {
+		retireDaemon(s)
 	}
 }
 

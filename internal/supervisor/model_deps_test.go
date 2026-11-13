@@ -309,13 +309,7 @@ func (d *depsHarness) cleanup() {
 	_ = d.s.Stop(depsServer)
 	d.calls.Wait()
 	for _, s := range append(d.replaced, d.s) {
-		s.mu.Lock()
-		for _, p := range s.procs {
-			if p.pty != nil {
-				_ = p.pty.Close()
-			}
-		}
-		s.mu.Unlock()
+		retireDaemon(s)
 	}
 	_ = os.RemoveAll(d.root)
 }
