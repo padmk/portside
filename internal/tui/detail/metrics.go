@@ -96,6 +96,7 @@ func emptyMetrics(v supervisor.View, interval time.Duration) string {
 	switch v.Status {
 	case supervisor.Running, supervisor.Starting:
 		return "Running; the first sample comes within " + durationLabel(interval)
+	default:
 	}
 	return "No samples yet. The daemon samples CPU and memory while the server runs."
 }

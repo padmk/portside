@@ -14,7 +14,7 @@ func TestRecoverWithReportsThroughTheChannel(t *testing.T) {
 	go func() {
 		defer RecoverWith(func(p PanicMsg) { result <- p })
 		var m map[string]int
-		m["x"] = 1 // panics: assignment to a nil map
+		m["x"] = 1 //nolint:staticcheck // SA5000: the test needs this panic
 		result <- nil
 	}()
 	select {

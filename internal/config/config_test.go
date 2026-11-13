@@ -228,11 +228,11 @@ retry_after = "0s"
 	if api.Umask != "077" || api.OnUnready != "" || api.OnRecover != "all-clear" || api.UnreadyAfter != 30*time.Second || api.RetryAfter != 0 {
 		t.Errorf("api overrides: %+v", api)
 	}
-	if cfg, err := Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n")); err != nil || cfg.OwnEnv || cfg.Servers[0].UnreadyAfter != DefaultUnreadyAfter || cfg.Servers[0].Umask != "" {
+	if cfg, err = Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n")); err != nil || cfg.OwnEnv || cfg.Servers[0].UnreadyAfter != DefaultUnreadyAfter || cfg.Servers[0].Umask != "" {
 		t.Errorf("defaults: %+v, %v", cfg, err)
 	}
 	// A server comes back after a crash unless told otherwise; a task's failed run is reported at once.
-	if cfg, err := Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n[servers.migrate]\ncmd = \"y\"\noneshot = true\nport = 0\n")); err != nil ||
+	if cfg, err = Parse("/tmp/portside.toml", []byte("[servers.web]\ncmd = \"x\"\n[servers.migrate]\ncmd = \"y\"\noneshot = true\nport = 0\n")); err != nil ||
 		cfg.Servers[0].Restart != RestartOnFailure || cfg.Servers[1].Restart != RestartNo {
 		t.Errorf("default restart policies: %+v, %v", cfg, err)
 	}

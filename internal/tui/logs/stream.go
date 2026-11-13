@@ -85,7 +85,7 @@ func newFeed(ctx context.Context) *feed {
 // connection it tries again after retryDelay.
 func openFeed(ctx context.Context, c *client.Client, server string) *feed {
 	f := newFeed(ctx)
-	go func() {
+	go func() { //nolint:contextcheck // the feed runs under f.ctx, derived from ctx
 		defer ui.RecoverWith(f.publishPanic)
 		f.run(c, server)
 	}()

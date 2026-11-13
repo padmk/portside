@@ -10,7 +10,7 @@ func TestPlainText(t *testing.T) {
 		"npm run dev":                   "npm run dev",
 		"a\x1b[2Jb":                     "a�[2Jb",
 		"bell\a\x7f":                    "bell��",
-		"left‮right⁦":                   "left�right�",
+		"left\u202eright\u2066":         "left�right�",
 		"👩‍💻 dev":                       "👩‍💻 dev", // the joiner keeps the emoji whole
 		"tab\there":                     "tab�here",
 		"\x9b31m c1 control introducer": "�31m c1 control introducer",

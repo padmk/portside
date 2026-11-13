@@ -98,6 +98,7 @@ func levelStyle(s theme.Styles, l ui.Level) lipgloss.Style {
 		return s.Warn
 	case ui.LevelSuccess:
 		return s.Running
+	case ui.LevelInfo:
 	}
 	return s.Info
 }

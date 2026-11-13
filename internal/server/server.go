@@ -347,7 +347,7 @@ func (s *Server) reloadIfChanged() {
 	changed = !st.ModTime().Equal(s.cfgMod)
 	s.cfgMu.Unlock()
 	if changed {
-		s.reload()
+		_ = s.reload() // it logs the error and the dashboard shows it
 	}
 }
 

@@ -226,7 +226,7 @@ func (s *Server) fromOwner(r *http.Request) bool {
 func (s *Server) lookupOwner(r *http.Request) (bool, error) {
 	client, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // not a TCP connection: refused for good
 	}
 	la, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if !ok {
@@ -234,7 +234,7 @@ func (s *Server) lookupOwner(r *http.Request) (bool, error) {
 	}
 	server, err := netip.ParseAddrPort(la.String())
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // not a TCP connection: refused for good
 	}
 	lookup := s.connOwner
 	if lookup == nil {

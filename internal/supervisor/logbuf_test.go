@@ -349,7 +349,7 @@ func TestMarksSurviveBufferTrim(t *testing.T) {
 			}
 			// This write crosses the limit and trims the head of the buffer.
 			before := time.Now()
-			lb.Write([]byte(fmt.Sprintf("%07d%s\n", n, strings.Repeat(".", 92))))
+			fmt.Fprintf(lb, "%07d%s\n", n, strings.Repeat(".", 92))
 			if len(lb.buf) > logBufferSize*3/4+200 || len(lb.buf) < logBufferSize/2 {
 				t.Fatalf("buffer holds %d bytes after the trim", len(lb.buf))
 			}
@@ -399,7 +399,7 @@ func TestLogBufferConcurrent(t *testing.T) {
 	for range 4 {
 		wg.Go(func() {
 			for i := range 500 {
-				lb.Write([]byte(fmt.Sprintf("line %d\n", i)))
+				fmt.Fprintf(lb, "line %d\n", i)
 			}
 		})
 	}

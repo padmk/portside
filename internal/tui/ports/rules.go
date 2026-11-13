@@ -69,6 +69,7 @@ func Describe(l Listener) string {
 		return "container " + name
 	case RoleBlocks:
 		return "blocks " + l.Server
+	case RoleOther:
 	}
 	if l.Managed && l.Server != "" {
 		return l.Server
@@ -154,6 +155,7 @@ func Off(env *ui.Env, id string, l Listener) string {
 		switch RoleOf(l) {
 		case RoleOther:
 			return "no server or container of the daemon's uses this port"
+		case RoleManaged, RoleContainer, RoleBlocks:
 		}
 	default:
 		return "not for a port"

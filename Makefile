@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --dirty 2>/dev/null || echo 0.1.0-dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PREFIX  ?= $(HOME)/.local
 
-.PHONY: build ui go install dev-daemon dev-open dev-ui check notices clean snapshot app app-install
+.PHONY: build ui go install dev-daemon dev-open dev-ui check lint hooks notices clean snapshot app app-install
 
 ## build: dashboard + binary in ./bin/portside (the dashboard must exist before Go embeds it)
 build: ui
@@ -38,12 +38,40 @@ dev-open:
 dev-ui:
 	pnpm --dir web dev
 
-check:
+## check: vet, the linters, the tests with the race detector, the dashboard build and the license notices
+check: lint
 	go vet ./...
-	go test ./...
+	go test -race ./...
 	pnpm --dir web build
 	go run ./scripts/notices -check
 	go run ./scripts/tuithemes -check
+
+# The linters come from tools/go.mod, built with this module's toolchain.
+LINT_BIN := $(CURDIR)/bin/golangci-lint
+CHECK_BIN := $(CURDIR)/bin/lintcheck
+# noctx and contextcheck report only code changed since LINT_BASE.
+LINT_BASE ?= $(shell git merge-base HEAD origin/main 2>/dev/null || echo HEAD)
+# LINT_PKGS narrows the run to some packages and LINT_WARN=0 leaves out the
+# warnings (the pre-commit hook sets both).
+LINT_PKGS ?= ./...
+LINT_WARN ?= 1
+
+$(LINT_BIN): tools/go.mod tools/go.sum
+	cd tools && GOOS= GOARCH= go build -o $(LINT_BIN) github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+
+$(CHECK_BIN): tools/go.mod tools/go.sum $(wildcard tools/lintcheck/*.go)
+	cd tools && GOOS= GOARCH= go build -o $(CHECK_BIN) ./lintcheck
+
+## lint: go vet with the project's analyzers, then golangci-lint (.golangci.yml); funlen and gocognit only warn
+lint: $(LINT_BIN) $(CHECK_BIN)
+	go vet -vettool=$(CHECK_BIN) $(LINT_PKGS)
+	$(LINT_BIN) run -D noctx,contextcheck $(LINT_PKGS)
+	$(LINT_BIN) run --enable-only noctx,contextcheck --new-from-rev=$(LINT_BASE) $(LINT_PKGS)
+	@if [ "$(LINT_WARN)" != 0 ]; then $(LINT_BIN) run --enable-only funlen,gocognit --issues-exit-code=0 $(LINT_PKGS); fi
+
+## hooks: run .githooks/pre-commit before every commit in this clone
+hooks:
+	git config core.hooksPath .githooks
 
 ## notices: regenerate THIRD_PARTY_NOTICES.txt from the Go modules, web/node_modules and theme credits
 notices:

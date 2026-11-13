@@ -94,8 +94,8 @@ func parseCronField(text string, f cronField) (uint64, error) {
 	for item := range strings.SplitSeq(text, ",") {
 		rng, stepText, hasStep := strings.Cut(item, "/")
 		lo, hi := f.min, f.max
-		switch {
-		case rng == "*":
+		switch rng {
+		case "*":
 			if f.name == "day of week" {
 				hi = 6
 			}

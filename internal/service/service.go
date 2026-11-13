@@ -180,7 +180,7 @@ func installSystemd(exe, file, configPath string) error {
 	importSessionEnv()
 	for _, args := range [][]string{{"--user", "daemon-reload"}, {"--user", "enable", "--now", app.ID + ".service"}} {
 		if out, err := exec.Command("systemctl", args...).CombinedOutput(); err != nil {
-			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 		}
 	}
 	return nil
@@ -429,7 +429,7 @@ func Restart() error {
 
 func run(name string, args ...string) error {
 	if out, err := exec.Command(name, args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("%s %s: %v: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

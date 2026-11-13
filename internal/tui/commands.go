@@ -202,6 +202,7 @@ func (m *model) checkName(a keymap.Action, arg string) error {
 		return nil
 	case keymap.ArgState:
 		choices = append(slices.Clone(choices), "all")
+	default:
 	}
 	if slices.Contains(choices, arg) {
 		return nil

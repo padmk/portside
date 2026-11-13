@@ -160,7 +160,7 @@ func Shell(env *ui.Env, v supervisor.View) tea.Cmd {
 	if sh == "" {
 		sh = "/bin/sh"
 	}
-	c := exec.Command(sh)
+	c := exec.Command(sh) //nolint:noctx // ui.Process hangs the shell up when the UI ends
 	c.Dir = v.Dir
 	name := v.Name
 	// The shell ends with the program (ui.Process): the UI then quits.

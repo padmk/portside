@@ -208,7 +208,7 @@ func runCLI(env *ui.Env, seq int, what string, args ...string) tea.Cmd {
 		return notice(ui.LevelError, what+": "+err.Error())
 	}
 	script := `"$0" "$@"; status=$?; printf '\n[exit %s] Press enter to return to the terminal UI ' "$status"; read _; exit $status`
-	cmd := exec.Command("/bin/sh", append([]string{"-c", script, exe}, args...)...)
+	cmd := exec.Command("/bin/sh", append([]string{"-c", script, exe}, args...)...) //nolint:noctx // ui.Process hangs it up when the UI ends
 	return ui.Exec(&ui.Process{Ctx: env.ProgramContext(), Cmd: cmd}, func(err error) tea.Msg {
 		return execDoneMsg{what: what, err: err, seq: seq}
 	})

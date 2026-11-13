@@ -196,7 +196,8 @@ func TestViewMasksSecretsAndScrolls(t *testing.T) {
 		t.Errorf("the secret shows before editing:\n%s", view)
 	}
 	press(env, m, "j", "j", "j", "enter")
-	if view := ansi.Strip(m.View(env, 80, 24)); !strings.Contains(view, "TOKEN=abc") {
+	view = ansi.Strip(m.View(env, 80, 24))
+	if !strings.Contains(view, "TOKEN=abc") {
 		t.Errorf("editing does not show the secret:\n%s", view)
 	}
 	press(env, m, "esc", "G")

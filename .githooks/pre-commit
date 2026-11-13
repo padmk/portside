@@ -1,0 +1,29 @@
+#!/bin/sh
+# Checks a commit before it is made: gofmt and the linters on the staged Go
+# packages, and the TypeScript compiler when web/ changes. `make hooks`
+# turns it on for this clone; `git commit --no-verify` skips it once.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+
+staged() { git diff --cached --name-only --diff-filter=ACMR -- "$@"; }
+
+go_files=$(staged '*.go' | grep -v '^tools/' || true)
+if [ -n "$go_files" ]; then
+	# shellcheck disable=SC2086 # one path per word; repository paths hold no spaces
+	unformatted=$(gofmt -l $go_files)
+	if [ -n "$unformatted" ]; then
+		echo "pre-commit: not gofmt-formatted (run gofmt -w):" >&2
+		echo "$unformatted" >&2
+		exit 1
+	fi
+	pkgs=$(for f in $go_files; do echo "./$(dirname "$f")"; done | sort -u | tr '\n' ' ')
+	make --no-print-directory lint LINT_PKGS="$pkgs" LINT_BASE=HEAD LINT_WARN=0
+fi
+
+if [ -n "$(staged 'web/*.ts' 'web/*.tsx' 'web/tsconfig.json' 'web/package.json')" ]; then
+	if [ ! -d web/node_modules ]; then
+		echo "pre-commit: web/ changed but its dependencies are missing: run pnpm --dir web install" >&2
+		exit 1
+	fi
+	pnpm --dir web typecheck
+fi

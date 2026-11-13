@@ -104,10 +104,10 @@ func (m Menu) window() (start, end int, up, down bool) {
 		first = cur - 1
 	}
 	room := func(off int) (int, bool, bool) {
-		up := off > 0
-		r := avail - b2i(up)
-		down := off+r < n
-		return r - b2i(down), up, down
+		above := off > 0
+		r := avail - b2i(above)
+		below := off+r < n
+		return r - b2i(below), above, below
 	}
 	// The last window fills the box: "more" above and lines to the end.
 	off := max(0, min(m.offset, n-(avail-1)))
@@ -194,6 +194,7 @@ func (it MenuItem) label(max int, tail, mark string) string {
 		l = mark + " " + l
 	case CheckOff:
 		l = strings.Repeat(" ", ansi.StringWidth(mark)+1) + l
+	case NoCheck:
 	}
 	if ansi.StringWidth(l) > max {
 		l = ansi.Truncate(l, max-1, "") + tail

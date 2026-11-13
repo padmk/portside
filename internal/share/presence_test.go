@@ -121,7 +121,7 @@ func TestConnectionAnnouncedOncePerNewConnection(t *testing.T) {
 	for connected().Connected && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if d := connected(); d.Connected || time.Since(d.LastSeen) > time.Minute {
+	if d = connected(); d.Connected || time.Since(d.LastSeen) > time.Minute {
 		t.Errorf("after the stream ended: %+v", d)
 	}
 

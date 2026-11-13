@@ -42,7 +42,7 @@ type Status struct {
 }
 
 // ErrUnavailable means the tailscale CLI is missing or Tailscale is not connected.
-var ErrUnavailable = errors.New("Tailscale is not available")
+var ErrUnavailable = errors.New("Tailscale is not available") //nolint:staticcheck // ST1005: starts with a product name
 
 // Why Tailscale is unavailable, so the dashboard can say what to do.
 const (

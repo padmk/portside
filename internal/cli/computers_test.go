@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -29,7 +30,7 @@ func TestPairReadsTheCodeFromStandardInput(t *testing.T) {
 	e, _, _ = testEnv(cfg)
 	e.in = strings.NewReader("abcd-efgh\n")
 	err := cmdPair(e, []string{"devbox", "abcd-efgh"})
-	if _, ok := err.(usageError); !ok || !strings.Contains(err.Error(), "not taken as an argument") {
+	if _, ok := errors.AsType[usageError](err); !ok || !strings.Contains(err.Error(), "not taken as an argument") {
 		t.Errorf("code as an argument: %v, want a usage error", err)
 	}
 	if got != nil {

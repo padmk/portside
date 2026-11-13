@@ -295,6 +295,7 @@ func (w wrapper) render(text string) string {
 			b.WriteString(w.suf)
 		}
 		return b.String()
+	case wrapRendering:
 	}
 	return w.style.Render(text)
 }

@@ -69,6 +69,7 @@ func (m *model) syncLeft() {
 			if !m.showPorts {
 				continue
 			}
+		default:
 		}
 		want = append(want, p)
 	}
@@ -233,6 +234,7 @@ func (m *model) itemOff(id string, t ui.Selection) (string, bool) {
 			return "already " + o.verb, true
 		}
 		return ports.Off(&m.env, id, l), true
+	case ui.SelectNone, ui.SelectServer, ui.SelectGroup:
 	}
 	return "", false
 }
@@ -254,6 +256,7 @@ func (m *model) itemAct(id string, t ui.Selection, confirmed bool) (tea.Cmd, boo
 		return m.containerAct(id, t, confirmed), true
 	case ui.SelectPort:
 		return m.portAct(id, t, confirmed), true
+	case ui.SelectNone, ui.SelectServer, ui.SelectGroup:
 	}
 	return nil, false
 }
@@ -368,6 +371,7 @@ func (m *model) listenerAct(id string, t ui.Selection, l ports.Listener, confirm
 			if m.hasServer(l.Server) {
 				return m.selectServer(ui.ServerItem(l.Server))
 			}
+		case ports.RoleOther:
 		}
 		if l.Managed && m.hasServer(l.Server) {
 			return m.selectServer(ui.ServerItem(l.Server))
@@ -517,6 +521,7 @@ func (m *model) itemTitle(t ui.Selection) string {
 			return fmt.Sprintf("port %d: %s (pid %d)", l.Port, l.Command, l.PID)
 		}
 		return fmt.Sprintf("port %d", t.Port)
+	case ui.SelectNone, ui.SelectServer, ui.SelectGroup:
 	}
 	return ""
 }

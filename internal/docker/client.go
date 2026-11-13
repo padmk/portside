@@ -32,7 +32,9 @@ func NewClient(ep Endpoint, env []string) *Client {
 		MaxIdleConnsPerHost: 8,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	return &Client{ep: ep, http: &http.Client{Transport: tr}, dial: dial}
+	// Every request carries its caller's context; logs and events stream
+	// for as long as the caller reads them, so the client sets no limit.
+	return &Client{ep: ep, http: &http.Client{Transport: tr, Timeout: 0}, dial: dial}
 }
 
 // Close drops idle connections.
@@ -331,7 +333,7 @@ func (c *Client) Logs(ctx context.Context, id string, tty bool, tail string, sin
 	if !since.IsZero() {
 		q.Set("since", strconv.FormatFloat(float64(since.UnixNano())/1e9, 'f', 9, 64))
 	}
-	resp, err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/logs", q, nil)
+	resp, err := c.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/logs", q, nil) //nolint:bodyclose // the body is returned, or closed by the demultiplexer
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +426,7 @@ func (c *Client) ExecAttach(ctx context.Context, execID string) (net.Conn, io.Re
 		return nil, nil, err
 	}
 	br := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(br, req)
+	resp, err := http.ReadResponse(br, req) //nolint:bodyclose // the body is the hijacked conn, which is returned or closed
 	if err != nil {
 		conn.Close()
 		return nil, nil, err

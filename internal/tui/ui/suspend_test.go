@@ -6,8 +6,6 @@ import (
 	"io"
 	"strings"
 	"testing"
-
-	tea "charm.land/bubbletea/v2"
 )
 
 // modeSetter stands for a program in the suspended UI that sets a
@@ -37,7 +35,7 @@ func TestExecResetsTerminalModes(t *testing.T) {
 			t.Fatalf("Exec gave %T", msg)
 		}
 		var out bytes.Buffer
-		var c tea.ExecCommand = e.Cmd
+		c := e.Cmd
 		c.SetStdin(strings.NewReader(""))
 		c.SetStdout(&out)
 		c.SetStderr(io.Discard)

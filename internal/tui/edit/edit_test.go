@@ -3,6 +3,7 @@ package edit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -68,7 +69,7 @@ func TestSpecFromReadsTheEditedValues(t *testing.T) {
 		t.Errorf("spec %#v", sp)
 	}
 	f.Field("env").Value = "A=1\nnot a variable"
-	if _, err := specFrom(f, config.Spec{}); err == nil || err.(fieldError).key != "env" {
+	if _, err := specFrom(f, config.Spec{}); err == nil || !isFieldError(err, "env") {
 		t.Errorf("a line without = gives %v, want an error under env", err)
 	}
 }
@@ -500,4 +501,9 @@ func TestLeftoverCopiesOfEndedProcessesAreRemoved(t *testing.T) {
 			t.Errorf("%s: kept %v, want %v", n, err == nil, keep)
 		}
 	}
+}
+
+func isFieldError(err error, key string) bool {
+	fe, ok := errors.AsType[fieldError](err)
+	return ok && fe.key == key
 }

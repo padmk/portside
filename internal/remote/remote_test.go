@@ -196,10 +196,10 @@ func TestApplyMirrorsRunningPorts(t *testing.T) {
 	if rt, err := m.Route("docs", "devbox"); err != nil || rt.Port != stopped {
 		t.Errorf("Route(docs) = %+v, %v; stopped servers keep their route", rt, err)
 	}
-	if _, err := m.Route("web", "mbp"); err != ErrNotConnected {
+	if _, err := m.Route("web", "mbp"); !errors.Is(err, ErrNotConnected) {
 		t.Errorf("Route for another computer's label: %v", err)
 	}
-	if _, err := m.Route("nope", ""); err != ErrUnknownServer {
+	if _, err := m.Route("nope", ""); !errors.Is(err, ErrUnknownServer) {
 		t.Errorf("Route for an unknown server: %v", err)
 	}
 

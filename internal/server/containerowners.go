@@ -94,6 +94,8 @@ func TrustedOwner(c docker.Container, in func(server string) bool, holds func(di
 		return true
 	case docker.OwnedByDir:
 		return c.WorkingDir != "" && holds(c.WorkingDir)
+	case docker.OwnedByLocalProject:
+		return false // any project can claim another's local ID
 	}
 	return false
 }

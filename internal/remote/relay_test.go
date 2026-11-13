@@ -105,7 +105,7 @@ func TestRelayedReplyIsBounded(t *testing.T) {
 			local := httptest.NewServer(http.HandlerFunc(m.ServeAPI))
 			defer local.Close()
 
-			res, err := http.Get(local.URL + PathPrefix + "/devbox.t.ts.net/state")
+			res, err := (&http.Client{Timeout: 10 * time.Second}).Get(local.URL + PathPrefix + "/devbox.t.ts.net/state")
 			if err != nil {
 				return // cut off before the headers
 			}
@@ -146,7 +146,7 @@ func TestRelayedReplyIdleIsAborted(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if res, err := http.Get(local.URL + PathPrefix + "/devbox.t.ts.net/state"); err == nil {
+		if res, err := (&http.Client{Timeout: 10 * time.Second}).Get(local.URL + PathPrefix + "/devbox.t.ts.net/state"); err == nil {
 			_, _ = io.Copy(io.Discard, res.Body)
 			res.Body.Close()
 		}

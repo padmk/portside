@@ -385,6 +385,7 @@ func (m *model) keepSelection() {
 			m.keepTarget()
 			return
 		}
+	default:
 	}
 	m.env.Selected = ui.Selection{}
 	if ordered := viewfmt.Ordered(st); len(ordered) > 0 {
@@ -423,6 +424,7 @@ func needsAttention(v supervisor.View) bool {
 		return true
 	case supervisor.Display(supervisor.Exited):
 		return v.ExitCode != nil && *v.ExitCode != 0
+	case supervisor.DisplayExternal, supervisor.DisplayDone:
 	}
 	return false
 }
@@ -441,6 +443,7 @@ func (m *model) keepTarget() {
 		}
 	case ui.SelectContainer, ui.SelectProject, ui.SelectPort:
 		return
+	case ui.SelectNone:
 	}
 	m.env.Target = m.env.Selected
 }
@@ -458,6 +461,7 @@ func (m *model) animating() bool {
 		switch v.Display() {
 		case supervisor.Display(supervisor.Starting), supervisor.Display(supervisor.Stopping):
 			return true
+		case supervisor.DisplayExternal, supervisor.DisplayUnready, supervisor.DisplayDone:
 		}
 	}
 	return false

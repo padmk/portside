@@ -137,6 +137,7 @@ func (m *model) messageTarget() (ui.Selection, bool) {
 	case ui.SelectContainer:
 		_, ok := containers.Find(m.env.State, it)
 		return it, ok
+	default:
 	}
 	return ui.Selection{}, false
 }
@@ -219,6 +220,7 @@ func bulkAction(t ui.Selection, id string) bool {
 		return strings.HasSuffix(id, "-group")
 	case ui.SelectContainer:
 		return strings.HasSuffix(id, "-project")
+	default:
 	}
 	return false
 }
@@ -246,6 +248,7 @@ func (m *model) menuSection(t ui.Selection, id string) string {
 			return "Project " + plainText(c.Project)
 		}
 		return "Project"
+	default:
 	}
 	return ""
 }
@@ -401,6 +404,7 @@ func (m *model) menuRun(i int) tea.Cmd {
 		if targetActions[it.ActionID] {
 			return m.act(it.ActionID, c.target)
 		}
+	case ui.SelectNone:
 	}
 	scope := c.pane.Scope()
 	for _, a := range m.env.Keys.InScope(scope, keymap.ScopeGlobal) {
@@ -550,6 +554,7 @@ func levelStyle(s theme.Styles, l ui.Level) lipgloss.Style {
 		return s.Warn
 	case ui.LevelSuccess:
 		return s.Running
+	case ui.LevelInfo:
 	}
 	return s.Text2
 }
@@ -592,6 +597,7 @@ func (m *model) logsMenu() overlay.Menu {
 		menu.Title = "Logs of " + sel.Name
 	case ui.SelectContainer:
 		menu.Title = "Logs of container " + sel.Name
+	default:
 	}
 	lp := m.shownLogs()
 	for i := range menu.Items {

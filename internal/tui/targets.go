@@ -316,6 +316,7 @@ func (m *model) targetTitle(t ui.Selection) string {
 		return fmt.Sprintf("group %s (%d)", name, len(m.members(t.Name)))
 	case ui.SelectServer:
 		return t.Name
+	default:
 	}
 	return ""
 }
@@ -405,6 +406,7 @@ func (m *model) hintShort(a keymap.Action) string {
 			if l, ok := m.listener(t); ok {
 				return "select " + ports.Describe(l)
 			}
+		case ui.SelectNone, ui.SelectServer, ui.SelectContainer:
 		}
 	}
 	if a.Scope == keymap.ScopeLogs && a.ID == "attach" && m.env.Selected.Kind == ui.SelectContainer {
@@ -420,6 +422,7 @@ func (m *model) hintShort(a keymap.Action) string {
 			if p, ok := containers.FindProject(m.env.State, t.Name); ok {
 				return strings.ReplaceAll(containers.ProjectToggleVerb(p), "-", " ")
 			}
+		default:
 		}
 	}
 	if a.Scope == keymap.ScopeServers && a.ID == "toggle" && t.Kind == ui.SelectServer {
@@ -464,6 +467,7 @@ func (m *model) hintOff(a keymap.Action) string {
 		}
 	case keymap.ScopeLogs:
 		return m.logsOff(a.ID)
+	case keymap.ScopeGlobal, keymap.ScopeDetail:
 	}
 	return ""
 }

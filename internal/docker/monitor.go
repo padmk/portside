@@ -317,7 +317,7 @@ func (m *Monitor) Client() (*Client, error) {
 		if m.err != "" {
 			return nil, errors.New(m.err)
 		}
-		return nil, errors.New("Docker is not running")
+		return nil, errors.New("Docker is not running") //nolint:staticcheck // ST1005: starts with a product name
 	}
 	return m.client, nil
 }

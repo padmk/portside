@@ -93,6 +93,7 @@ func (m *model) stateToasts(st *server.State) tea.Cmd {
 			}
 		case supervisor.Display(supervisor.Stopped):
 			delete(m.problem, v.Name)
+		case supervisor.DisplayExternal, supervisor.DisplayDone:
 		}
 	}
 	for name := range m.problem {

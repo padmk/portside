@@ -65,6 +65,8 @@ server in your own shell. In a linked git worktree of a server's repository (not
 pass your working directory as dir: ensure_server then runs a temporary copy of the server from your worktree.
 Read server_logs (match narrows it to e.g. "error|warn") to find why a server crashed.`
 		change = `These tools cannot stop or restart anything: ask the user to restart or stop servers and containers.`
+	case Full:
+		// Every tool: the instructions above.
 	}
 	out := `This machine runs local dev servers under ` + app.Name + `.
 Before starting a dev server yourself, call list_servers: reuse a server that is running,

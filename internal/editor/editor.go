@@ -22,5 +22,7 @@ func Name() string {
 // is passed as one argument and never interpreted by the shell. The caller
 // connects the terminal.
 func Command(file string) *exec.Cmd {
-	return exec.Command("/bin/sh", "-c", Name()+` "$1"`, "sh", file)
+	// An editor runs until the user closes it; the terminal UI hangs it up
+	// when the UI ends (ui.Process).
+	return exec.Command("/bin/sh", "-c", Name()+` "$1"`, "sh", file) //nolint:noctx // see above
 }

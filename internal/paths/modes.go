@@ -113,7 +113,7 @@ func resolve(p string) string {
 func restrictTree(root string) {
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // best effort: an entry that cannot be read stays as it is
 		}
 		restrict(path)
 		return nil

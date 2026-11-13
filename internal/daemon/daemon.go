@@ -258,7 +258,7 @@ func Run(cfgPath string) error {
 	// Clients find a daemon whose config has since moved to another port here.
 	portFile := filepath.Join(stateDir, paths.PortName)
 	_ = paths.WriteFile(portFile, []byte(strconv.Itoa(cfg.Port)+"\n"))
-	defer os.Remove(portFile)
+	defer func() { _ = os.Remove(portFile) }() // best effort: the next daemon writes it again
 	// Keep an installed agent skill in step with this binary. Instances with
 	// their own config or state (tests, development) leave it alone. It runs
 	// in the background because locating the agents may read the login shell.

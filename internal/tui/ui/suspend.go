@@ -147,13 +147,19 @@ func (p *Process) Run() error {
 	case <-ctx.Done():
 	}
 	_ = p.Cmd.Process.Signal(syscall.SIGHUP)
+	// The program's exit status after the hang-up is not the session's
+	// result; only a panic of the waiting goroutine is.
+	var ended error
 	select {
-	case <-waited:
+	case ended = <-waited:
 	case <-time.After(endWait):
 		_ = p.Cmd.Process.Kill()
-		<-waited
+		ended = <-waited
 	}
-	if pm, ok := context.Cause(ctx).(PanicMsg); ok {
+	if pm, ok := errors.AsType[PanicMsg](context.Cause(ctx)); ok {
+		return pm
+	}
+	if pm, ok := errors.AsType[PanicMsg](ended); ok {
 		return pm
 	}
 	return ErrEnding

@@ -20,13 +20,13 @@ import (
 // the menus and the dialogs.
 func TestUntrustedNamesAreDrawnSafely(t *testing.T) {
 	m := testModel(t)
-	group := "sh\nop‮evil\x1b[31m"
+	group := "sh\nop\u202eevil\x1b[31m"
 	st := server.State{Groups: []string{group}, Servers: []supervisor.View{
 		{Name: "web", Group: group, Enabled: true, Status: supervisor.Running},
 		{Name: "api", Group: group, Enabled: true, Status: supervisor.Running},
 	}}
 	st.Docker = docker.State{Status: docker.Ready, Containers: []docker.Container{
-		{ID: "id-db", Name: "db‮1", Project: "pr\noj‮\x1b[31m", Service: "d\nb‮", State: "running"},
+		{ID: "id-db", Name: "db\u202e1", Project: "pr\noj\u202e\x1b[31m", Service: "d\nb\u202e", State: "running"},
 	}}
 	m.Update(ui.StateMsg{State: &st})
 	typeText := func(s string) {
@@ -44,7 +44,7 @@ func TestUntrustedNamesAreDrawnSafely(t *testing.T) {
 			if w := ansi.StringWidth(row); w > m.width {
 				t.Errorf("%s: row %d is %d cells wide", what, i, w)
 			}
-			if strings.Contains(row, "‮") || strings.Contains(row, "pwned") {
+			if strings.Contains(row, "\u202e") || strings.Contains(row, "pwned") {
 				t.Errorf("%s: row %d holds a name's control: %q", what, i, row)
 			}
 		}

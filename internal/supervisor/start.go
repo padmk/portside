@@ -179,6 +179,8 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 			return dependency{task: true, done: true}
 		case taskFailed:
 			return dependency{task: true, failed: cmp.Or(p.note, string(p.status))}
+		case taskPending:
+			// Under way or on its way: reserved below, and waited for.
 		}
 	}
 	p.retries = 0

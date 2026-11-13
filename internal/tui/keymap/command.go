@@ -199,6 +199,7 @@ func (n Names) For(a Arg) []string {
 		return n.States
 	case ArgComputer:
 		return n.Computers
+	case ArgNone, ArgPort, ArgText:
 	}
 	return nil
 }
@@ -243,14 +244,14 @@ func (r *Registry) Complete(line string, cursor int, n Names) Completion {
 		typed = strings.ReplaceAll(string(runes[t.start:cursor]), `"`, "")
 	}
 	var choices []string
-	switch {
-	case word == 0:
+	switch word {
+	case 0:
 		for _, id := range r.Commands() {
 			if a, _ := r.ByID(id); a.Group != "Navigation" {
 				choices = append(choices, id)
 			}
 		}
-	case word == 1:
+	case 1:
 		a, err := r.Command(toks[0].text)
 		if err != nil {
 			return c

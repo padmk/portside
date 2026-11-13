@@ -500,7 +500,9 @@ func writeFile(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	// Gone after the rename; otherwise the temporary file is left behind
+	// only when its directory refuses the removal too.
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return err

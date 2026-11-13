@@ -78,7 +78,7 @@ func Run(ctx context.Context, c *client.Client, o Options) error {
 	}
 	prog := tea.NewProgram(m, opts...)
 	m.streams = remote.NewStreams(ctx, prog.Send)
-	m.streams.Start(stream, c, 0)
+	m.streams.Start(stream, c, 0) //nolint:contextcheck // Streams runs under the ctx given to NewStreams
 	return m.runProgram(prog, cancel)
 }
 

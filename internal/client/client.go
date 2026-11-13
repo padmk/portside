@@ -272,7 +272,7 @@ func (c *Client) DialWebSocket(ctx context.Context, p string) (*websocket.Conn, 
 		}
 		h := http.Header{}
 		challenge := c.signed(h, http.MethodGet, u.RequestURI(), nil, epoch)
-		ws, resp, err := websocket.Dial(ctx, raw, &websocket.DialOptions{HTTPClient: c.http, HTTPHeader: h})
+		ws, resp, err := websocket.Dial(ctx, raw, &websocket.DialOptions{HTTPClient: c.http, HTTPHeader: h}) //nolint:bodyclose // Dial closes the response body itself
 		if err != nil {
 			if resp != nil && resp.StatusCode == http.StatusUnauthorized && !retried && c.renewed(ctx, epoch) {
 				continue
@@ -552,7 +552,7 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	}
 	if Sandboxed() {
 		if held != nil {
-			return h, fmt.Errorf("%v; %w", held, sandboxedError(c.Port))
+			return h, fmt.Errorf("%w; %w", held, sandboxedError(c.Port))
 		}
 		return h, sandboxedError(c.Port)
 	}
@@ -562,7 +562,7 @@ func (c *Client) Ensure(ctx context.Context) (Health, error) {
 	}
 	failed := fmt.Errorf("daemon did not come up; `%s daemon logs` shows why", app.ID)
 	if held != nil {
-		failed = fmt.Errorf("%v; the daemon could not start (`%s daemon logs` shows why)", held, app.ID)
+		failed = fmt.Errorf("%w; the daemon could not start (`%s daemon logs` shows why)", held, app.ID)
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {

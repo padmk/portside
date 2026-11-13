@@ -29,8 +29,8 @@ func TestCleanCursorRedraws(t *testing.T) {
 }
 
 func TestCleanReplacesFormatCharacters(t *testing.T) {
-	got := Clean("evil‮exe.txt a‍b ⁦x", time.Time{})
-	if got.Plain != "evil�exe.txt a‍b �x" {
+	got := Clean("evil\u202eexe.txt a\u200db \u2066x", time.Time{})
+	if got.Plain != "evil�exe.txt a\u200db �x" {
 		t.Errorf("Clean = %q", got.Plain)
 	}
 }

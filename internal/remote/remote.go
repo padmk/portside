@@ -391,8 +391,8 @@ func (c *conn) dialWS(ctx context.Context, uri string) (*websocket.Conn, error) 
 	h := peerHeader(&c.cred, c.currentEpoch(), http.MethodGet, uri, nil)
 	challenge := share.Challenge(h)
 	host, _ := c.address()
-	ws, res, err := websocket.Dial(ctx, "wss://"+host+uri, &websocket.DialOptions{
-		HTTPClient: &http.Client{Transport: c.peerTr, CheckRedirect: noRedirects}, HTTPHeader: h})
+	ws, res, err := websocket.Dial(ctx, "wss://"+host+uri, &websocket.DialOptions{ //nolint:bodyclose // Dial closes the response body itself
+		HTTPClient: &http.Client{Transport: c.peerTr, CheckRedirect: noRedirects, Timeout: 0 /* a WebSocket lives as long as its connection */}, HTTPHeader: h})
 	if err != nil {
 		if res != nil && res.StatusCode == http.StatusUnauthorized {
 			return nil, errRevoked

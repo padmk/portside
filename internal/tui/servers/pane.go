@@ -143,6 +143,7 @@ func mine(it ui.Selection) bool {
 	switch it.Kind {
 	case ui.SelectNone, ui.SelectServer, ui.SelectGroup:
 		return true
+	case ui.SelectContainer, ui.SelectPort, ui.SelectProject:
 	}
 	return false
 }

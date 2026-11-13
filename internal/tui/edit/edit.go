@@ -205,6 +205,7 @@ func (e *Editor) Update(env *ui.Env, msg tea.Msg) (tea.Cmd, bool) {
 			return e.EditServer(env, sh.name), true
 		case settingsSheet:
 			return e.Settings(env), true
+		case newServer:
 		}
 	case freePortMsg:
 		if msg.seq != e.seq || e.sheet == nil || e.sheet.kind != newServer {
@@ -245,6 +246,7 @@ func (e *Editor) Key(env *ui.Env, msg tea.KeyPressMsg) tea.Cmd {
 			if back != nil {
 				e.picker = back
 			}
+		case form.Stay:
 		}
 		return cmd
 	case e.picker != nil:
@@ -421,6 +423,7 @@ func (e *Editor) saved(env *ui.Env, msg savedMsg) tea.Cmd {
 			cmds = append(cmds, restartOffer([]string{sh.name}))
 		}
 		return tea.Sequence(cmds...)
+	case settingsSheet:
 	}
 	return tea.Batch(stateCmd(st), savedNotice("settings saved", st, nil), restartOffer(staleNames(st)))
 }

@@ -89,21 +89,21 @@ func cmdDaemon(e *env, args []string) error {
 		if _, err := parse(fs, args[1:]); err != nil {
 			return err
 		}
-		name, args := "tail", []string{"-n", strconv.Itoa(*n)}
+		name, logArgs := "tail", []string{"-n", strconv.Itoa(*n)}
 		if service.Journaled() {
 			// systemd keeps the output of the daemon it runs in the user journal.
 			name = "journalctl"
-			args = append(args, "--user", "-u", service.Unit(), "-o", "cat", "--no-pager")
+			logArgs = append(logArgs, "--user", "-u", service.Unit(), "-o", "cat", "--no-pager")
 			if *follow {
-				args = append(args, "-f")
+				logArgs = append(logArgs, "-f")
 			}
 		} else {
 			if *follow {
-				args = append(args, "-F")
+				logArgs = append(logArgs, "-F")
 			}
-			args = append(args, paths.DaemonLog())
+			logArgs = append(logArgs, paths.DaemonLog())
 		}
-		cmd := exec.Command(name, args...)
+		cmd := exec.CommandContext(e.ctx, name, logArgs...)
 		cmd.Stdout, cmd.Stderr = e.out, e.errOut
 		return cmd.Run()
 	default:
@@ -193,7 +193,7 @@ func stopDaemon(e *env, c *client.Client) (bool, error) {
 		return false, err
 	}
 	if _, err := c.Ping(e.ctx); err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // no daemon answers: none was running
 	}
 	if err := shutdown(e, c, nil); err != nil {
 		// Nothing stopped, so nothing may keep the daemon from running.
@@ -377,7 +377,7 @@ func (e *env) nextClient() *client.Client {
 func upgradeInPlace(e *env, c *client.Client, old client.Health, allowDowngrade bool) (bool, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // without its own path this binary cannot take over; the caller restarts instead
 	}
 	err = c.Do(e.ctx, http.MethodPost, "/api/upgrade", map[string]any{"exe": exe, "allowDowngrade": allowDowngrade}, nil)
 	if errors.Is(err, client.ErrUnverified) {
@@ -426,7 +426,7 @@ func waitGone(c *client.Client, e *env) error {
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := c.Ping(e.ctx); err != nil {
-			return nil
+			return nil //nolint:nilerr // a daemon that no longer answers has stopped
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

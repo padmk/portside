@@ -230,7 +230,10 @@ func Main(args []string) int {
 		if abs, err := filepath.Abs(e.cfgPath); err == nil {
 			e.cfgPath = abs
 		}
-		os.Setenv(app.Env("CONFIG"), e.cfgPath)
+		if err := os.Setenv(app.Env("CONFIG"), e.cfgPath); err != nil {
+			fmt.Fprintf(e.errOut, "%s: %v\n", app.ID, err)
+			return 1
+		}
 	}
 	if len(args) == 0 {
 		if _, err := os.Stat(e.cfgPath); err != nil {

@@ -122,6 +122,7 @@ func (p *Pane) showStamps() bool {
 		return true
 	case gutterHidden:
 		return false
+	case gutterAuto:
 	}
 	return p.stamps.decided && p.stamps.show
 }

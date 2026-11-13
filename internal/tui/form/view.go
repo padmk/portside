@@ -268,6 +268,7 @@ func (m *Model) shownValue(env *ui.Env, s theme.Styles, i, w int) []string {
 			out = append(out, s.Muted.Render(cut(f.ReadOnly, w, env.Glyphs.Ellipsis)))
 		}
 		return out
+	case Text, Number, Choice:
 	}
 	text := viewfmt.PlainText(f.Value)
 	if f.Value == "" {

@@ -79,7 +79,7 @@ func (m *Monitor) StartEngine() error {
 			if lines := strings.Split(msg, "\n"); len(lines) > 3 {
 				msg = strings.Join(lines[len(lines)-3:], "\n")
 			}
-			if msg == "" || err == errTimedOut {
+			if msg == "" || errors.Is(err, errTimedOut) {
 				msg = err.Error()
 			}
 			m.mu.Lock()
@@ -117,7 +117,7 @@ func (m *Monitor) startCommand(ep Endpoint) ([]string, error) {
 				return []string{systemctl, "--user", "start", "docker"}, nil
 			}
 			if m.unitExists(systemctl, false, "docker.service") {
-				return nil, errors.New("Docker runs as a system service: run `sudo systemctl start docker`")
+				return nil, errors.New("Docker runs as a system service: run `sudo systemctl start docker`") //nolint:staticcheck // ST1005: starts with a product name
 			}
 		}
 	}
@@ -170,7 +170,7 @@ func (m *Monitor) explain(ep Endpoint, err error) error {
 		return err
 	}
 	if m.rancherEngine() == "containerd" {
-		return errors.New("Rancher Desktop uses containerd, which has no Docker API: choose dockerd (moby) as its container engine")
+		return errors.New("Rancher Desktop uses containerd, which has no Docker API: choose dockerd (moby) as its container engine") //nolint:staticcheck // ST1005: starts with a product name
 	}
 	return err
 }

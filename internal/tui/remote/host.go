@@ -191,6 +191,7 @@ func (h *Host) Key(env *ui.Env, msg tea.KeyPressMsg) tea.Cmd {
 		case "k", "up":
 			h.scroll = max(0, h.scroll-1)
 		}
+	case viewNone:
 	}
 	if closed {
 		h.Close()

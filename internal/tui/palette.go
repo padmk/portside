@@ -179,6 +179,7 @@ func (m *model) paletteItems() []overlay.PaletteItem {
 		if l, ok := m.listener(t); ok {
 			portEntries(l, true)
 		}
+	case ui.SelectNone:
 	}
 	seen := map[string]bool{}
 	// A pane action runs in the focused pane when it has one with the id
@@ -208,6 +209,7 @@ func (m *model) paletteItems() []overlay.PaletteItem {
 				add(a, "Show only "+st+" servers", st, "", "")
 			}
 			continue
+		default:
 		}
 		label := a.Help
 		if a.Scope != keymap.ScopeGlobal {
@@ -277,6 +279,7 @@ func itemTarget(a keymap.Action) bool {
 	switch a.Scope {
 	case keymap.ScopeContainers, keymap.ScopePorts:
 		return a.Menu || a.ID == "toggle"
+	default:
 	}
 	return a.Scope == keymap.ScopeServers && targetActions[a.ID]
 }
@@ -305,6 +308,7 @@ func (m *model) takes(a keymap.Action, t ui.Selection) bool {
 			return v.Group != ""
 		}
 		return true
+	default:
 	}
 	return false
 }

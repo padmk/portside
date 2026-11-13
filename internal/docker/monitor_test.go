@@ -99,10 +99,10 @@ func (fakeHost) LookPath(string) string { return "" }
 func fakeEngine(t *testing.T, code int, policy string) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/containers/json":
+		switch r.URL.Path {
+		case "/containers/json":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"Id": "abc", "Names": []string{"/app-db-1"}, "State": "exited"}})
-		case r.URL.Path == "/containers/abc/json":
+		case "/containers/abc/json":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"Id": "abc", "Name": "/app-db-1",
 				"State":      map[string]any{"Status": "exited", "ExitCode": code},

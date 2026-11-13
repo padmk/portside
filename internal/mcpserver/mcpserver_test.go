@@ -81,8 +81,8 @@ func connect(t *testing.T, port int, opts Options) *mcp.ClientSession {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		cs.Close()
-		ss.Wait()
+		_ = cs.Close()
+		_ = ss.Wait()
 		cancel()
 	})
 	return cs

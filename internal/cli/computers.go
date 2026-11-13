@@ -209,7 +209,7 @@ func connect(e *env, path string, body map[string]string, name string) error {
 	if err := c.Do(e.ctx, http.MethodPost, path, body, &info); err != nil {
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) && apiErr.Code == remote.CodePairingRequired {
-			return fmt.Errorf("%s\nGet a code on %s (Computers in its dashboard, or `%s share code`) and run `%s pair %s`", err, name, app.ID, app.ID, name)
+			return fmt.Errorf("%w\nGet a code on %s (Computers in its dashboard, or `%s share code`) and run `%s pair %s`", err, name, app.ID, app.ID, name)
 		}
 		return err
 	}

@@ -341,7 +341,7 @@ func projectOff(st *server.State, id, name string) string {
 	if id == "toggle" {
 		id = ProjectToggleVerb(p)
 	}
-	if v, ok := projectVerbs[id]; ok {
+	if v, found := projectVerbs[id]; found {
 		id = v
 	}
 	switch id {
@@ -378,7 +378,7 @@ func ProjectVerb(st *server.State, id, name string) string {
 		p, _ := FindProject(st, name)
 		return ProjectToggleVerb(p)
 	}
-	if v, ok := projectVerbs[id]; ok {
+	if v, found := projectVerbs[id]; found {
 		return v
 	}
 	return id

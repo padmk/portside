@@ -183,7 +183,7 @@ func (s *Supervisor) ForCheckout(name, dir string) (string, error) {
 		if within(realDir(dir), realDir(sv.Dir)) {
 			return name, nil
 		}
-		return "", fmt.Errorf("%s is not a git checkout, so it cannot run a copy of %s: %v", paths.ShortenHome(dir), name, err)
+		return "", fmt.Errorf("%s is not a git checkout, so it cannot run a copy of %s: %w", paths.ShortenHome(dir), name, err)
 	}
 	orig, err := gitCheckout(git, sv.Dir)
 	if err != nil {

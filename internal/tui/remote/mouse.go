@@ -122,6 +122,7 @@ func (h *Host) Mouse(msg tea.MouseMsg) tea.Cmd {
 		cl = h.agents.clicks
 	case viewDaemon:
 		cl = h.daemonClicks
+	case viewNone:
 	}
 	i := h.geo.off + y
 	if y < 0 || y >= h.geo.n || i >= len(cl) || x < 0 {
@@ -145,6 +146,7 @@ func (h *Host) Mouse(msg tea.MouseMsg) tea.Cmd {
 			}
 		case viewAgents:
 			h.agents.cursor = lc.row
+		case viewNone, viewDaemon:
 		}
 		h.lastRow, h.lastClick = lc.row, now
 		if key == "enter" {

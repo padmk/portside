@@ -285,6 +285,7 @@ func (m *model) fixedHints() (hints [][2]string, ok bool) {
 		return [][2]string{{"j/k", "select"}, {"y", "copy"}, {"esc", "cancel"}}, true
 	case ui.ModeCommand, ui.ModeInsert:
 		return nil, true
+	case ui.ModeNormal:
 	}
 	return nil, false
 }

@@ -152,6 +152,7 @@ func (v View) CanStop() bool {
 		return true
 	case Crashed, Exited, Blocked:
 		return v.RestartPending
+	case Stopped, Stopping:
 	}
 	return false
 }
@@ -162,6 +163,7 @@ func (v View) HasProcess() bool {
 	switch v.Status {
 	case Running, Starting, Stopping:
 		return true
+	default:
 	}
 	return false
 }

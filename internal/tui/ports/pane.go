@@ -465,6 +465,7 @@ func renderRow(env *ui.Env, s theme.Styles, l Listener, pw, w int) string {
 		roleStyle = s.Accent
 	case RoleBlocks:
 		roleStyle = s.Warn
+	case RoleOther:
 	}
 	reach := Reach(l)
 	reachStyle := s.Muted
