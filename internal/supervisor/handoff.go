@@ -210,16 +210,16 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 	s.mu.Unlock()
 	var adopted []string
 	for _, h := range hs {
-		f, err := inheritTerminal(h)
+		f, err := s.inheritTerminal(h)
 		if err != nil {
-			if h.PID > 1 && h.PIDStart != "" && !sameStart(h.PID, h.PIDStart) {
+			if h.PID > 1 && h.PIDStart != "" && !s.sys.sameStart(h.PID, h.PIDStart) {
 				s.exitedDuringHandoff(h)
 				continue
 			}
 			log.Printf("handoff: %s: %v; recovering it as after a crash", h.Name, err)
 			continue
 		}
-		process, err := os.FindProcess(h.PID)
+		process, err := s.sys.findProcess(h.PID)
 		if err != nil {
 			f.Close()
 			continue
@@ -261,7 +261,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		// Saved by an older daemon perhaps in its own locale; keep the C
 		// locale text that this one compares.
 		p.pidStart = h.PIDStart
-		if now := processStart(h.PID); now != "" {
+		if now := s.sys.processStart(h.PID); now != "" {
 			p.pidStart = now
 		}
 		p.running = h.Config
@@ -369,7 +369,7 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 // inheritTerminal checks that the handed-off descriptor is a terminal and
 // the process is the one that was started, and keeps the descriptor away
 // from processes this daemon starts later.
-func inheritTerminal(h Handoff) (*os.File, error) {
+func (s *Supervisor) inheritTerminal(h Handoff) (*os.File, error) {
 	if h.PTY <= 2 || h.PID <= 1 || h.PIDStart == "" {
 		return nil, errors.New("incomplete handoff")
 	}
@@ -385,7 +385,7 @@ func inheritTerminal(h Handoff) (*os.File, error) {
 	// its reader (a daemon before that left it blocking).
 	_ = syscall.SetNonblock(h.PTY, true)
 	f := os.NewFile(uintptr(h.PTY), "pty-"+h.Name)
-	if !sameStart(h.PID, h.PIDStart) {
+	if !s.sys.sameStart(h.PID, h.PIDStart) {
 		f.Close()
 		return nil, fmt.Errorf("process %d is gone", h.PID)
 	}

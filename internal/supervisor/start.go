@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -223,7 +222,7 @@ func processEndedLocked(p *proc) bool {
 	if p.pid == 0 || p.process == nil {
 		return false
 	}
-	return !p.reapedAt.IsZero() || errors.Is(p.process.Signal(syscall.Signal(0)), os.ErrProcessDone)
+	return !p.reapedAt.IsZero() || p.process.reaped()
 }
 
 // reapedLocked reports whether wait has recorded the end of p's process,
@@ -435,7 +434,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	// ready_log was checked when the config loaded.
 	p.logReady.Store(false)
 	installReadyLog(p, sv.ReadyLog, nil)
-	f, err := pty.StartWithSize(cmd, size)
+	f, leader, err := s.sys.startInTerminal(cmd, size)
 	if err != nil {
 		installReadyLog(p, "", nil)
 		p.status = Crashed
@@ -449,11 +448,11 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	f = pollableTerminal(f)
 	p.gen++
 	gen := p.gen
-	p.process = cmd.Process
+	p.process = leader
 	p.reapedAt = time.Time{}
 	p.pty = f
-	p.pid = cmd.Process.Pid
-	p.pidStart = processStart(p.pid)
+	p.pid = leader.pid()
+	p.pidStart = s.sys.processStart(p.pid)
 	p.running = sv
 	p.runningEnv = slices.Clone(env)
 	p.runningShell = shell

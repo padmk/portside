@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -69,7 +68,7 @@ func (s *Supervisor) Stop(name string) error {
 	s.saveLocked()
 	s.mu.Unlock()
 
-	Terminate(pid, done, grace)
+	terminate(s.sys, pid, done, grace)
 	s.endEnding(ending)
 	return nil
 }
@@ -137,7 +136,7 @@ func (s *Supervisor) Shutdown() {
 		ending := s.beginEndingLocked(p)
 		pid, done, grace := p.pid, p.done, p.running.Stop
 		wg.Go(func() {
-			Terminate(pid, done, grace)
+			terminate(s.sys, pid, done, grace)
 			s.endEnding(ending)
 		})
 	}
@@ -146,7 +145,7 @@ func (s *Supervisor) Shutdown() {
 	wg.Wait()
 	s.mu.Lock()
 	for name, g := range st.Groups {
-		if p := s.procs[name]; (p == nil || p.pid == 0) && syscall.Kill(-g.PID, 0) != nil {
+		if p := s.procs[name]; (p == nil || p.pid == 0) && s.sys.signalGroup(g.PID, 0) != nil {
 			delete(st.Groups, name)
 		}
 	}

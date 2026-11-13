@@ -207,17 +207,17 @@ func (s *Supervisor) Recover(restore bool) {
 		if g.PID <= 1 || g.Start == "" || adopted[g.PID] {
 			continue
 		}
-		if !orphanedGroup(g, alive[name]) {
-			if syscall.Kill(-g.PID, 0) == nil {
+		if !s.orphanedGroup(g, alive[name]) {
+			if s.sys.signalGroup(g.PID, 0) == nil {
 				log.Printf("recover: left process group %d (%s) alone: its processes cannot be tied to the server", g.PID, name)
 			}
 			continue
 		}
-		_ = syscall.Kill(-g.PID, syscall.SIGTERM)
-		for i := 0; i < 30 && syscall.Kill(-g.PID, 0) == nil; i++ {
+		_ = s.sys.signalGroup(g.PID, syscall.SIGTERM)
+		for i := 0; i < 30 && s.sys.signalGroup(g.PID, 0) == nil; i++ {
 			time.Sleep(100 * time.Millisecond)
 		}
-		_ = syscall.Kill(-g.PID, syscall.SIGKILL)
+		_ = s.sys.signalGroup(g.PID, syscall.SIGKILL)
 	}
 	// Servers that exited during the upgrade restart as after a crash, and
 	// those started again after they exited before it run, whatever
@@ -242,9 +242,9 @@ func (s *Supervisor) Recover(restore bool) {
 			switch {
 			case !last.RestartAt.IsZero() && p.cfg.Restart != config.RestartNo:
 				p.retries = last.Retries
-				s.scheduleRestartLocked(p, time.Now(), last.RestartAt)
+				s.scheduleRestartLocked(p, s.now(), last.RestartAt)
 			case !last.RetryAt.IsZero() && p.cfg.RetriesAfterGivingUp():
-				s.scheduleRetryLocked(p, time.Now(), last.RetryAt)
+				s.scheduleRetryLocked(p, s.now(), last.RetryAt)
 			case !last.RestartAt.IsZero() || !last.RetryAt.IsZero():
 				// The config no longer restarts it: it stays down.
 				started[name] = true
@@ -341,9 +341,9 @@ func (s *Supervisor) restoreHistoryLocked(saved map[string]exitState) {
 // start and alive, a time the leader was known to live: it held the id
 // until then, so a group with that id that an unrelated program creates
 // later has only members started after it.
-func orphanedGroup(g pidStamp, alive time.Time) bool {
-	if processStart(g.PID) != "" {
-		return sameStart(g.PID, g.Start)
+func (s *Supervisor) orphanedGroup(g pidStamp, alive time.Time) bool {
+	if s.sys.processStart(g.PID) != "" {
+		return s.sys.sameStart(g.PID, g.Start)
 	}
 	from, err := time.ParseInLocation(startLayout, g.Start, time.Local)
 	if err != nil || alive.IsZero() {
@@ -352,7 +352,7 @@ func orphanedGroup(g pidStamp, alive time.Time) bool {
 	// ps shows whole seconds, so a member started in the second of alive
 	// cannot be placed on either side of it.
 	until := alive.Truncate(time.Second)
-	members := groupMembers(g.PID)
+	members := s.sys.groupMembers(g.PID)
 	if len(members) == 0 {
 		return false
 	}

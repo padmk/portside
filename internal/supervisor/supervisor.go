@@ -76,7 +76,7 @@ type proc struct {
 	running       config.Server // configuration the live process was started with
 	status        Status
 	note          string // short human explanation of the status
-	process       *os.Process
+	process       process
 	pty           *os.File
 	pid           int
 	pidStart      string
@@ -207,8 +207,11 @@ type Supervisor struct {
 	// handoffEnd is signalled when an upgrade in place fails or turns into
 	// a shutdown (see awaitHandoffLocked).
 	handoffEnd *sync.Cond
-	// now is the wall clock schedules follow.
+	// now is the wall clock that schedules and automatic restarts follow.
 	now func() time.Time
+	// sys starts, finds and signals the servers' processes and runs the
+	// timers of their restarts (see system.go).
+	sys system
 	// processes reads the process table for usage samples.
 	processes func(context.Context) map[int]procSample
 	// watchEvery and watchQuiet are WatchInterval and WatchQuiet, and
@@ -251,6 +254,7 @@ func newWithClock(cfg *config.Config, stateDir string, now func() time.Time) *Su
 		selfPID:    os.Getpid(),
 		sampleNow:  make(chan struct{}, 1),
 		now:        now,
+		sys:        hostSystem{},
 		processes:  sampleProcesses,
 		watchEvery: WatchInterval,
 		watchQuiet: WatchQuiet,

@@ -29,7 +29,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	s.mu.Lock()
 	process := p.process
 	s.mu.Unlock()
-	code := exitCode(process.Wait())
+	code := process.wait()
 	pgid := p.pid
 	s.mu.Lock()
 	// Read and recorded under the lock that start checks it under, so a
@@ -40,13 +40,13 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
 		// During a Stop, terminate owns the whole group and its grace period.
-		go reapGroup(pgid)
+		go reapGroup(s.sys, pgid)
 	}
 	// Let the reader drain the last output (often the crash message). An
 	// orphan holding the terminal open must not delay the exit forever.
 	select {
 	case <-p.copied:
-	case <-time.After(2 * time.Second):
+	case <-s.sys.after(2 * time.Second):
 	}
 
 	s.mu.Lock()
@@ -132,7 +132,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		down := restartIn == 0 && (p.status == Crashed || (p.cfg.Restart == config.RestartAlways && p.retries >= maxRetries))
 		retrying := false
 		if restartIn > 0 {
-			now := time.Now()
+			now := s.now()
 			s.scheduleRestartLocked(p, now, now.Add(restartIn))
 		} else if down {
 			s.reportCrashLocked(p, &code, uptime)

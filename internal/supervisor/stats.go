@@ -240,7 +240,7 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 	s.mu.Unlock()
 	for _, stop := range overLimit {
 		go func() {
-			Terminate(stop.pid, stop.done, stop.grace)
+			terminate(s.sys, stop.pid, stop.done, stop.grace)
 			s.endEnding(stop.ending)
 		}()
 	}

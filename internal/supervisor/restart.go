@@ -51,7 +51,7 @@ func pendingNoteLocked(p *proc, now, at time.Time) time.Duration {
 // it to replace this process or fail, so a failed upgrade keeps a pending
 // restart.
 func (s *Supervisor) afterLocked(d time.Duration, f func() func()) {
-	time.AfterFunc(d, func() {
+	s.sys.afterFunc(d, func() {
 		s.mu.Lock()
 		if s.closing && s.handoff {
 			s.mu.Unlock()
@@ -76,7 +76,7 @@ func (s *Supervisor) retryLocked(p *proc) bool {
 	if !p.cfg.RetriesAfterGivingUp() || !p.want || p.removed || (s.closing && !s.handoff) {
 		return false
 	}
-	now := time.Now()
+	now := s.now()
 	s.scheduleRetryLocked(p, now, now.Add(p.cfg.RetryAfter))
 	return true
 }

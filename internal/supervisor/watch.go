@@ -297,7 +297,7 @@ func (s *Supervisor) watchRestart(st watchStart) {
 		ending := s.beginEndingLocked(p)
 		s.changedLocked()
 		s.mu.Unlock()
-		Terminate(pid, done, grace)
+		terminate(s.sys, pid, done, grace)
 		s.endEnding(ending)
 		return
 	}
