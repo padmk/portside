@@ -93,10 +93,8 @@ type proc struct {
 	settledAt time.Time
 	exitCode  int
 	hasExit   bool
-	stopping  bool
-	// overMemory is the note of a stop under way because a usage sample
-	// was over memory_limit, "" otherwise; the exit then counts as a crash.
-	overMemory string
+	// stop is the end of the live run under way, nil for none.
+	stop *stopRequest
 	// ending is closed once the latest Stop or Shutdown has ended the whole
 	// process group, which can outlive the leader; nil before the first
 	// (see Supervisor.endings).

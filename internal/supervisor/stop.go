@@ -50,8 +50,8 @@ func (s *Supervisor) Stop(name string) error {
 		// docker compose abort their own graceful shutdown. A stop for
 		// memory_limit under way becomes this one, so the server ends up
 		// stopped rather than crashed.
-		if !p.stopping {
-			p.stopping = true
+		if !stopAskedLocked(p) {
+			p.stop = &stopRequest{cause: stopAsked}
 			p.note = ""
 			s.changedLocked()
 			s.saveLocked()
@@ -60,7 +60,7 @@ func (s *Supervisor) Stop(name string) error {
 		<-ending
 		return nil
 	}
-	p.stopping = true
+	p.stop = &stopRequest{cause: stopAsked}
 	p.status = Stopping
 	grace := p.running.Stop
 	ending := s.beginEndingLocked(p)
@@ -72,6 +72,26 @@ func (s *Supervisor) Stop(name string) error {
 	s.endEnding(ending)
 	return nil
 }
+
+// stopRequest is the end of a server's live run under way: asked for (a
+// Stop, a restart for changed files or the daemon's shutdown), or because
+// a usage sample was over memory_limit, whose note the exit carries as a
+// crash.
+type stopRequest struct {
+	cause stopCause
+	note  string // why memory_limit stopped it
+}
+
+type stopCause int
+
+const (
+	stopAsked stopCause = iota + 1
+	stopMemory
+)
+
+// stopAskedLocked reports whether p's live run is ending because a stop
+// was asked for.
+func stopAskedLocked(p *proc) bool { return p.stop != nil && p.stop.cause == stopAsked }
 
 // beginEndingLocked records that p's process group is being ended and
 // returns the channel endEnding closes once it is.
@@ -131,7 +151,7 @@ func (s *Supervisor) Shutdown() {
 		if p.live() == nil || (p.ending != nil && !isClosed(p.ending)) {
 			continue
 		}
-		p.stopping = true
+		p.stop = &stopRequest{cause: stopAsked}
 		p.status = Stopping
 		ending := s.beginEndingLocked(p)
 		pid, done, grace := p.live().pid, p.live().done, p.running.Stop

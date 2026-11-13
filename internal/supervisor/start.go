@@ -201,7 +201,7 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 // with others) serves the start instead. A stopping server starts again
 // through its own path in wait.
 func (s *Supervisor) markStartAfterExitLocked(p *proc, since time.Time) {
-	if s.requestedExitLocked(p) || p.overMemory != "" {
+	if s.requestedExitLocked(p) || p.stop != nil {
 		return
 	}
 	ended := false
@@ -272,7 +272,7 @@ func (s *Supervisor) reserveLocked(p *proc, req startRequest) int {
 	p.lastRequestAt = req.at
 	if p.live() == nil {
 		p.req = &req
-	} else if p.next != nil || s.requestedExitLocked(p) || p.overMemory != "" {
+	} else if p.next != nil || s.requestedExitLocked(p) || p.stop != nil {
 		p.next = &req
 	}
 	s.saveLocked()
@@ -507,8 +507,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
 	p.hasExit = false
-	p.stopping = false
-	p.overMemory = ""
+	p.stop = nil
 	p.want = true
 	p.external = nil
 	p.listening = false

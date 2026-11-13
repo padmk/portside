@@ -288,7 +288,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		p.pending = nil
 		p.missingSince = h.MissingSince
 		p.hasExit = false
-		p.stopping = false
+		p.stop = nil
 		p.external = nil
 		p.listening = false
 		p.hist.reset()

@@ -32,7 +32,7 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 	// Read and recorded under the lock that start checks it under, so a
 	// request is ordered against the run's end the same way as its time.
 	p.reapedAt = time.Now()
-	stopping := s.requestedExitLocked(p) || p.overMemory != ""
+	stopping := s.requestedExitLocked(p) || p.stop != nil
 	s.mu.Unlock()
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
@@ -64,8 +64,10 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 	p.listening = false
 	close(r.done)
 	stamp := p.exitedAt.Format("15:04:05")
-	overMemory := p.overMemory
-	p.overMemory = ""
+	overMemory := ""
+	if p.stop != nil && p.stop.cause == stopMemory {
+		overMemory = p.stop.note
+	}
 
 	var restartIn time.Duration
 	again := false
@@ -75,7 +77,7 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 		p.note = ""
 		fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  stopped ──\x1b[0m\r\n", stamp)
 		// Started again while it was stopping, with no Stop since.
-		if p.stopping && p.next != nil && !p.removed && !s.closing {
+		if stopAskedLocked(p) && p.next != nil && !p.removed && !s.closing {
 			again = true
 			p.status = Starting
 		}
@@ -157,7 +159,7 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 		deps = s.cfg.WithDeps(p.cfg.DependsOn)
 		p.req = p.next
 	}
-	p.next = nil
+	p.next, p.stop = nil, nil
 	s.changedLocked()
 	s.saveLocked()
 	s.mu.Unlock()
@@ -188,7 +190,7 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 // Stop or by the daemon shutting down. During a handoff the daemon only
 // re-executes, so an exit then is the server's own.
 func (s *Supervisor) requestedExitLocked(p *proc) bool {
-	return p.stopping || (s.closing && !s.handoff)
+	return stopAskedLocked(p) || (s.closing && !s.handoff)
 }
 
 // backoffLocked returns the delay before an automatic restart, or 0 to give up.

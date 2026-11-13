@@ -23,7 +23,7 @@ type memoryStop struct {
 // or hands its servers to a new binary.
 func (s *Supervisor) overMemoryLocked(p *proc, mem int64) (memoryStop, bool) {
 	limit := p.cfg.MemoryLimit
-	if limit.Bytes <= 0 || mem <= limit.Bytes || p.live() == nil || s.closing || p.stopping || p.overMemory != "" {
+	if limit.Bytes <= 0 || mem <= limit.Bytes || p.live() == nil || s.closing || p.stop != nil {
 		return memoryStop{}, false
 	}
 	if p.status != Starting && p.status != Running {
@@ -33,7 +33,7 @@ func (s *Supervisor) overMemoryLocked(p *proc, mem int64) (memoryStop, bool) {
 		return memoryStop{}, false
 	}
 	note := "used " + limit.Over(mem) + ", over memory_limit " + limit.String()
-	p.overMemory = note
+	p.stop = &stopRequest{cause: stopMemory, note: note}
 	p.status = Stopping
 	p.note = note
 	stamp := time.Now().Format("15:04:05")

@@ -284,12 +284,12 @@ func (s *Supervisor) watchRestart(st watchStart) {
 		// throughout and nothing waiting for it sees it stopped; wait
 		// launches it once the group has exited, unless a stop comes first.
 		s.mu.Lock()
-		if s.procs[st.name] != p || p.startSeq != st.seq || p.live() == nil || p.stopping || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
+		if s.procs[st.name] != p || p.startSeq != st.seq || p.live() == nil || p.stop != nil || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
 			s.mu.Unlock()
 			return
 		}
 		p.retries = 0
-		p.stopping = true
+		p.stop = &stopRequest{cause: stopAsked}
 		s.reserveLocked(p, startRequest{trigger: triggerWatch})
 		p.status = Stopping
 		pid, done, grace := p.live().pid, p.live().done, p.running.Stop
