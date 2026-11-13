@@ -80,15 +80,13 @@ type proc struct {
 	running       config.Server // configuration the live process was started with
 	status        Status
 	note          string // short human explanation of the status
-	process       process
-	pty           *os.File
-	pid           int
-	pidStart      string
-	startedAt     time.Time
-	readyAt       time.Time
-	logReady      atomic.Bool   // a line of this generation's output matched ready_log
-	readyMatch    *readyMatcher // matches ready_log while waiting for it; nil otherwise
-	exitedAt      time.Time
+	// cur is the live process, nil when none runs (see live).
+	cur        *run
+	startedAt  time.Time
+	readyAt    time.Time
+	logReady   atomic.Bool   // a line of this generation's output matched ready_log
+	readyMatch *readyMatcher // matches ready_log while waiting for it; nil otherwise
+	exitedAt   time.Time
 	// settledAt is when the latest run or start attempt ended: an exit, a
 	// failed start or a stop of a server waiting to start. A task's waiters
 	// compare it with when they asked (see taskStateLocked).
@@ -116,9 +114,6 @@ type proc struct {
 	incident      string
 	incidentSince time.Time
 	gen           int // increments on every start; stale goroutines compare it
-	done          chan struct{}
-	copied        chan struct{} // closed when all PTY output has been read
-	reader        *outputReader // copies the terminal into logs
 	logs          *LogBuffer
 	hist          history
 	cpu           float64
@@ -141,6 +136,29 @@ type proc struct {
 	watch *watchState
 }
 
+// run is a server's live process: the leader of its process group, the
+// terminal it writes to and the reader that copies that into the logs.
+type run struct {
+	pid      int
+	pidStart string // the leader's start time, which tells it from a recycled pid
+	process  process
+	pty      *os.File
+	reader   *outputReader
+	done     chan struct{} // closed once wait has recorded the exit
+	copied   chan struct{} // closed when all terminal output has been read
+}
+
+// live returns p's live process, or nil when none runs.
+func (p *proc) live() *run { return p.cur }
+
+// livePID is the pid of p's live process, 0 when none runs.
+func (p *proc) livePID() int {
+	if r := p.live(); r != nil {
+		return r.pid
+	}
+	return 0
+}
+
 // Supervisor owns all managed processes.
 type Supervisor struct {
 	mu      sync.Mutex
@@ -161,7 +179,10 @@ type Supervisor struct {
 	closing bool
 	// handoff is set while the servers are being handed to the binary this
 	// daemon re-executes; closing is set too.
-	handoff  bool
+	handoff bool
+	// paused holds the terminal readers PrepareHandoff paused, which a
+	// failed handoff resumes.
+	paused   []*outputReader
 	notifier func(title, msg string)
 	selfPID  int
 	// release frees a port this daemon holds for another purpose before a
@@ -311,7 +332,7 @@ func (s *Supervisor) WantsPort(port int) bool {
 // forwardedFromLocked returns the computer a stopped server's port is
 // forwarded to, or "".
 func (s *Supervisor) forwardedFromLocked(p *proc) string {
-	if s.forwarded == nil || p.pid != 0 || p.cfg.Port <= 0 {
+	if s.forwarded == nil || p.live() != nil || p.cfg.Port <= 0 {
 		return ""
 	}
 	name, _ := s.forwarded(p.cfg.Port)
@@ -337,7 +358,7 @@ func (s *Supervisor) changedLocked() {
 		if p.status != Starting && p.status != Running {
 			continue
 		}
-		if p.pid != 0 {
+		if p.live() != nil {
 			active[p.running.Port] = true
 		} else {
 			active[p.cfg.Port] = true
@@ -378,7 +399,7 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 			if _, ok := s.endings[p.ending]; ok && p.ending != nil {
 				s.endings[p.ending] = name
 			}
-			if p.pid == 0 && p.status == Starting {
+			if p.live() == nil && p.status == Starting {
 				p.startSeq++
 				restart = p.want
 				p.status = Stopped
@@ -465,7 +486,7 @@ func (p *proc) alive() bool {
 }
 
 func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool) bool {
-	if p.pid == 0 || p.status == Stopping {
+	if p.live() == nil || p.status == Stopping {
 		return false
 	}
 	a, b := p.running, p.cfg
@@ -507,8 +528,8 @@ func (s *Supervisor) Input(name string, data []byte) error {
 	s.mu.Lock()
 	p, ok := s.procs[name]
 	var f *os.File
-	if ok && p.pid != 0 {
-		f = p.pty
+	if ok && p.live() != nil {
+		f = p.live().pty
 	}
 	s.mu.Unlock()
 	if f == nil {
@@ -530,8 +551,8 @@ func (s *Supervisor) Resize(name string, cols, rows uint16) {
 		return
 	}
 	p.cols, p.rows = cols, rows
-	if p.pid != 0 && p.pty != nil {
-		_ = setTerminalSize(p.pty, cols, rows)
+	if p.live() != nil {
+		_ = setTerminalSize(p.live().pty, cols, rows)
 	}
 }
 
@@ -544,7 +565,7 @@ func (s *Supervisor) ActivePort(name string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	if p.pid != 0 {
+	if p.live() != nil {
 		return p.running.Port, true
 	}
 	return p.cfg.Port, true

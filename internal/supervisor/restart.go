@@ -90,7 +90,7 @@ func (s *Supervisor) scheduleRetryLocked(p *proc, now, at time.Time) {
 	token := p.startSeq
 	s.afterLocked(left, func() func() {
 		name := p.cfg.Name
-		if s.procs[name] != p || p.startSeq != token || !p.restartPending || !p.retryAt.Equal(at) || !p.want || p.pid != 0 || p.alive() || p.removed || s.closing {
+		if s.procs[name] != p || p.startSeq != token || !p.restartPending || !p.retryAt.Equal(at) || !p.want || p.live() != nil || p.alive() || p.removed || s.closing {
 			return nil
 		}
 		p.retries = 0

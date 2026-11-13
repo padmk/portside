@@ -17,7 +17,7 @@ func fakeMemory(s *Supervisor) *atomic.Int64 {
 	var rss atomic.Int64
 	s.processes = func(context.Context) map[int]procSample {
 		s.mu.Lock()
-		pid := s.procs["web"].pid
+		pid := s.procs["web"].livePID()
 		s.mu.Unlock()
 		if pid == 0 {
 			return nil

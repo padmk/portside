@@ -28,7 +28,7 @@ func (s *Supervisor) Stop(name string) error {
 	p.scheduleReserved = false
 	p.retries = 0
 	p.startSeq++ // cancels any start still in preflight
-	if p.pid == 0 {
+	if p.live() == nil {
 		if p.status == Starting || p.status == Blocked || p.status == Crashed || p.status == Exited {
 			p.status = Stopped
 			p.note = ""
@@ -43,8 +43,8 @@ func (s *Supervisor) Stop(name string) error {
 		}
 		return nil
 	}
-	pid := p.pid
-	done := p.done
+	pid := p.live().pid
+	done := p.live().done
 	if ending := p.ending; ending != nil && !isClosed(ending) {
 		// Already stopping: a second Ctrl-C would make tools such as
 		// docker compose abort their own graceful shutdown. A stop for
@@ -128,13 +128,13 @@ func (s *Supervisor) Shutdown() {
 		wg.Go(func() { <-ending })
 	}
 	for _, p := range s.procs {
-		if p.pid == 0 || (p.ending != nil && !isClosed(p.ending)) {
+		if p.live() == nil || (p.ending != nil && !isClosed(p.ending)) {
 			continue
 		}
 		p.stopping = true
 		p.status = Stopping
 		ending := s.beginEndingLocked(p)
-		pid, done, grace := p.pid, p.done, p.running.Stop
+		pid, done, grace := p.live().pid, p.live().done, p.running.Stop
 		wg.Go(func() {
 			terminate(s.sys, pid, done, grace)
 			s.endEnding(ending)
@@ -145,7 +145,7 @@ func (s *Supervisor) Shutdown() {
 	wg.Wait()
 	s.mu.Lock()
 	for name, g := range st.Groups {
-		if p := s.procs[name]; (p == nil || p.pid == 0) && s.sys.signalGroup(g.PID, 0) != nil {
+		if p := s.procs[name]; (p == nil || p.live() == nil) && s.sys.signalGroup(g.PID, 0) != nil {
 			delete(st.Groups, name)
 		}
 	}

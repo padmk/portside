@@ -61,7 +61,7 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 	if opt.trigger != "" {
 		p.retries = 0
 	}
-	if p.pid != 0 {
+	if p.live() != nil {
 		// A server that is stopping, or whose process has ended and whose
 		// last output is still draining, starts again once wait has
 		// recorded the exit, unless a later Stop withdraws the request.
@@ -79,7 +79,7 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 	// A task whose run since this request ended (one a dependent of it in
 	// the same bulk start ran) is not run again for it, done or failed.
 	done := false
-	if p.cfg.Oneshot && !opt.Since.IsZero() && p.pid == 0 && !p.settledAt.Before(opt.Since) {
+	if p.cfg.Oneshot && !opt.Since.IsZero() && p.live() == nil && !p.settledAt.Before(opt.Since) {
 		state := taskStateLocked(p, opt.Since)
 		done = state == taskDone || state == taskFailed
 	}
@@ -106,7 +106,7 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 		return s.startOne(name, opt, token)
 	}
 	s.mu.Lock()
-	if p := s.procs[name]; p != nil && p.pid == 0 && p.startSeq == token {
+	if p := s.procs[name]; p != nil && p.live() == nil && p.startSeq == token {
 		p.requestedAt = opt.Since
 		p.status = Starting
 		p.note = "waiting for " + strings.Join(deps, ", ")
@@ -173,7 +173,7 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 	if p == nil {
 		return dependency{}
 	}
-	if task := p.cfg.Oneshot; task && p.pid == 0 && !p.settledAt.Before(since) {
+	if task := p.cfg.Oneshot; task && p.live() == nil && !p.settledAt.Before(since) {
 		switch taskStateLocked(p, since) {
 		case taskDone:
 			return dependency{task: true, done: true}
@@ -220,16 +220,16 @@ func (s *Supervisor) markStartAfterExitLocked(p *proc, since time.Time) {
 // has been reaped, also before wait has recorded it. The process's own
 // state says so, not its pid, which another process may have by now.
 func processEndedLocked(p *proc) bool {
-	if p.pid == 0 || p.process == nil {
+	if p.live() == nil {
 		return false
 	}
-	return !p.reapedAt.IsZero() || p.process.reaped()
+	return !p.reapedAt.IsZero() || p.live().process.reaped()
 }
 
 // reapedLocked reports whether wait has recorded the end of p's process,
 // whose pid is still set, and when.
 func reapedLocked(p *proc) (time.Time, bool) {
-	if p.pid == 0 || p.reapedAt.IsZero() {
+	if p.live() == nil || p.reapedAt.IsZero() {
 		return time.Time{}, false
 	}
 	return p.reapedAt, true
@@ -266,7 +266,7 @@ func (s *Supervisor) current(name string, token int) bool {
 func (s *Supervisor) failStart(name string, token int, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if p, ok := s.procs[name]; ok && p.pid == 0 && p.startSeq == token && p.want {
+	if p, ok := s.procs[name]; ok && p.live() == nil && p.startSeq == token && p.want {
 		if p.status == Crashed || p.status == Blocked {
 			return // startOne itself failed and reported it
 		}
@@ -286,7 +286,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		s.mu.Unlock()
 		return fmt.Errorf("unknown server %q", name)
 	}
-	if p.pid != 0 {
+	if p.live() != nil {
 		s.mu.Unlock()
 		return nil
 	}
@@ -348,7 +348,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		if !takeover || !found {
 			s.mu.Lock()
 			s.awaitHandoffLocked()
-			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.pid != 0 {
+			if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.live() != nil {
 				s.mu.Unlock()
 				return nil
 			}
@@ -372,7 +372,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		if err := s.killForeign(owner); err != nil {
 			s.mu.Lock()
 			s.awaitHandoffLocked()
-			if s.procs[name] == p && p.want && p.startSeq == token && !s.closing && p.pid == 0 {
+			if s.procs[name] == p && p.want && p.startSeq == token && !s.closing && p.live() == nil {
 				p.status = Blocked
 				p.external = &owner
 				p.note = fmt.Sprintf("port %d: taking it over from %s (pid %d) failed: %v", sv.Port, owner.Command, owner.PID, err)
@@ -389,7 +389,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		msg := "directory not found: " + paths.ShortenHome(sv.Dir)
 		s.mu.Lock()
 		s.awaitHandoffLocked()
-		if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.pid != 0 {
+		if s.procs[name] != p || !p.want || p.startSeq != token || s.closing || p.live() != nil {
 			s.mu.Unlock()
 			return nil
 		}
@@ -415,7 +415,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 
 	s.mu.Lock()
 	s.awaitHandoffLocked()
-	if p.pid != 0 { // lost a race with another Start
+	if p.live() != nil { // lost a race with another Start
 		s.mu.Unlock()
 		return nil
 	}
@@ -460,11 +460,11 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	f = pollableTerminal(f)
 	p.gen++
 	gen := p.gen
-	p.process = leader
+	r := &run{pid: leader.pid(), process: leader, pty: f, done: make(chan struct{}), copied: make(chan struct{})}
+	r.pidStart = s.sys.processStart(r.pid)
+	r.reader = newOutputReader(f, p.logs)
+	p.cur = r
 	p.reapedAt = time.Time{}
-	p.pty = f
-	p.pid = leader.pid()
-	p.pidStart = s.sys.processStart(p.pid)
 	p.running = sv
 	p.runningEnv = slices.Clone(env)
 	p.runningShell = shell
@@ -487,20 +487,15 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.external = nil
 	p.listening = false
 	p.hist.reset()
-	p.done = make(chan struct{})
-	p.copied = make(chan struct{})
-	copied := p.copied
-	p.reader = newOutputReader(f, p.logs)
-	reader := p.reader
 	s.changedLocked()
 	s.saveLocked()
 	s.mu.Unlock()
 
 	go func() {
-		defer close(copied)
-		reader.run()
+		defer close(r.copied)
+		r.reader.run()
 	}()
-	go s.wait(name, p, gen)
+	go s.wait(name, p, r, gen)
 	go s.watchReady(name, p, gen)
 	return nil
 }

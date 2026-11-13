@@ -127,7 +127,7 @@ func (s *Supervisor) stateLocked() persisted {
 			ScheduleReserved: p.scheduleReserved,
 			SettledAt:        p.settledAt, DoneAt: p.doneAt,
 		}
-		if p.pid == 0 && p.want {
+		if p.live() == nil && p.want {
 			e := st.Servers[name]
 			e.RequestedAt = p.requestedAt
 			st.Servers[name] = e
@@ -143,8 +143,8 @@ func (s *Supervisor) stateLocked() persisted {
 		if p.want {
 			st.Running = append(st.Running, name)
 		}
-		if p.pid != 0 {
-			st.Groups[name] = pidStamp{PID: p.pid, Start: p.pidStart}
+		if p.live() != nil {
+			st.Groups[name] = pidStamp{PID: p.live().pid, Start: p.live().pidStart}
 		}
 		if p.temp != nil && !p.removed {
 			st.Temporary = append(st.Temporary, *p.temp)
@@ -190,8 +190,8 @@ func (s *Supervisor) Recover(restore bool) {
 	// Servers adopted from the daemon this process replaced keep running.
 	adopted := map[int]bool{}
 	for _, p := range s.procs {
-		if p.pid != 0 {
-			adopted[p.pid] = true
+		if p.live() != nil {
+			adopted[p.live().pid] = true
 		}
 	}
 	// A group's leader was alive when the state was saved and, unless it
@@ -206,7 +206,7 @@ func (s *Supervisor) Recover(restore bool) {
 	}
 	for name, last := range st.Servers {
 		// An adopted server that exited since keeps what its exit recorded.
-		if p := s.procs[name]; p != nil && p.pid == 0 && !gone[name] && !s.handedOver[name] {
+		if p := s.procs[name]; p != nil && p.live() == nil && !gone[name] && !s.handedOver[name] {
 			p.exitCode, p.hasExit, p.exitedAt = last.Code, last.HasExit, last.At
 			if last.Status == Crashed || last.Status == Exited || last.Status == Blocked {
 				// A restart it announced is scheduled again below, or not at all.
@@ -249,7 +249,7 @@ func (s *Supervisor) Recover(restore bool) {
 	if restore && (s.upgraded || s.cfg.Restore) {
 		for name, last := range st.Servers {
 			p := s.procs[name]
-			if p == nil || p.pid != 0 || gone[name] || started[name] || !p.cfg.Enabled || p.removed {
+			if p == nil || p.live() != nil || gone[name] || started[name] || !p.cfg.Enabled || p.removed {
 				continue
 			}
 			switch {
@@ -278,7 +278,7 @@ func (s *Supervisor) Recover(restore bool) {
 			p := s.procs[name]
 			// Only for the schedule it was reserved under: a changed one
 			// counts from now.
-			if !last.ScheduleReserved || p == nil || p.pid != 0 || started[name] || gone[name] || s.handedOver[name] || !p.cfg.Enabled || p.removed || !scheduledLocked(p) || last.Schedule != p.cfg.Schedule.String() {
+			if !last.ScheduleReserved || p == nil || p.live() != nil || started[name] || gone[name] || s.handedOver[name] || !p.cfg.Enabled || p.removed || !scheduledLocked(p) || last.Schedule != p.cfg.Schedule.String() {
 				continue
 			}
 			started[name] = true
@@ -311,7 +311,7 @@ func (s *Supervisor) Recover(restore bool) {
 			p, ok := s.procs[name]
 			// A restart or retry already pending keeps its time, and an
 			// adopted server runs.
-			enabled := ok && p.cfg.Enabled && !p.removed && !p.restartPending && p.pid == 0
+			enabled := ok && p.cfg.Enabled && !p.removed && !p.restartPending && p.live() == nil
 			trigger := triggerRestore
 			if ok && upgrade && p.trigger != "" {
 				trigger = p.trigger

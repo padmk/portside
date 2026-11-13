@@ -220,7 +220,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 		// A live process keeps the port and path it was started with until a
 		// restart applies an edit (reported as Stale).
 		active := c
-		if p.pid != 0 {
+		if p.live() != nil {
 			active = p.running
 		}
 		v := View{
@@ -234,7 +234,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			Status:         p.status,
 			Unready:        p.status == Running && !p.missingSince.IsZero() && time.Since(p.missingSince) >= listenerLossDelay,
 			Note:           p.note,
-			PID:            p.pid,
+			PID:            p.livePID(),
 			Listening:      p.listening,
 			RestartPending: p.restartPending,
 			Retrying:       p.restartPending && !p.retryAt.IsZero(),
@@ -275,7 +275,7 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 		if p.temp != nil {
 			v.Temporary, v.Origin, v.Worktree = true, p.temp.Origin, p.temp.Worktree
 		}
-		if p.pid != 0 {
+		if p.live() != nil {
 			v.Exposure = p.exposure
 			v.NetworkWarning = NetworkWarning(p.exposure, c.LAN)
 			if v.NetworkWarning {
@@ -292,15 +292,15 @@ func (s *Supervisor) Snapshot(daemonPort int) []View {
 			}
 			v.Alias += c.Open
 		}
-		if !p.startedAt.IsZero() && p.pid != 0 {
+		if !p.startedAt.IsZero() && p.live() != nil {
 			t := p.startedAt
 			v.StartedAt = &t
 		}
-		if !p.readyAt.IsZero() && p.pid != 0 {
+		if !p.readyAt.IsZero() && p.live() != nil {
 			t := p.readyAt
 			v.ReadyAt = &t
 		}
-		if p.hasExit && p.pid == 0 {
+		if p.hasExit && p.live() == nil {
 			t, code := p.exitedAt, p.exitCode
 			v.ExitedAt, v.ExitCode = &t, &code
 		}

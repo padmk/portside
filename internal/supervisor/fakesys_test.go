@@ -314,8 +314,8 @@ func retireDaemon(s *Supervisor) {
 	defer s.mu.Unlock()
 	for _, p := range s.procs {
 		p.gen++
-		if p.pty != nil {
-			_ = p.pty.Close()
+		if r := p.live(); r != nil {
+			_ = r.pty.Close()
 		}
 		p.logs.Close()
 	}

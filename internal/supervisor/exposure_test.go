@@ -36,7 +36,7 @@ func TestCheckExposureReadsListeners(t *testing.T) {
 	s := New(cfg, t.TempDir())
 	s.mu.Lock()
 	p := s.procs["web"]
-	p.pid, p.status, p.running = os.Getpid(), Running, p.cfg
+	p.cur, p.status, p.running = &run{pid: os.Getpid()}, Running, p.cfg
 	s.mu.Unlock()
 
 	s.checkExposure(context.Background(), nil, time.Now())
@@ -85,7 +85,7 @@ func TestLANSilencesNetworkWarning(t *testing.T) {
 	s.mu.Lock()
 	for _, name := range []string{"open", "lan"} {
 		p := s.procs[name]
-		p.pid, p.status, p.running, p.exposure = os.Getpid(), Running, p.cfg, ports.Network
+		p.cur, p.status, p.running, p.exposure = &run{pid: os.Getpid()}, Running, p.cfg, ports.Network
 	}
 	s.procs["stopped"].exposure = ports.Network
 	s.mu.Unlock()

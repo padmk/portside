@@ -203,8 +203,8 @@ func TestReadinessDiagnosticsAndReloadGrace(t *testing.T) {
 	if p.note != "" {
 		t.Fatal("recovery did not clear degraded note")
 	}
-	p.pid = 1
-	t.Cleanup(func() { p.pid = 0 })
+	p.cur = &run{pid: 1}
+	t.Cleanup(func() { p.cur = nil })
 	if got := s.Snapshot(19000)[0].URL; got != "http://[::1]:4802" {
 		t.Fatal(got)
 	}
@@ -512,7 +512,7 @@ func TestPrepareAndCancelHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hs) != 1 || hs[0].PID != s.procs["web"].pid || hs[0].Config.Cmd != "echo up; sleep 60" {
+	if len(hs) != 1 || hs[0].PID != s.procs["web"].livePID() || hs[0].Config.Cmd != "echo up; sleep 60" {
 		t.Fatalf("handoff %+v", hs)
 	}
 	if err := s.Start("web", StartOptions{}); err == nil {

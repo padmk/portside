@@ -63,8 +63,8 @@ func (s *Supervisor) checkExposure(ctx context.Context, table map[int]procSample
 	s.exposureWanted, s.exposureAt = false, now
 	own := s.tailnet
 	for name, p := range s.procs {
-		if p.pid != 0 && p.status == Running {
-			targets = append(targets, target{name, p.pid, p.gen, p.running.Port, p.running.Dir, p.running.Cmd})
+		if p.live() != nil && p.status == Running {
+			targets = append(targets, target{name, p.live().pid, p.gen, p.running.Port, p.running.Dir, p.running.Cmd})
 		}
 	}
 	s.mu.Unlock()
@@ -88,7 +88,7 @@ func (s *Supervisor) checkExposure(ctx context.Context, table map[int]procSample
 	defer s.mu.Unlock()
 	changed := false
 	for i, t := range targets {
-		if p := s.procs[t.name]; p != nil && p.gen == t.gen && p.pid == t.pid && (p.exposure != found[i] || p.kind != kinds[i]) {
+		if p := s.procs[t.name]; p != nil && p.gen == t.gen && p.live() != nil && p.live().pid == t.pid && (p.exposure != found[i] || p.kind != kinds[i]) {
 			p.exposure, p.kind = found[i], kinds[i]
 			changed = true
 		}

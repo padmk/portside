@@ -213,7 +213,7 @@ func (d *depsHarness) liveIn(dir string) *fakeProc {
 func (d *depsHarness) mismatch() string {
 	d.s.mu.Lock()
 	web := d.s.procs[depsServer]
-	pid, want, status := web.pid, web.want, web.status
+	pid, want, status := web.livePID(), web.want, web.status
 	d.s.mu.Unlock()
 	d.w.mu.Lock()
 	taskRuns, webRuns := d.w.launches[d.taskDir], d.w.launches[d.webDir]

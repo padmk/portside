@@ -17,8 +17,8 @@ func (s *Supervisor) IsManagedPID(pid int) (string, bool) {
 	s.mu.Lock()
 	roots := map[int]string{}
 	for name, p := range s.procs {
-		if p.pid != 0 {
-			roots[p.pid] = name
+		if p.live() != nil {
+			roots[p.livePID()] = name
 		}
 	}
 	s.mu.Unlock()

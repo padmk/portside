@@ -79,11 +79,11 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 	var lastPorts time.Time
 	for range tick.C {
 		s.mu.Lock()
-		if p.gen != gen || (p.status != Starting && p.status != Running) || p.pid == 0 {
+		if p.gen != gen || (p.status != Starting && p.status != Running) || p.live() == nil {
 			s.mu.Unlock()
 			return
 		}
-		port, health, started, pid := p.running.Port, p.running.Health, p.startedAt, p.pid
+		port, health, started, pid := p.running.Port, p.running.Health, p.startedAt, p.livePID()
 		readyLog := ""
 		if p.status == Starting && !p.logReady.Load() {
 			readyLog = p.running.ReadyLog
@@ -132,7 +132,7 @@ func (s *Supervisor) watchReady(_ string, p *proc, gen int) {
 			slices.Sort(listenPorts)
 		}
 		s.mu.Lock()
-		if p.gen == gen && p.pid != 0 && (p.status == Starting || p.status == Running) {
+		if p.gen == gen && p.live() != nil && (p.status == Starting || p.status == Running) {
 			s.updateReadinessLocked(p, ready, host, reason, listenPorts, inspect, time.Now())
 		}
 		s.mu.Unlock()
@@ -316,7 +316,7 @@ func (s *Supervisor) ActiveAddress(name string) (string, bool) {
 		return "", false
 	}
 	port := p.cfg.Port
-	if p.pid != 0 {
+	if p.live() != nil {
 		port = p.running.Port
 	}
 	if port <= 0 {

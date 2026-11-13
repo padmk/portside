@@ -83,10 +83,12 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	var mu sync.Mutex
 	var waiting []string
 	for _, name := range s.order {
-		if p := s.procs[name]; p != nil && p.pid != 0 && p.reader != nil {
+		if p := s.procs[name]; p != nil && p.live() != nil {
 			awaits := p.status == Starting && p.running.ReadyLog != "" && !p.logReady.Load()
+			reader := p.live().reader
+			s.paused = append(s.paused, reader)
 			paused.Go(func() {
-				if p.reader.Pause(pauseTimeout) {
+				if reader.Pause(pauseTimeout) {
 					return
 				}
 				if awaits {
@@ -101,11 +103,7 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	}
 	paused.Wait()
 	if len(waiting) > 0 {
-		for _, p := range s.procs {
-			if p.reader != nil {
-				p.reader.Resume()
-			}
-		}
+		s.resumeReadersLocked()
 		slices.Sort(waiting)
 		return nil, fmt.Errorf("the terminal of %s could not be paused while it waits for its ready_log line; try again", strings.Join(waiting, ", "))
 	}
@@ -117,9 +115,10 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 	var out []Handoff
 	for _, name := range s.order {
 		p := s.procs[name]
-		if p == nil || p.pid == 0 || p.pty == nil {
+		if p == nil || p.live() == nil {
 			continue
 		}
+		r := p.live()
 		// Read together, under the lock the matcher runs under.
 		var logReady bool
 		var logLine []byte
@@ -130,7 +129,7 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 			}
 		})
 		out = append(out, Handoff{
-			Name: name, PID: p.pid, PIDStart: p.pidStart, pty: p.pty,
+			Name: name, PID: r.pid, PIDStart: r.pidStart, pty: r.pty,
 			Config: p.running, Env: slices.Clone(p.runningEnv), Shell: p.runningShell, Tool: p.runningTool, Launch: p.launch,
 			Status: p.status, Note: p.note, Want: p.want, Retries: p.retries,
 			StartedAt: p.startedAt, ReadyAt: p.readyAt,
@@ -145,16 +144,21 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 // CancelHandoff resumes normal operation after a failed exec.
 func (s *Supervisor) CancelHandoff() {
 	s.mu.Lock()
-	for _, p := range s.procs {
-		if p.reader != nil {
-			p.reader.Resume()
-		}
-	}
+	s.resumeReadersLocked()
 	s.closing = false
 	s.handoff = false
 	s.handoffEnd.Broadcast()
 	s.changedLocked()
 	s.mu.Unlock()
+}
+
+// resumeReadersLocked resumes the terminal readers PrepareHandoff paused,
+// also of runs that ended since.
+func (s *Supervisor) resumeReadersLocked() {
+	for _, r := range s.paused {
+		r.Resume()
+	}
+	s.paused = nil
 }
 
 // KeepTerminalsOnExec keeps the terminals of hs open across exec and records
@@ -233,7 +237,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 			s.order = append(s.order, h.Name)
 			s.adoptedRemoved = append(s.adoptedRemoved, h.Name)
 		}
-		if p.pid != 0 {
+		if p.live() != nil {
 			s.mu.Unlock()
 			f.Close()
 			continue
@@ -254,16 +258,16 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		} else {
 			installReadyLog(p, h.Config.ReadyLog, h.LogLine)
 		}
-		p.process = process
-		p.reapedAt = time.Time{}
-		p.pty = f
-		p.pid = h.PID
+		r := &run{pid: h.PID, process: process, pty: f, done: make(chan struct{}), copied: make(chan struct{})}
 		// Saved by an older daemon perhaps in its own locale; keep the C
 		// locale text that this one compares.
-		p.pidStart = h.PIDStart
+		r.pidStart = h.PIDStart
 		if now := s.sys.processStart(h.PID); now != "" {
-			p.pidStart = now
+			r.pidStart = now
 		}
+		r.reader = newOutputReader(f, p.logs)
+		p.cur = r
+		p.reapedAt = time.Time{}
 		p.running = h.Config
 		p.runningEnv = h.Env
 		p.runningShell = h.Shell
@@ -288,19 +292,14 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		p.external = nil
 		p.listening = false
 		p.hist.reset()
-		p.done = make(chan struct{})
-		p.copied = make(chan struct{})
-		copied := p.copied
-		p.reader = newOutputReader(f, p.logs)
-		reader := p.reader
 		s.changedLocked()
 		s.mu.Unlock()
 
 		go func() {
-			defer close(copied)
-			reader.run()
+			defer close(r.copied)
+			r.reader.run()
 		}()
-		go s.wait(h.Name, p, gen)
+		go s.wait(h.Name, p, r, gen)
 		go s.watchReady(h.Name, p, gen)
 		adopted = append(adopted, h.Name)
 	}
@@ -321,7 +320,7 @@ func (s *Supervisor) exitedDuringHandoff(h Handoff) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p := s.procs[h.Name]
-	if p == nil || p.pid != 0 {
+	if p == nil || p.live() != nil {
 		return // no longer configured, or already running
 	}
 	if s.handoffExited == nil {

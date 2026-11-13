@@ -209,11 +209,11 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 	s.mu.Lock()
 	prepend, globalEnv := s.cfg.PathPrepend, s.cfg.Env
 	for name, p := range s.procs {
-		if p.pid != 0 && usage {
+		if p.live() != nil && usage {
 			if p.launch != nil {
-				detections = append(detections, detection{name, p.pid, p.cfg})
+				detections = append(detections, detection{name, p.livePID(), p.cfg})
 			}
-			cpu, mem, ok := treeUsage(table, children, p.pid)
+			cpu, mem, ok := treeUsage(table, children, p.livePID())
 			if ok {
 				p.cpu, p.mem = cpu, mem
 				p.hist.add(cpu, mem, now)
@@ -224,16 +224,16 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 			}
 		}
 		// watchReady keeps the listener of a starting or running server current.
-		if p.cfg.Port > 0 && p.status != Starting && p.status != Stopping && !(p.pid != 0 && p.status == Running) {
+		if p.cfg.Port > 0 && p.status != Starting && p.status != Stopping && !(p.live() != nil && p.status == Running) {
 			port := p.cfg.Port
-			if p.pid != 0 {
+			if p.live() != nil {
 				port = p.running.Port
 			}
 			pid := 0
 			if p.external != nil {
 				pid = p.external.PID
 			}
-			checks = append(checks, check{name, port, p.pid != 0, pid, p.externalStart})
+			checks = append(checks, check{name, port, p.live() != nil, pid, p.externalStart})
 			forwarded[name] = s.forwardedFromLocked(p) != ""
 		}
 	}
@@ -252,7 +252,7 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 			env := launchEnv(base, d.cfg, prepend, globalEnv)
 			key := detectTool(d.cfg, lookupEnv(env, "PATH"), nvmScript(env)).key()
 			s.mu.Lock()
-			if p := s.procs[d.name]; p != nil && p.pid == d.pid && (p.detected == nil || *p.detected != key) {
+			if p := s.procs[d.name]; p != nil && p.livePID() == d.pid && (p.detected == nil || *p.detected != key) {
 				p.detected = &key
 				changed = true
 			}
@@ -278,7 +278,7 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 		}
 		s.mu.Lock()
 		p, ok := s.procs[c.name]
-		if ok && c.alive == (p.pid != 0) {
+		if ok && c.alive == (p.live() != nil) {
 			if c.alive {
 				changed = changed || p.listening != listening
 				p.listening = listening

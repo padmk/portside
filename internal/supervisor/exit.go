@@ -25,12 +25,9 @@ func exitCode(st *os.ProcessState, err error) int {
 // wait reaps the process and decides what happens next. The process is a
 // child of this daemon, also when it was adopted from the binary this one
 // replaced, so waiting on its pid works either way.
-func (s *Supervisor) wait(name string, p *proc, gen int) {
-	s.mu.Lock()
-	process := p.process
-	s.mu.Unlock()
-	code := process.wait()
-	pgid := p.pid
+func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
+	code := r.process.wait()
+	pgid := r.pid
 	s.mu.Lock()
 	// Read and recorded under the lock that start checks it under, so a
 	// request is ordered against the run's end the same way as its time.
@@ -45,7 +42,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	// Let the reader drain the last output (often the crash message). An
 	// orphan holding the terminal open must not delay the exit forever.
 	select {
-	case <-p.copied:
+	case <-r.copied:
 	case <-s.sys.after(2 * time.Second):
 	}
 
@@ -54,7 +51,7 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 		s.mu.Unlock()
 		return
 	}
-	_ = p.pty.Close()
+	_ = r.pty.Close()
 	uptime := time.Since(p.startedAt)
 	p.exitedAt = time.Now()
 	// The run ended when its process did, before its output drained: a
@@ -62,10 +59,10 @@ func (s *Supervisor) wait(name string, p *proc, gen int) {
 	p.settledAt = p.reapedAt
 	p.exitCode = code
 	p.hasExit = true
-	p.pid = 0
+	p.cur = nil
 	p.cpu, p.mem = 0, 0
 	p.listening = false
-	close(p.done)
+	close(r.done)
 	stamp := p.exitedAt.Format("15:04:05")
 	overMemory := p.overMemory
 	p.overMemory = ""

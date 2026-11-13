@@ -310,7 +310,7 @@ func (s *Supervisor) updateTemporaryLocked(p *proc) bool {
 	if !ok {
 		return false
 	}
-	if origin.Port > 0 && p.pid == 0 {
+	if origin.Port > 0 && p.live() == nil {
 		taken := false
 		for _, sv := range s.cfg.Servers {
 			taken = taken || sv.Port == p.temp.Port
@@ -364,7 +364,7 @@ func (s *Supervisor) Dismiss(name string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if p := s.procs[name]; p != nil && p.temp != nil && p.pid == 0 {
+	if p := s.procs[name]; p != nil && p.temp != nil && p.live() == nil {
 		s.dropLocked(name, p)
 		s.saveLocked()
 		s.changedLocked()
@@ -401,7 +401,7 @@ func (s *Supervisor) TemporaryPorts() func(port int) bool {
 	for _, p := range s.procs {
 		if p.temp != nil && !p.removed {
 			used[p.temp.Port] = true
-			if p.pid != 0 {
+			if p.live() != nil {
 				used[p.running.Port] = true
 			}
 		}

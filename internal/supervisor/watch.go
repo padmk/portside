@@ -284,7 +284,7 @@ func (s *Supervisor) watchRestart(st watchStart) {
 		// throughout and nothing waiting for it sees it stopped; wait
 		// launches it once the group has exited, unless a stop comes first.
 		s.mu.Lock()
-		if s.procs[st.name] != p || p.startSeq != st.seq || p.pid == 0 || p.stopping || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
+		if s.procs[st.name] != p || p.startSeq != st.seq || p.live() == nil || p.stopping || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
 			s.mu.Unlock()
 			return
 		}
@@ -293,7 +293,7 @@ func (s *Supervisor) watchRestart(st watchStart) {
 		s.reserveLocked(p)
 		p.stopping = true
 		p.status = Stopping
-		pid, done, grace := p.pid, p.done, p.running.Stop
+		pid, done, grace := p.live().pid, p.live().done, p.running.Stop
 		ending := s.beginEndingLocked(p)
 		s.changedLocked()
 		s.mu.Unlock()
@@ -304,7 +304,7 @@ func (s *Supervisor) watchRestart(st watchStart) {
 	// Reserved under the lock that checks nothing else started or stopped
 	// it since, so a stop in between wins.
 	s.mu.Lock()
-	if s.procs[st.name] != p || p.startSeq != st.seq || p.alive() || p.pid != 0 || s.closing || !p.cfg.Enabled || p.removed {
+	if s.procs[st.name] != p || p.startSeq != st.seq || p.alive() || p.live() != nil || s.closing || !p.cfg.Enabled || p.removed {
 		s.mu.Unlock()
 		return
 	}
