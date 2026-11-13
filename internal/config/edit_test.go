@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The fixture is built from pieces so that expected results can be composed
@@ -820,5 +821,56 @@ func TestUpdateTaskRestart(t *testing.T) {
 	}
 	if got := readConfig(t, path); !strings.Contains(got, `restart = "on-failure"`) {
 		t.Errorf("task's on-failure was not written:\n%s", got)
+	}
+}
+
+// An edit through a symlink and one through the file it points to, also by
+// another name or through a linked directory, take the same lock, so one
+// waits for the other instead of overwriting it.
+func TestEditsThroughALinkShareTheLock(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dotfiles", "portside.toml")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "work.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	linkedDir := filepath.Join(dir, "linked")
+	if err := os.Symlink(filepath.Dir(target), linkedDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, other := range []string{link, filepath.Join(linkedDir, "portside.toml")} {
+		unlock, err := lock(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := make(chan func(), 1)
+		go func() {
+			u, err := lock(other)
+			if err != nil {
+				t.Error(err)
+				u = func() {}
+			}
+			got <- u
+		}()
+		select {
+		case u := <-got:
+			u()
+			unlock()
+			t.Fatalf("%s took its own lock while %s held the target's", other, target)
+		case <-time.After(200 * time.Millisecond):
+		}
+		unlock()
+		select {
+		case u := <-got:
+			u()
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s never got the lock", other)
+		}
 	}
 }

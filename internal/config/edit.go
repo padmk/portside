@@ -428,13 +428,29 @@ func realPath(path string) string {
 	return path
 }
 
+// lockTarget is path with every symlink resolved, also those of its
+// directories; for a file that does not exist yet, its directory's.
+func lockTarget(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		return filepath.Join(dir, filepath.Base(path))
+	}
+	return path
+}
+
 // lock serialises read-modify-write cycles across processes (daemon, CLI).
+// The lock file sits next to the file the edit writes and is named after
+// it, so every path that reaches that file (a symlink of another name, a
+// linked directory) takes the same lock.
 func lock(path string) (func(), error) {
-	dir := filepath.Dir(realPath(path))
+	file := lockTarget(path)
+	dir := filepath.Dir(file)
 	if err := os.MkdirAll(dir, paths.DirMode); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, paths.ConfigLockName(path)), os.O_CREATE|os.O_RDWR, paths.FileMode)
+	f, err := os.OpenFile(filepath.Join(dir, paths.ConfigLockName(file)), os.O_CREATE|os.O_RDWR, paths.FileMode)
 	if err != nil {
 		return nil, err
 	}
