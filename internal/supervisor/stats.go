@@ -288,13 +288,13 @@ func (s *Supervisor) check(ctx context.Context, knownExternal map[string]int, us
 					// A blocked server with a retry pending stays blocked, so
 					// the retry (which now finds the port free) can still be
 					// stopped.
-					if p.status == Blocked && p.restartPending {
+					if p.status == Blocked && p.pending != nil {
 						_, at, _ := strings.Cut(p.note, restartingNote)
 						p.note = fmt.Sprintf("port %d is free now", c.port) + restartingNote + at
 					}
 					changed = true
 				}
-				if p.status == Blocked && !p.restartPending {
+				if p.status == Blocked && p.pending == nil {
 					// Also once a retry that kept it blocked is cancelled.
 					p.status = Stopped
 					p.note = ""

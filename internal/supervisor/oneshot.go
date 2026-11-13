@@ -57,7 +57,7 @@ func taskStateLocked(p *proc, since time.Time) taskState {
 		return taskPending
 	case fresh && p.succeeded():
 		return taskDone
-	case fresh && p.status == Crashed && p.restartPending && p.retryAt.IsZero():
+	case fresh && p.status == Crashed && p.pending != nil && p.pending.kind == pendingRestart:
 		return taskPending // an automatic restart follows
 	case fresh && p.status != Stopped:
 		return taskFailed

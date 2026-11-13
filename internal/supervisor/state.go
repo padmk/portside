@@ -132,11 +132,12 @@ func (s *Supervisor) stateLocked() persisted {
 			e.RequestedAt = p.requestedAt
 			st.Servers[name] = e
 		}
-		if p.restartPending {
+		if pd := p.pending; pd != nil {
 			e := st.Servers[name]
-			e.RetryAt, e.RestartAt = p.retryAt, p.restartAt
-			if !p.restartAt.IsZero() {
-				e.Retries = p.retries
+			if pd.kind == pendingRetry {
+				e.RetryAt = pd.at
+			} else {
+				e.RestartAt, e.Retries = pd.at, p.retries
 			}
 			st.Servers[name] = e
 		}
@@ -311,7 +312,7 @@ func (s *Supervisor) Recover(restore bool) {
 			p, ok := s.procs[name]
 			// A restart or retry already pending keeps its time, and an
 			// adopted server runs.
-			enabled := ok && p.cfg.Enabled && !p.removed && !p.restartPending && p.live() == nil
+			enabled := ok && p.cfg.Enabled && !p.removed && p.pending == nil && p.live() == nil
 			trigger := triggerRestore
 			if ok && upgrade && p.trigger != "" {
 				trigger = p.trigger

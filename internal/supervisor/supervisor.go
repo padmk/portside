@@ -47,15 +47,15 @@ const (
 var restartDelay = time.Second
 
 type proc struct {
-	cfg            config.Server // latest configuration
-	runningEnv     []string
-	runningShell   string
-	runningTool    string        // version manager the live process runs under, "" for none
-	launch         *launchInputs // what runningEnv was built from; nil when unknown
-	detected       *string       // tool detection for cfg as last sampled; nil before the first sample
-	restartPending bool
-	retryAt        time.Time // when the pending restart is a retry after retry_after, its time
-	restartAt      time.Time // when the pending restart is an automatic one after a crash, its time
+	cfg          config.Server // latest configuration
+	runningEnv   []string
+	runningShell string
+	runningTool  string        // version manager the live process runs under, "" for none
+	launch       *launchInputs // what runningEnv was built from; nil when unknown
+	detected     *string       // tool detection for cfg as last sampled; nil before the first sample
+	// pending is the automatic restart or retry that starts the server
+	// again at its time, nil for none.
+	pending *pendingStart
 	// scheduleReserved marks a scheduled run reserved but not begun yet.
 	scheduleReserved bool
 	// againTrigger is the trigger of a start asked for while the server
@@ -468,7 +468,7 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 	// After temporary copies took their origin's new settings.
 	cancelled := false
 	for _, p := range s.procs {
-		if p.restartPending && ((!p.retryAt.IsZero() && !p.cfg.RetriesAfterGivingUp()) || (!p.restartAt.IsZero() && p.cfg.Restart == config.RestartNo)) {
+		if pd := p.pending; pd != nil && ((pd.kind == pendingRetry && !p.cfg.RetriesAfterGivingUp()) || (pd.kind == pendingRestart && p.cfg.Restart == config.RestartNo)) {
 			cancelPendingLocked(p)
 			cancelled = true
 		}

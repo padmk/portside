@@ -283,7 +283,7 @@ func (h *harness) observe() observed {
 	h.s.mu.Lock()
 	var o observed
 	if p := h.s.procs[h.name]; p != nil {
-		o.status, o.pid, o.want, o.pending = p.status, p.livePID(), p.want, p.restartPending
+		o.status, o.pid, o.want, o.pending = p.status, p.livePID(), p.want, p.pending != nil
 	}
 	h.s.mu.Unlock()
 	h.w.mu.Lock()

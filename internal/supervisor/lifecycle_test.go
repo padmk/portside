@@ -313,7 +313,7 @@ func TestShutdownSavesStateWithoutGroups(t *testing.T) {
 	if len(st.Groups) != 0 || len(st.Running) != 2 {
 		t.Fatalf("after shutdown: groups %v, running %v", st.Groups, st.Running)
 	}
-	if note := st.Servers["api"].Note; strings.Contains(note, "restarting") || s.procs["api"].restartPending {
+	if note := st.Servers["api"].Note; strings.Contains(note, "restarting") || (s.procs["api"].pending != nil) {
 		t.Fatalf("a restart is still announced: %q", note)
 	}
 }
@@ -481,7 +481,7 @@ func TestPendingRestartSurvivesUpgrade(t *testing.T) {
 	after.Recover(true)
 	after.mu.Lock()
 	p := after.procs["web"]
-	pending, retries, note := p.restartPending, p.retries, p.note
+	pending, retries, note := p.pending != nil, p.retries, p.note
 	after.mu.Unlock()
 	if !pending || retries != 1 || !strings.Contains(note, "restarting in") {
 		t.Fatalf("after the upgrade: pending %v, retries %d, note %q", pending, retries, note)

@@ -285,7 +285,7 @@ func (s *Supervisor) Adopt(hs []Handoff) []string {
 		if h.Cols > 0 && h.Rows > 0 {
 			p.cols, p.rows = h.Cols, h.Rows
 		}
-		p.restartPending = false
+		p.pending = nil
 		p.missingSince = h.MissingSince
 		p.hasExit = false
 		p.stopping = false

@@ -24,7 +24,7 @@ func (s *Supervisor) Stop(name string) error {
 		return errors.New("the daemon is upgrading in place; try again in a moment")
 	}
 	p.want = false
-	p.restartPending = false
+	p.pending = nil
 	p.scheduleReserved = false
 	p.retries = 0
 	p.startSeq++ // cancels any start still in preflight
@@ -110,8 +110,8 @@ func (s *Supervisor) Shutdown() {
 	s.mu.Lock()
 	for _, p := range s.procs {
 		// No automatic restart follows a shutdown.
-		if p.restartPending {
-			p.restartPending = false
+		if p.pending != nil {
+			p.pending = nil
 			p.note, _, _ = strings.Cut(p.note, restartingNote)
 		}
 	}

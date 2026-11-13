@@ -122,7 +122,7 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 		again = true
 	}
 	p.startAfterExit = false
-	p.restartPending, p.retryAt, p.restartAt = false, time.Time{}, time.Time{}
+	p.pending = nil
 	if p.status == Crashed || p.status == Exited {
 		// Down for good: a crash nothing restarts, or restart = "always"
 		// gave up on a server meant to keep running.

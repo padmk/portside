@@ -247,7 +247,7 @@ func (s *Supervisor) reserveStartLocked(p *proc, trigger string) (deps []string,
 // reserveLocked records a start request for p and returns its token.
 func (s *Supervisor) reserveLocked(p *proc) int {
 	p.want = true
-	p.restartPending = false
+	p.pending = nil
 	p.startSeq++
 	s.saveLocked()
 	return p.startSeq
@@ -295,7 +295,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		s.mu.Unlock()
 		return nil
 	}
-	p.restartPending = false
+	p.pending = nil
 	if opt.trigger != "" {
 		p.trigger = opt.trigger
 	}
@@ -471,7 +471,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 	p.runningTool = tool.name
 	p.launch = &launchInputs{Base: slices.Clone(base), Path: slices.Clone(prepend), Env: maps.Clone(globalEnv), Detect: choice.key()}
 	p.detected = nil
-	p.restartPending = false
+	p.pending = nil
 	p.listenPorts = nil
 	p.listenHost = ""
 	p.missingSince = time.Time{}
