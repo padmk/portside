@@ -163,10 +163,15 @@ func PlainRune(r rune) rune {
 }
 
 func unsafeRune(r rune) bool {
-	if r == '\u200c' || r == '\u200d' {
-		return false
-	}
-	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+	return unicode.IsControl(r) || hidingRune(r)
+}
+
+// hidingRune reports a format character that can reorder or hide text
+// (bidirectional overrides and isolates, invisible separators). The
+// zero-width joiner and non-joiner are not, since emoji and scripts need
+// them.
+func hidingRune(r rune) bool {
+	return r != '\u200c' && r != '\u200d' && unicode.Is(unicode.Cf, r)
 }
 
 // PlainLines is PlainText for text that may span lines: it splits s at

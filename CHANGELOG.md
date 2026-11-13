@@ -8,6 +8,7 @@
 - **Terminal UI, config:** `:config` edits the config text in your editor on a private copy and saves it with its revision; `e` edits a server in a form, `n` adds servers from the scan's proposals or an empty form, and `:settings` edits the top-level settings.
 - **Terminal UI, other computers and the daemon:** `C` lists your computers (pairing with a hidden code, sharing, forwarded ports) and `:on` switches the session in place; `:daemon` shows the daemon, `:upgrade` and `:restart-daemon` replace or restart it in place, and `:setup` and `:doctor` set up and check the coding agents. Tailscale setup, revoking a paired device and forwarding a port to another local port stay in the dashboard and the CLI.
 - **Fixed, logs:** terminal escape sequences that save and restore the cursor, such as docker compose's key bar, no longer leak into kept log lines; a line's cursor moves are replayed instead (overwrites, erases, a redraw of the rows above). This affects `portside logs`, the logs API that the dashboard and the MCP tools read, and the terminal UI.
+- **Fixed, logs:** `portside logs` prints characters that reorder or hide text, such as a right-to-left override, as `�`, as the terminal UI shows them, so a log line cannot disguise what it says; `--raw` keeps every byte.
 
 ## 0.11.3
 

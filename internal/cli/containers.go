@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -94,10 +95,11 @@ func containsAny(names []string, values ...string) bool {
 
 // containerLogs prints, searches or follows a container's output for the
 // logs command.
-func containerLogs(e *env, c *client.Client, name string, q url.Values, follow bool) error {
+// containerLogs prints a container's logs to out (cmdLogs's writer).
+func containerLogs(e *env, c *client.Client, out io.Writer, name string, q url.Values, follow bool) error {
 	path := "/api/containers/" + url.PathEscape(name) + "/logs"
 	if !follow {
-		return c.Do(e.ctx, http.MethodGet, path+"?"+q.Encode(), nil, e.out)
+		return c.Do(e.ctx, http.MethodGet, path+"?"+q.Encode(), nil, out)
 	}
 	ws, err := c.DialWebSocket(e.ctx, path+"?"+q.Encode())
 	if err != nil {
@@ -124,7 +126,7 @@ func containerLogs(e *env, c *client.Client, name string, q url.Values, follow b
 		if plain {
 			data = []byte(supervisor.StripANSI(strings.ReplaceAll(string(data), "\r\n", "\n")))
 		}
-		_, _ = e.out.Write(data)
+		_, _ = out.Write(data)
 	}
 }
 

@@ -28,7 +28,8 @@ func serveState(t *testing.T, state string, port int, st server.State) {
 
 // serveDaemon runs a daemon stand-in on 127.0.0.1:port that proves itself
 // with the token in state and answers signed requests for the paths in
-// routes with what their function returns for the request body.
+// routes with what their function returns for the request body: JSON, or
+// the bytes themselves for a []byte.
 func serveDaemon(t *testing.T, state string, port int, routes map[string]func(body []byte) any) {
 	t.Helper()
 	token := signing.RandomHex(32)
@@ -49,7 +50,12 @@ func serveDaemon(t *testing.T, state string, port int, routes map[string]func(bo
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			body, _ = json.Marshal(route(req))
+			switch v := route(req).(type) {
+			case []byte: // a text reply, such as logs
+				body = v
+			default:
+				body, _ = json.Marshal(v)
+			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			return

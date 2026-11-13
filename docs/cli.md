@@ -25,7 +25,8 @@ portside ensure <name> [--json]          start if needed, wait until ready, prin
                                          --timeout 90s, --takeover as for up,
                                          --dir <checkout> runs it from another git worktree
 portside logs <name> [-n 200] [-f]       print or follow a server's or container's output;
-                                         --raw keeps terminal escape codes;
+                                         characters that reorder or hide text show as �,
+                                         --raw keeps every byte and escape code;
                                          --grep <regexp> [-C N] searches it, -t adds times,
                                          --since 10m (or an RFC 3339 time) limits it,
                                          none of these three with -f or --raw

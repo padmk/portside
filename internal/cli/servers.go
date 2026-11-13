@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -338,15 +339,23 @@ func cmdLogs(e *env, args []string) error {
 	}
 	name := names[0]
 	base := "/api/servers/" + url.PathEscape(name)
+	// The output is untrusted program text: characters that reorder or
+	// hide text are replaced, except with --raw, which keeps every byte.
+	out := io.Writer(e.out)
+	if !*raw {
+		fw := viewfmt.NewFormatWriter(e.out)
+		defer func() { _ = fw.Flush() }()
+		out = fw
+	}
 	if !slices.ContainsFunc(st.Servers, func(v supervisor.View) bool { return v.Name == name }) &&
 		slices.ContainsFunc(st.Docker.Containers, func(d docker.Container) bool { return d.Name == name }) {
-		return containerLogs(e, c, name, q, *follow)
+		return containerLogs(e, c, out, name, q, *follow)
 	}
 	if !*follow {
 		if *raw {
 			q.Set("raw", "1")
 		}
-		return c.Do(e.ctx, http.MethodGet, base+"/logs?"+q.Encode(), nil, e.out)
+		return c.Do(e.ctx, http.MethodGet, base+"/logs?"+q.Encode(), nil, out)
 	}
 	// Follow: scrollback and live output come over one subscription, so
 	// nothing printed in between is lost. The first message is the scrollback.
@@ -358,7 +367,7 @@ func cmdLogs(e *env, args []string) error {
 	ws.SetReadLimit(-1)
 	if _, backlog, err := ws.Read(e.ctx); err == nil {
 		for _, l := range supervisor.PlainLines(backlog, *n) {
-			fmt.Fprintln(e.out, l)
+			fmt.Fprintln(out, l)
 		}
 	}
 	isTTY := isTerminal(os.Stdout)
@@ -370,7 +379,7 @@ func cmdLogs(e *env, args []string) error {
 		if !*raw && (!isTTY || !e.color) {
 			data = []byte(supervisor.StripANSI(strings.ReplaceAll(string(data), "\r\n", "\n")))
 		}
-		_, _ = e.out.Write(data)
+		_, _ = out.Write(data)
 	}
 }
 
