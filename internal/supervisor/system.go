@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -45,18 +44,20 @@ type system interface {
 	after(d time.Duration) <-chan time.Time
 }
 
-// process is a server's leader as the supervisor waits for it.
+// process is a server's leader as the supervisor waits for it. wait
+// waits for its end without reaping it (exitWait), records the end, and
+// only then reaps it (reap), so while the end is not recorded the process
+// runs or is a zombie, never reaped: zombie then answers consistently.
 type process interface {
 	pid() int
-	// wait reaps the process and returns its exit code (see exitCode).
-	wait() int
-	// reaped reports whether the process is known to have ended and been
-	// reaped: its state says so, not its pid, which another process may
-	// have by now.
-	reaped() bool
-	// exited reports whether the process has ended, reaped or not yet (a
-	// zombie that wait is about to reap).
-	exited() bool
+	// exitWait returns once the process has ended, leaving it a zombie.
+	exitWait()
+	// reap reaps the ended process and returns its exit code (see
+	// exitCode).
+	reap() int
+	// zombie reports whether the process has ended and waits to be reaped;
+	// an error means the kernel could not tell.
+	zombie() (bool, error)
 }
 
 type hostSystem struct{}
@@ -90,14 +91,7 @@ func (hostSystem) signalGroup(pgid int, sig syscall.Signal) error {
 
 type hostProcess struct{ p *os.Process }
 
-func (h hostProcess) pid() int  { return h.p.Pid }
-func (h hostProcess) wait() int { return exitCode(h.p.Wait()) }
-
-func (h hostProcess) reaped() bool {
-	return errors.Is(h.p.Signal(syscall.Signal(0)), os.ErrProcessDone)
-}
-
-func (h hostProcess) exited() bool {
-	// Reaped first: once it is, the pid may belong to another process.
-	return h.reaped() || zombie(h.p.Pid)
-}
+func (h hostProcess) pid() int              { return h.p.Pid }
+func (h hostProcess) exitWait()             { exitWait(h.p.Pid) }
+func (h hostProcess) reap() int             { return exitCode(h.p.Wait()) }
+func (h hostProcess) zombie() (bool, error) { return zombie(h.p.Pid) }

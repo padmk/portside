@@ -198,7 +198,7 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 
 // startAfterRunLocked reports whether a start of p asked for now comes
 // after the end of its live run, which ended on its own: its process has
-// ended (also before wait has reaped it), so wait runs the start once it
+// ended (also before wait has recorded it), so wait runs the start once it
 // has recorded the exit. A task's run that ended at or after since
 // (non-zero for a dependency or a start asked for together with others)
 // serves the start instead. A stopping server starts again through its
@@ -210,7 +210,7 @@ func (s *Supervisor) startAfterRunLocked(p *proc, since time.Time) bool {
 	if p.cfg.Oneshot && !since.IsZero() {
 		// Ordered by wait's record of the end, which becomes the run's
 		// settledAt: a request from before it shares the run.
-		at, ok := reapedLocked(p)
+		at, ok := exitRecordedLocked(p)
 		return ok && at.Before(since)
 	}
 	return processEndedLocked(p)

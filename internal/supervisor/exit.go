@@ -19,19 +19,22 @@ func exitCode(st *os.ProcessState, err error) int {
 	return st.ExitCode()
 }
 
-// wait reaps the process and records what happens next (endedLocked). The
-// process is a child of this daemon, also when it was adopted from the
-// binary this one replaced, so waiting on its pid works either way.
+// wait records the end of the process, reaps it and records what happens
+// next (endedLocked). The process is a child of this daemon, also when it
+// was adopted from the binary this one replaced, so waiting on its pid
+// works either way.
 func (s *Supervisor) wait(p *proc, r *run, gen int) {
-	code := r.process.wait()
+	r.process.exitWait()
 	pgid := r.pid
 	s.mu.Lock()
-	// Recorded under the lock that start checks it under, so a request is
-	// ordered against the run's end the same way as its time.
-	reaped := time.Now()
-	s.transitionLocked(p, evReaped{at: reaped})
+	// Recorded under the lock that start checks it under, and before the
+	// reap, so a request is ordered against the run's end the same way as
+	// its time, and one that comes first still finds the zombie.
+	exited := time.Now()
+	s.transitionLocked(p, evExited{at: exited})
 	stopping := s.requestedExitLocked(p) || p.stopping() != nil
 	s.mu.Unlock()
+	code := r.process.reap()
 	if !stopping {
 		// The leader died on its own; children left in its group are orphans.
 		// During a Stop, terminate owns the whole group and its grace period.
@@ -54,7 +57,7 @@ func (s *Supervisor) wait(p *proc, r *run, gen int) {
 	p.exitedAt = time.Now()
 	// The run ended when its process did, before its output drained: a
 	// request from after that is not served by it.
-	p.settledAt = reaped
+	p.settledAt = exited
 	p.exitCode = code
 	p.hasExit = true
 	p.cpu, p.mem = 0, 0

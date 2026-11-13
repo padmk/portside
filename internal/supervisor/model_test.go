@@ -710,3 +710,50 @@ func TestUpgradeKeepsAStartAfterTheExit(t *testing.T) {
 	h.m.ended(0, true, false)
 	h.settle(t)
 }
+
+// A start that arrives after the leader exited keeps its run even when the
+// waiter would reap the zombie while the start looks at it: wait reaps
+// only after it has recorded the end under the lock the start holds, so
+// the look sees a zombie or the record, never a reaped process without
+// one. The lookup hook lets the waiter reap if it can; the fake answers as
+// strictly as a kernel whose pid was reused.
+func TestStartAfterExitSurvivesAReapDuringTheLook(t *testing.T) {
+	h := newHarness(t)
+	defer func() { _ = os.RemoveAll(h.dir) }()
+	h.name, h.port = modelServer, freeModelPort(t)
+	h.m = model{restart: config.RestartNo}
+	h.s = h.newSupervisor(h.config())
+	defer h.cleanup()
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.m.start(false)
+	h.settle(t)
+
+	p := h.live()
+	h.w.mu.Lock()
+	h.w.exitLocked(p, 0, false)
+	h.w.onLookup = func(fp *fakeProc) {
+		h.w.mu.Lock()
+		h.w.reapableLocked(fp)
+		h.w.mu.Unlock()
+		for deadline := time.Now().Add(300 * time.Millisecond); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+			h.w.mu.Lock()
+			reaped := fp.reaped
+			h.w.mu.Unlock()
+			if reaped {
+				return
+			}
+		}
+	}
+	h.w.mu.Unlock()
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.w.mu.Lock()
+	h.w.onLookup = nil
+	h.w.mu.Unlock()
+	h.m.again = true
+	h.m.ended(0, true, false)
+	h.settle(t)
+}

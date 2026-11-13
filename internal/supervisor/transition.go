@@ -24,7 +24,7 @@ import (
 //	running   evStop           running, stopping (effTerminate)
 //	starting  evLaunched       running
 //	starting  evLaunchFailed   idle (blocked or crashed), a retry pending
-//	running   evReaped         running, ended
+//	running   evExited         running, ended
 //	running   evReady          running, ready
 //	running   evOverMemory     running, stopping (effTerminate)
 //	running   evRestartRun     running, stopping with next (effTerminate)
@@ -61,8 +61,9 @@ type evLaunchFailed struct {
 	note   string
 }
 
-// evReaped is wait's reap of the live leader at the time at.
-type evReaped struct{ at time.Time }
+// evExited is wait's record of the live leader's end at the time at, made
+// before it reaps the leader.
+type evExited struct{ at time.Time }
 
 // evReady is the live process seen ready.
 type evReady struct{}
@@ -111,7 +112,7 @@ func (evRequest) isEvent()       {}
 func (evStop) isEvent()          {}
 func (evLaunched) isEvent()      {}
 func (evLaunchFailed) isEvent()  {}
-func (evReaped) isEvent()        {}
+func (evExited) isEvent()        {}
 func (evReady) isEvent()         {}
 func (evEnded) isEvent()         {}
 func (evOverMemory) isEvent()    {}
@@ -180,7 +181,7 @@ func (s *Supervisor) transitionLocked(p *proc, ev event) []effect {
 		}
 	case evLaunchFailed:
 		s.launchFailedLocked(p, ev)
-	case evReaped:
+	case evExited:
 		if ph, ok := p.ph.(running); ok {
 			ph.ended = ev.at
 			p.ph = ph

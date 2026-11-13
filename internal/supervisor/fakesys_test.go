@@ -43,6 +43,9 @@ type fakeWorld struct {
 	// violations collects what broke an invariant the moment it happened.
 	launches   map[string]int
 	violations []string
+	// onLookup, when set, runs as a supervisor asks whether a process is a
+	// zombie, before the answer, so a test can let other goroutines move.
+	onLookup func(p *fakeProc)
 }
 
 type fakeProc struct {
@@ -282,8 +285,19 @@ type fakeHandle struct {
 
 func (h *fakeHandle) pid() int { return h.p.pid }
 
-func (h *fakeHandle) wait() int {
+// exitWait returns once the leader exited, while this daemon still owns
+// it; reap waits until the kernel lets it reap the zombie (reapable).
+func (h *fakeHandle) exitWait() {
 	<-h.p.exited
+	h.w.mu.Lock()
+	mine := h.p.owner == h.daemon
+	h.w.mu.Unlock()
+	if !mine {
+		select {} // this daemon was replaced in place: it no longer runs
+	}
+}
+
+func (h *fakeHandle) reap() int {
 	<-h.p.reapable
 	h.w.mu.Lock()
 	mine := h.p.owner == h.daemon
@@ -293,23 +307,27 @@ func (h *fakeHandle) wait() int {
 	code := h.p.code
 	h.w.mu.Unlock()
 	if !mine {
-		select {} // this daemon was replaced in place: it no longer runs
+		select {}
 	}
 	return code
 }
 
-func (h *fakeHandle) reaped() bool {
+func (h *fakeHandle) zombie() (bool, error) {
+	h.w.mu.Lock()
+	look := h.w.onLookup
+	h.w.mu.Unlock()
+	if look != nil {
+		look(h.p)
+	}
 	h.w.mu.Lock()
 	defer h.w.mu.Unlock()
-	return h.p.reaped
-}
-
-func (h *fakeHandle) exited() bool {
 	select {
 	case <-h.p.exited:
-		return true
+		// Once reaped, the pid may belong to another process that runs:
+		// the strictest answer a kernel can give.
+		return !h.p.reaped, nil
 	default:
-		return false
+		return false, nil
 	}
 }
 

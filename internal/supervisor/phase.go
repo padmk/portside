@@ -31,7 +31,8 @@ type running struct {
 	run   *run
 	ready bool         // readiness was seen: the status is Running
 	stop  *stopRequest // the end of the run under way, nil for none
-	// ended is when wait reaped the leader; zero before.
+	// ended is when wait saw the leader end, before it reaped it; zero
+	// before.
 	ended time.Time
 	// next is the start asked for once the run ends (while it stops, or
 	// after it ended on its own), nil for none; wait launches it.
@@ -132,9 +133,10 @@ func stopAskedLocked(p *proc) bool {
 	return st != nil && st.cause == stopAsked
 }
 
-// reapedLocked reports whether wait has recorded the end of p's process,
+// exitRecordedLocked reports whether wait has recorded the end of p's
+// process,
 // which still counts as live, and when.
-func reapedLocked(p *proc) (time.Time, bool) {
+func exitRecordedLocked(p *proc) (time.Time, bool) {
 	ph, ok := p.ph.(running)
 	if !ok || ph.ended.IsZero() {
 		return time.Time{}, false
@@ -142,17 +144,20 @@ func reapedLocked(p *proc) (time.Time, bool) {
 	return ph.ended, true
 }
 
-// processEndedLocked reports whether p's live process has ended: reaped,
-// or exited and not reaped yet (a zombie), so a start asked for now comes
-// after the run's end. The process's own state says so, not its pid,
-// which another process may have by now.
+// processEndedLocked reports whether p's live process has ended, so a
+// start asked for now comes after the run's end: wait recorded the end,
+// or the process is a zombie. Under s.mu the two cannot miss each other:
+// wait reaps only after it has recorded the end under the same lock (see
+// process). When the kernel cannot tell, the run counts as ended, so the
+// start is kept rather than lost.
 func processEndedLocked(p *proc) bool {
 	r := p.live()
 	if r == nil {
 		return false
 	}
-	if _, ok := reapedLocked(p); ok {
+	if _, ok := exitRecordedLocked(p); ok {
 		return true
 	}
-	return r.process.exited()
+	ended, err := r.process.zombie()
+	return ended || err != nil
 }

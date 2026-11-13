@@ -6,30 +6,33 @@ import (
 	"time"
 )
 
-// A start that comes after a server's process exited, before wait reaped
-// it, follows the run (F1): the supervisor tells the exited child from a
-// running one without reaping it, so wait still gets its exit code.
-func TestExitedChildIsToldFromARunningOne(t *testing.T) {
-	cmd := exec.Command("sh", "-c", "exit 3")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	h := hostProcess{cmd.Process}
-	deadline := time.Now().Add(5 * time.Second)
-	for !h.exited() {
-		if time.Now().After(deadline) {
-			t.Fatal("an exited child that was not reaped does not count as exited")
+// The supervisor sees a child's end before it reaps it: exitWait returns
+// once the child has exited, also when it exited before the wait began,
+// and leaves a zombie, which zombie reports and reap then collects with
+// its exit code; a running child is no zombie and exitWait waits for it.
+func TestExitWaitLeavesAZombie(t *testing.T) {
+	for _, early := range []bool{false, true} {
+		cmd := exec.Command("sh", "-c", "sleep 0.2; exit 3")
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if h.reaped() {
-		t.Fatal("the look reaped the child")
-	}
-	if code := h.wait(); code != 3 {
-		t.Fatalf("wait after the look got code %d, want 3", code)
-	}
-	if !h.exited() {
-		t.Fatal("a reaped child does not count as exited")
+		h := hostProcess{cmd.Process}
+		if early {
+			time.Sleep(time.Second) // ended before the wait begins
+		}
+		ended := make(chan struct{})
+		go func() { h.exitWait(); close(ended) }()
+		select {
+		case <-ended:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("early %v: exitWait did not return after the child exited", early)
+		}
+		if z, err := h.zombie(); !z || err != nil {
+			t.Fatalf("early %v: an exited child that was not reaped: zombie %v, %v", early, z, err)
+		}
+		if code := h.reap(); code != 3 {
+			t.Fatalf("early %v: reap got code %d, want 3", early, code)
+		}
 	}
 
 	sleeper := exec.Command("sleep", "30")
@@ -37,7 +40,21 @@ func TestExitedChildIsToldFromARunningOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = sleeper.Process.Kill(); _ = sleeper.Wait() }()
-	if (hostProcess{sleeper.Process}).exited() {
-		t.Fatal("a running child counts as exited")
+	h := hostProcess{sleeper.Process}
+	if z, err := h.zombie(); z || err != nil {
+		t.Fatalf("a running child: zombie %v, %v", z, err)
+	}
+	ended := make(chan struct{})
+	go func() { h.exitWait(); close(ended) }()
+	select {
+	case <-ended:
+		t.Fatal("exitWait returned for a running child")
+	case <-time.After(300 * time.Millisecond):
+	}
+	_ = sleeper.Process.Kill()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("exitWait did not return after the child was killed")
 	}
 }
