@@ -523,9 +523,49 @@ func (m *Manager) Pair(ctx context.Context, target, code string) (Info, error) {
 	return m.Connect(ctx, node.DNSName)
 }
 
+// reached is a device's daemon as Connect found it: its port, the epoch
+// it proved, and its state.
+type reached struct {
+	port  int
+	epoch string
+	tr    *http.Transport
+	data  []byte
+	state remoteState
+}
+
+// reachDaemon finds node's daemon and reads its state, signed with cred.
+func (m *Manager) reachDaemon(ctx context.Context, node tailnet.Node, cred share.Credential) (reached, error) {
+	tr := peerTransport(node)
+	// A 401 (pairing removed) is answered with pairing_required; the stored
+	// credential is kept, since the reply cannot prove where it came from, and
+	// pairing again replaces it.
+	port, _, epoch, err := m.findPort(ctx, tr, node, &cred)
+	if err != nil {
+		tr.CloseIdleConnections()
+		return reached{}, err
+	}
+	r := reached{port: port, epoch: epoch, tr: tr}
+	if r.data, _, err = call(ctx, tr, node, port, &cred, epoch, http.MethodGet, "/api/state", nil, &r.state); err != nil {
+		tr.CloseIdleConnections()
+		return reached{}, err
+	}
+	return r, nil
+}
+
+// beginLocked starts an operation that changes the connection and returns
+// its generation; a later Connect, Disconnect or Close makes it stale.
+func (m *Manager) beginLocked() uint64 {
+	m.op++
+	return m.op
+}
+
 // Connect connects to the device called target ("name" or "name:port"),
-// replacing any current connection.
+// replacing any current connection. A Connect, Disconnect or Close that
+// begins while it reaches the device wins: this one then installs nothing.
 func (m *Manager) Connect(ctx context.Context, target string) (Info, error) {
+	m.mu.Lock()
+	op := m.beginLocked()
+	m.mu.Unlock()
 	_, node, _, err := m.resolve(ctx, target)
 	if err != nil {
 		return Info{}, err
@@ -534,31 +574,26 @@ func (m *Manager) Connect(ctx context.Context, target string) (Info, error) {
 	if !ok {
 		return Info{}, &Error{Status: http.StatusUnauthorized, Code: CodePairingRequired, Msg: "pair with " + node.Name + " first"}
 	}
-	tr := peerTransport(node)
-	// A 401 (pairing removed) is answered with pairing_required; the stored
-	// credential is kept, since the reply cannot prove where it came from, and
-	// pairing again replaces it.
-	port, _, epoch, err := m.findPort(ctx, tr, node, &cred)
+	r, err := m.reach(ctx, node, cred)
 	if err != nil {
-		tr.CloseIdleConnections()
 		return Info{}, err
 	}
-	var rs remoteState
-	data, _, err := call(ctx, tr, node, port, &cred, epoch, http.MethodGet, "/api/state", nil, &rs)
-	if err != nil {
-		tr.CloseIdleConnections()
-		return Info{}, err
-	}
-	c := newConn(m, node, port, cred, tr)
-	c.epoch = epoch
+	c := newConn(m, node, r.port, cred, r.tr)
+	c.epoch = r.epoch
 	m.mu.Lock()
+	if m.op != op {
+		m.mu.Unlock()
+		c.close()
+		return Info{}, &Error{Status: http.StatusConflict, Msg: "connecting to " + node.Name + " was superseded by a later connect or disconnect"}
+	}
 	old := m.c
 	m.c = c
 	m.mu.Unlock()
 	if old != nil {
 		old.close()
 	}
-	c.apply(data, &rs)
+	port := r.port
+	c.apply(r.data, &r.state) //nolint:contextcheck // the mirrors live as long as the connection, not this request
 	go c.run()
 	m.notify(true)
 	log.Printf("remote: connected to %s", node.DNSName)
@@ -581,6 +616,9 @@ func (m *Manager) Connect(ctx context.Context, target string) (Info, error) {
 // retries until the other computer answers, the user disconnects, or the
 // other computer no longer accepts this one's pairing.
 func (m *Manager) Resume(ctx context.Context) {
+	m.mu.Lock()
+	op := m.beginLocked()
+	m.mu.Unlock()
 	s, ok := m.store.connection()
 	if !ok {
 		return
@@ -609,7 +647,7 @@ func (m *Manager) Resume(ctx context.Context) {
 	c := newConn(m, node, s.Port, cred, peerTransport(node))
 	c.status, c.down = Connecting, time.Now()
 	m.mu.Lock()
-	if _, still := m.store.connection(); m.c != nil || !still {
+	if _, still := m.store.connection(); m.op != op || m.c != nil || !still {
 		// Connected or disconnected meanwhile; that choice wins.
 		m.mu.Unlock()
 		c.close()

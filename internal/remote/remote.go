@@ -90,8 +90,16 @@ type Manager struct {
 	tokens       *tokens
 	store        *store
 
-	mu       sync.Mutex
-	c        *conn
+	// reach finds a device's daemon for Connect (reachDaemon unless a test
+	// sets another).
+	reach func(context.Context, tailnet.Node, share.Credential) (reached, error)
+
+	mu sync.Mutex
+	c  *conn
+	// op is the generation of the latest Connect, Resume, Disconnect or
+	// Close; a Connect or Resume installs its connection only while it
+	// still holds the latest (beginLocked).
+	op       uint64
 	known    map[string]int // daemon port per peer, learned by discovery
 	wanted   func(port int) bool
 	subs     notify.Signals
@@ -101,7 +109,9 @@ type Manager struct {
 // New creates a manager for the daemon listening on localPort that keeps
 // its pairings in stateDir.
 func New(localPort int, stateDir string, ts *tailnet.Cache) *Manager {
-	return &Manager{localPort: localPort, maxForwarded: forwardLimit(), mirrorWork: mirrorWork, ts: ts, tokens: newTokens(stateDir), store: newStore(stateDir), known: map[string]int{}}
+	m := &Manager{localPort: localPort, maxForwarded: forwardLimit(), mirrorWork: mirrorWork, ts: ts, tokens: newTokens(stateDir), store: newStore(stateDir), known: map[string]int{}}
+	m.reach = m.reachDaemon
+	return m
 }
 
 // Subscribe returns a channel signalled on every change, including each new
@@ -139,6 +149,7 @@ func (m *Manager) Disconnect() {
 	// Forgotten under the lock that ends the connection, so a Connect
 	// finishing meanwhile cannot save it again (see Connect).
 	m.mu.Lock()
+	m.beginLocked()
 	err := m.store.setConnection(nil)
 	c := m.c
 	m.c = nil
@@ -154,6 +165,9 @@ func (m *Manager) Disconnect() {
 // Close ends the current connection as the daemon stops; the next daemon
 // resumes it.
 func (m *Manager) Close() {
+	m.mu.Lock()
+	m.beginLocked()
+	m.mu.Unlock()
 	if c := m.current(); c != nil {
 		m.disconnect(c)
 	}
