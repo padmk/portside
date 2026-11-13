@@ -69,9 +69,8 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		// exit in between cannot miss it. A task's run in progress
 		// satisfies a start asked for together with others (Since), as it
 		// does a dependency.
-		p.againTrigger = opt.trigger
 		s.markStartAfterExitLocked(p, opt.Since)
-		s.reserveLocked(p)
+		s.reserveLocked(p, startRequest{trigger: opt.trigger, at: opt.Since})
 		s.mu.Unlock()
 		return nil
 	}
@@ -91,7 +90,10 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 	// its origin's dependencies. They are read under the lock that reserves
 	// the start, so a config reload cannot mix two versions.
 	deps := s.cfg.WithDeps(p.cfg.DependsOn)
-	token := s.reserveLocked(p)
+	if opt.Since.IsZero() {
+		opt.Since = time.Now()
+	}
+	token := s.reserveLocked(p, startRequest{trigger: opt.trigger, at: opt.Since})
 	s.mu.Unlock()
 	return s.launch(name, deps, opt, token)
 }
@@ -107,7 +109,10 @@ func (s *Supervisor) launch(name string, deps []string, opt StartOptions, token 
 	}
 	s.mu.Lock()
 	if p := s.procs[name]; p != nil && p.live() == nil && p.startSeq == token {
-		p.requestedAt = opt.Since
+		if p.req != nil {
+			p.req.at = opt.Since
+		}
+		p.lastRequestAt = opt.Since
 		p.status = Starting
 		p.note = "waiting for " + strings.Join(deps, ", ")
 		if opt.trigger != "" {
@@ -185,12 +190,13 @@ func (s *Supervisor) reserveDependency(name string, since time.Time) dependency 
 	}
 	p.retries = 0
 	s.markStartAfterExitLocked(p, since)
-	return dependency{task: p.cfg.Oneshot, token: s.reserveLocked(p)}
+	return dependency{task: p.cfg.Oneshot, token: s.reserveLocked(p, startRequest{trigger: triggerStart, at: since})}
 }
 
 // markStartAfterExitLocked records that a start of p, whose pid is still
 // set, comes after its process ended on its own and was reaped, so wait
-// runs it once it has recorded the exit. A task's run that ended at or
+// runs it (p.next, which reserveLocked fills in) once it has recorded the
+// exit. A task's run that ended at or
 // after since (non-zero for a dependency or a start asked for together
 // with others) serves the start instead. A stopping server starts again
 // through its own path in wait.
@@ -208,7 +214,7 @@ func (s *Supervisor) markStartAfterExitLocked(p *proc, since time.Time) {
 		ended = processEndedLocked(p)
 	}
 	if ended {
-		p.startAfterExit = true
+		p.next = &startRequest{}
 		// The ended run is not ready for anyone waiting: the next one is
 		// on its way.
 		p.status, p.note = Starting, ""
@@ -241,14 +247,34 @@ func reapedLocked(p *proc) (time.Time, bool) {
 func (s *Supervisor) reserveStartLocked(p *proc, trigger string) (deps []string, token int) {
 	p.retries = 0
 	p.trigger = trigger
-	return s.cfg.WithDeps(p.cfg.DependsOn), s.reserveLocked(p)
+	return s.cfg.WithDeps(p.cfg.DependsOn), s.reserveLocked(p, startRequest{trigger: trigger})
 }
 
-// reserveLocked records a start request for p and returns its token.
-func (s *Supervisor) reserveLocked(p *proc) int {
+// startRequest is a start asked for: what asked for it ("" for an
+// automatic restart, which keeps its round's trigger) and when.
+type startRequest struct {
+	trigger string
+	at      time.Time
+}
+
+// reserveLocked records the start request req for p and returns its
+// token. Without a live process it is the start under way (p.req); with
+// one, it is the start after the run ends (p.next) when the run is ending:
+// stopped, over its memory_limit, or ended on its own (see
+// markStartAfterExitLocked). A start of a run that goes on asks for nothing.
+func (s *Supervisor) reserveLocked(p *proc, req startRequest) int {
+	if req.at.IsZero() {
+		req.at = time.Now()
+	}
 	p.want = true
 	p.pending = nil
 	p.startSeq++
+	p.lastRequestAt = req.at
+	if p.live() == nil {
+		p.req = &req
+	} else if p.next != nil || s.requestedExitLocked(p) || p.overMemory != "" {
+		p.next = &req
+	}
 	s.saveLocked()
 	return p.startSeq
 }
@@ -432,7 +458,7 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 		s.mu.Unlock()
 		return nil
 	}
-	p.scheduleReserved = false // the scheduled run, if any, has begun
+	p.req = nil // the start, a scheduled run among them, has begun
 	size := &pty.Winsize{Cols: p.cols, Rows: p.rows}
 	stamp := time.Now().Format("15:04:05")
 	fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  %s ──\x1b[0m\r\n\x1b[2m$ %s\x1b[0m\r\n", stamp, "start", script)

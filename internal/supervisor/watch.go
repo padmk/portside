@@ -289,9 +289,8 @@ func (s *Supervisor) watchRestart(st watchStart) {
 			return
 		}
 		p.retries = 0
-		p.againTrigger = triggerWatch
-		s.reserveLocked(p)
 		p.stopping = true
+		s.reserveLocked(p, startRequest{trigger: triggerWatch})
 		p.status = Stopping
 		pid, done, grace := p.live().pid, p.live().done, p.running.Stop
 		ending := s.beginEndingLocked(p)

@@ -124,12 +124,12 @@ func (s *Supervisor) stateLocked() persisted {
 			Status: p.status, Note: p.note, Code: p.exitCode, HasExit: p.hasExit, At: p.exitedAt,
 			Trigger: p.trigger, Streak: p.streak, Incident: p.incident, IncidentSince: p.incidentSince,
 			Schedule: p.scheduleExpr, NextRun: p.nextRun, LastRun: p.lastRun,
-			ScheduleReserved: p.scheduleReserved,
+			ScheduleReserved: p.req != nil && p.req.trigger == triggerSchedule,
 			SettledAt:        p.settledAt, DoneAt: p.doneAt,
 		}
 		if p.live() == nil && p.want {
 			e := st.Servers[name]
-			e.RequestedAt = p.requestedAt
+			e.RequestedAt = p.lastRequestAt
 			st.Servers[name] = e
 		}
 		if pd := p.pending; pd != nil {
@@ -283,7 +283,8 @@ func (s *Supervisor) Recover(restore bool) {
 				continue
 			}
 			started[name] = true
-			p.scheduleReserved = true // until the run begins, also across another crash
+			// Reserved until the run begins, also across another crash.
+			p.req = &startRequest{trigger: triggerSchedule, at: time.Now()}
 			scheduled = append(scheduled, name)
 		}
 	}
@@ -321,8 +322,8 @@ func (s *Supervisor) Recover(restore bool) {
 			// waited for its dependencies: a task's run that served it
 			// serves it still.
 			requested := since
-			if ok && upgrade && !p.requestedAt.IsZero() {
-				requested = p.requestedAt
+			if last := st.Servers[name]; ok && upgrade && !last.RequestedAt.IsZero() {
+				requested = last.RequestedAt
 			}
 			s.mu.Unlock()
 			if enabled {
@@ -345,14 +346,15 @@ func (s *Supervisor) Recover(restore bool) {
 // before this daemon started: the trigger of its round of runs, its crash
 // streak and the problem a hook reported, so reports from an upgrade or a
 // restart on continue them, each schedule's next and latest run, so a run
-// is neither repeated nor lost, and when a task's runs ended and a waiting
-// server's start was asked for, so that request is not served twice.
+// is neither repeated nor lost, and when a task's runs ended, so a request
+// is not served twice. Recover reads when a waiting server's start was
+// asked for from the saved state itself.
 func (s *Supervisor) restoreHistoryLocked(saved map[string]exitState) {
 	for name, last := range saved {
 		if p := s.procs[name]; p != nil {
 			p.trigger, p.streak, p.incident, p.incidentSince = last.Trigger, last.Streak, last.Incident, last.IncidentSince
 			p.scheduleExpr, p.nextRun, p.lastRun = last.Schedule, last.NextRun, last.LastRun
-			p.settledAt, p.doneAt, p.requestedAt = last.SettledAt, last.DoneAt, last.RequestedAt
+			p.settledAt, p.doneAt = last.SettledAt, last.DoneAt
 		}
 	}
 }

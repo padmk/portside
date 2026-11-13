@@ -33,7 +33,7 @@ func (s *Supervisor) overMemoryLocked(p *proc, mem int64) (memoryStop, bool) {
 		return memoryStop{}, false
 	}
 	note := "used " + limit.Over(mem) + ", over memory_limit " + limit.String()
-	p.overMemory, p.overMemorySeq = note, p.startSeq
+	p.overMemory = note
 	p.status = Stopping
 	p.note = note
 	stamp := time.Now().Format("15:04:05")

@@ -56,20 +56,20 @@ type proc struct {
 	// pending is the automatic restart or retry that starts the server
 	// again at its time, nil for none.
 	pending *pendingStart
-	// scheduleReserved marks a scheduled run reserved but not begun yet.
-	scheduleReserved bool
-	// againTrigger is the trigger of a start asked for while the server
-	// was still running or stopping, which wait launches once it exits.
-	againTrigger string
-	// startAfterExit marks a start asked for once the process had ended on
-	// its own, while wait still drains its output: wait runs it.
-	startAfterExit bool
+	// req is the start under way while no process runs (waiting for
+	// dependencies, for the previous process group or in its preflight);
+	// nil otherwise. Its dependencies' runs count from req.at (see
+	// taskStateLocked), also after an upgrade in place.
+	req *startRequest
+	// next is a start asked for once the live run ends: while a stop is
+	// under way, or after the process ended on its own while wait still
+	// drains its output. wait launches it; a Stop withdraws it.
+	next *startRequest
+	// lastRequestAt is req.at of the latest start, kept after it failed
+	// while the server stays wanted.
+	lastRequestAt time.Time
 	// doneAt is when the task's last run that exited with code 0 ended.
 	doneAt time.Time
-	// requestedAt is when the latest start request that waits for its
-	// dependencies was made; its dependencies' runs count from then (see
-	// taskStateLocked), also after an upgrade in place.
-	requestedAt time.Time
 	// reapedAt is when wait saw the process of the current run end, zero
 	// before.
 	reapedAt      time.Time
@@ -96,9 +96,7 @@ type proc struct {
 	stopping  bool
 	// overMemory is the note of a stop under way because a usage sample
 	// was over memory_limit, "" otherwise; the exit then counts as a crash.
-	// overMemorySeq is startSeq when that stop began.
-	overMemory    string
-	overMemorySeq int
+	overMemory string
 	// ending is closed once the latest Stop or Shutdown has ended the whole
 	// process group, which can outlive the leader; nil before the first
 	// (see Supervisor.endings).

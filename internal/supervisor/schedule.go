@@ -116,7 +116,6 @@ func (s *Supervisor) checkSchedules() {
 			// Saved with the reservation: a daemon that ends before the
 			// run starts leaves it to the next one (see Recover).
 			p.lastRun = now
-			p.scheduleReserved = true
 			deps, token := s.reserveStartLocked(p, triggerSchedule)
 			due = append(due, run{name, deps, token})
 		}

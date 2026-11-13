@@ -301,7 +301,7 @@ func TestReservedScheduledRunStartsAfterACrash(t *testing.T) {
 		t.Fatalf("%d runs, want 1", n)
 	}
 	s.mu.Lock()
-	trigger, reserved := s.procs["job"].trigger, s.procs["job"].scheduleReserved
+	trigger, reserved := s.procs["job"].trigger, (s.procs["job"].req != nil)
 	s.mu.Unlock()
 	if trigger != triggerSchedule || reserved {
 		t.Errorf("trigger %q, reserved %v", trigger, reserved)

@@ -135,7 +135,7 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 			StartedAt: p.startedAt, ReadyAt: p.readyAt,
 			ListenHost: p.listenHost, ListenPorts: slices.Clone(p.listenPorts),
 			Cols: p.cols, Rows: p.rows, LogReady: &logReady, LogLine: logLine, MissingSince: p.missingSince,
-			StartAfterExit: p.startAfterExit,
+			StartAfterExit: p.next != nil,
 		})
 	}
 	return out, nil

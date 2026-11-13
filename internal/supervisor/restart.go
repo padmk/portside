@@ -31,6 +31,7 @@ func (s *Supervisor) scheduleRestartLocked(p *proc, now, at time.Time) {
 			return nil
 		}
 		name := p.cfg.Name
+		p.req = &startRequest{at: time.Now()}
 		return func() { _ = s.startOne(name, StartOptions{}, token) }
 	})
 }
@@ -97,6 +98,7 @@ func (s *Supervisor) scheduleRetryLocked(p *proc, now, at time.Time) {
 		}
 		p.retries = 0
 		p.pending = nil // under way, also while its dependencies start
+		p.req = &startRequest{trigger: triggerRetry, at: time.Now()}
 		deps := s.cfg.WithDeps(p.cfg.DependsOn)
 		return func() { _ = s.launch(name, deps, StartOptions{trigger: triggerRetry}, token) }
 	})

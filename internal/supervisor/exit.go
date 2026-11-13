@@ -75,11 +75,11 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 		p.note = ""
 		fmt.Fprintf(p.logs, "\r\n\x1b[2m── %s  stopped ──\x1b[0m\r\n", stamp)
 		// Started again while it was stopping, with no Stop since.
-		if p.stopping && p.want && !p.removed && !s.closing {
+		if p.stopping && p.next != nil && !p.removed && !s.closing {
 			again = true
 			p.status = Starting
 		}
-	case overMemory != "" && p.want && p.startSeq != p.overMemorySeq && !p.removed && !s.closing:
+	case overMemory != "" && p.next != nil && !p.removed && !s.closing:
 		// Started again while the memory limit stopped it.
 		p.status = Starting
 		p.note = ""
@@ -110,7 +110,7 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 			restartIn = s.backoffLocked(p, uptime)
 		}
 	}
-	if !again && !s.requestedExitLocked(p) && p.startAfterExit && p.want && !p.removed {
+	if !again && !s.requestedExitLocked(p) && p.next != nil && !p.removed {
 		// Started again after it ended on its own, while its last output
 		// drained: run it now instead of what the exit alone would decide.
 		// During an upgrade in place the launch waits for its end; the
@@ -121,7 +121,6 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 		restartIn = 0
 		again = true
 	}
-	p.startAfterExit = false
 	p.pending = nil
 	if p.status == Crashed || p.status == Exited {
 		// Down for good: a crash nothing restarts, or restart = "always"
@@ -150,11 +149,15 @@ func (s *Supervisor) wait(name string, p *proc, r *run, gen int) {
 	token := p.startSeq
 	removed := p.removed
 	var deps []string
-	trigger := cmp.Or(p.againTrigger, triggerStart)
-	p.againTrigger = ""
+	trigger := triggerStart
+	if p.next != nil {
+		trigger = cmp.Or(p.next.trigger, triggerStart)
+	}
 	if again {
 		deps = s.cfg.WithDeps(p.cfg.DependsOn)
+		p.req = p.next
 	}
+	p.next = nil
 	s.changedLocked()
 	s.saveLocked()
 	s.mu.Unlock()

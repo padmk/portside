@@ -25,7 +25,7 @@ func (s *Supervisor) Stop(name string) error {
 	}
 	p.want = false
 	p.pending = nil
-	p.scheduleReserved = false
+	p.req, p.next = nil, nil
 	p.retries = 0
 	p.startSeq++ // cancels any start still in preflight
 	if p.live() == nil {

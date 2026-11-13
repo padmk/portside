@@ -190,7 +190,7 @@ func (s *Supervisor) reportCrashLocked(p *proc, exitCode *int, uptime time.Durat
 // startFailedLocked reports a start that failed and schedules the next try
 // when retry_after asks for one.
 func (s *Supervisor) startFailedLocked(p *proc) {
-	p.scheduleReserved = false // the scheduled run, if any, failed to start
+	p.req = nil // the start, a scheduled run among them, failed
 	p.settledAt = time.Now()
 	s.reportCrashLocked(p, nil, 0)
 	if !s.retryLocked(p) {

@@ -154,7 +154,7 @@ func inProcessTree(table map[int]procSample, pid, root int) bool {
 }
 
 func (s *Supervisor) updateReadinessLocked(p *proc, ready bool, host, reason string, listenPorts []int, inspect bool, now time.Time) {
-	if p.startAfterExit {
+	if p.next != nil {
 		return // the run ended and the next one is on its way: nothing of it is news
 	}
 	oldNote, oldStatus, oldListening, oldHost := p.note, p.status, p.listening, p.listenHost
