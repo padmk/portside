@@ -6,7 +6,9 @@ Local dev-server manager: Go daemon + CLI (`cmd/portside`) with an embedded Reac
 
 ```sh
 make build        # dashboard (pnpm --dir web build into web/dist) and bin/portside
-make check        # go vet, go test, the dashboard build, the license notices and terminal UI palettes checks
+make check        # go vet, make lint, go test -race, the dashboard build, the license notices and terminal UI palettes checks
+make lint         # golangci-lint (.golangci.yml) and tools/lintcheck; noctx and contextcheck only for code changed since LINT_BASE
+make hooks        # pre-commit hook: gofmt, make lint on the staged packages, tsc for web/
 make notices      # regenerate THIRD_PARTY_NOTICES.txt after changing Go or npm dependencies or adding a theme
 make dev-daemon   # isolated daemon on :7980, config and state in .dev/
 make dev-open     # sign the browser in; prints the Vite address on the dev daemon's dashboard host
@@ -21,7 +23,7 @@ pnpm --dir web check:contrast   # WCAG AA for every theme
 - `scripts/bench-idle.sh` measures an idle isolated daemon; its numbers are in `docs/how-it-works.md` "Periodic checks".
 - `scripts/tui-acceptance.sh <binary> <port> <work dir>` measures the terminal UI's idle CPU, a log flood and the help's latency in a pty against an isolated daemon; its numbers are in `design/tui.md` "Quality bar".
 
-CI (`.github/workflows/ci.yml`) runs on Linux for pushes to main and pull requests: `make build`, the notices check, `go vet`, `go test -race`, `pnpm audit`, `govulncheck`, the contrast check, the Linux service end to end and an upgrade from the latest release. The macOS job builds the app, runs `go test` and the upgrade. CodeQL scans Go and TypeScript. macOS runners are expensive, so push finished work in batches. Releases run from a `v*` tag with a `CHANGELOG.md` section; see [docs/development.md](docs/development.md#releases).
+CI (`.github/workflows/ci.yml`) runs on Linux for pushes to main and pull requests: `make build`, the notices check, `go vet`, `make lint`, `go test -race`, `pnpm audit`, `govulncheck`, the contrast check, the Linux service end to end and an upgrade from the latest release. The macOS job builds the app, runs `make lint`, `go test -race` and the upgrade. CodeQL scans Go and TypeScript. macOS runners are expensive, so push finished work in batches. Releases run from a `v*` tag with a `CHANGELOG.md` section; see [docs/development.md](docs/development.md#releases).
 
 ## Constraints
 
@@ -34,6 +36,8 @@ CI (`.github/workflows/ci.yml`) runs on Linux for pushes to main and pull reques
 - Process termination always targets the process group (`-pgid`): SIGINT, then SIGTERM, then SIGKILL.
 - Tests need no Docker, Tailscale, external network or real config; readiness checks use isolated loopback listeners.
 - pnpm is pinned to 12.6.0 with `minimumReleaseAge: 1440`; ask before adding `trustPolicy` exceptions.
+- Lint exclusions are narrow and give their reason (a rule in `.golangci.yml` or `//nolint:<linter> // <reason>`); golangci-lint is pinned in `tools/go.mod` (see [docs/development.md](docs/development.md#linters-and-hooks)).
+- Lifecycle changes in `internal/supervisor` keep `TestModelLifecycle` passing; process, signal and restart-timer calls go through `Supervisor.sys` (`system.go`) so the model test's fake sees them.
 - Third-party actions in `.github/workflows` are pinned to commit SHAs with the tag in a comment, GoReleaser and govulncheck to exact versions; update a pin together with its comment. CI and releases use `go.mod`'s `toolchain` line; raise it for Go security releases that govulncheck reports.
 
 ## Code and docs

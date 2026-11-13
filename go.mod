@@ -16,6 +16,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
+	pgregory.net/rapid v1.3.0
 )
 
 require (
