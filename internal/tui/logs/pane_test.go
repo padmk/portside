@@ -400,3 +400,41 @@ func TestEmptyLogNamesAWorkingStart(t *testing.T) {
 		}
 	}
 }
+
+// A reconnect or a clear drops the lines under a search prompt or a
+// selection; the pane must give the keys back to the root model, or the
+// session stays in SEARCH or SELECT with nothing to search or select.
+func TestDroppedLinesEndTheInputMode(t *testing.T) {
+	enter := map[string]func(*testing.T, *Pane, *ui.Env){
+		"search": func(_ *testing.T, p *Pane, env *ui.Env) { p.startSearch(env) },
+		"select": func(t *testing.T, p *Pane, env *ui.Env) {
+			if !p.startVisual(env) {
+				t.Fatal("nothing to select")
+			}
+		},
+	}
+	drop := map[string]func(*Pane, *ui.Env){
+		"reconnect": func(p *Pane, env *ui.Env) {
+			p.apply(env, feedMsg{reset: true, backlog: []byte(numbered("new", 3))})
+		},
+		"clear": func(p *Pane, env *ui.Env) { p.Update(env, ui.LogsClearedMsg{Server: "x"}) },
+	}
+	for mode, start := range enter {
+		for event, end := range drop {
+			t.Run(mode+" then "+event, func(t *testing.T) {
+				p, env := testPane(t, 60, 6, numbered("line", 5), nil)
+				start(t, p, env)
+				if m, ok := env.TakeMode(); !ok || m == ui.ModeNormal {
+					t.Fatalf("%s did not enter a mode", mode)
+				}
+				end(p, env)
+				if m, ok := env.TakeMode(); !ok || m != ui.ModeNormal {
+					t.Fatalf("after %s the pane asked for mode %v (asked %v), want NORMAL", event, m, ok)
+				}
+				if p.editing || p.visual {
+					t.Fatalf("after %s editing %v, visual %v", event, p.editing, p.visual)
+				}
+			})
+		}
+	}
+}
