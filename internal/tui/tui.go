@@ -87,17 +87,17 @@ const (
 	// program ended: the terminal is restored by then, and a goroutine
 	// that does not end must not keep the process from exiting.
 	joinWait = 3 * time.Second
-	// quitWait is how long the program has to end after a SIGTERM, on
-	// which Bubble Tea quits, before it is killed (which restores the
-	// terminal); killWait is how long that may take before the terminal
-	// is restored here and the process exits. A suspended session ends
-	// within its own wait (ui.Process) before quitWait.
+	// quitWait is how long the program has to end after a SIGTERM or SIGHUP
+	// before it is killed (which restores the terminal); killWait is how long
+	// that may take before the terminal is restored here and the process
+	// exits. A suspended session ends within its own wait (ui.Process) before
+	// quitWait.
 	quitWait = 5 * time.Second
 	killWait = 2 * time.Second
 )
 
-// errStopped is the error of a program that did not end after a SIGTERM.
-var errStopped = fmt.Errorf("the terminal UI did not end within %v of SIGTERM and was stopped", quitWait)
+// errStopped is the error of a program that did not end after a SIGTERM or SIGHUP.
+var errStopped = fmt.Errorf("the terminal UI did not end within %v of SIGTERM or SIGHUP and was stopped", quitWait)
 
 // runProgram runs the program until it quits, then ends the streams and
 // the log feeds (cancel ends the program's context) and waits for them, at
@@ -133,22 +133,28 @@ func (m *model) runProgram(prog *tea.Program, cancel context.CancelFunc) error {
 	return err
 }
 
-// watchTermination bounds the end of the program after a SIGTERM: past
-// quitWait it is killed; past killWait more, the terminal is put back as
-// it was before the program and the process exits. killed reports
-// whether it had to kill the program.
+// watchTermination bounds the end of the program after a SIGTERM or SIGHUP:
+// Bubble Tea quits on SIGTERM itself, and on SIGHUP we ask it to quit so a
+// closing terminal ends the UI cleanly even when SIGHUP was inherited
+// ignored. Past quitWait it is killed; past killWait more, the terminal is
+// put back as it was before the program and the process exits. killed
+// reports whether it had to kill the program.
 func watchTermination(prog *tea.Program, ended <-chan struct{}) (killed func() bool) {
 	var stopped atomic.Bool
 	fd := int(os.Stdin.Fd())
 	saved, _ := term.GetState(fd)
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		defer signal.Stop(sig)
+		var got os.Signal
 		select {
 		case <-ended:
 			return
-		case <-sig:
+		case got = <-sig:
+		}
+		if got == syscall.SIGHUP {
+			go prog.Quit()
 		}
 		select {
 		case <-ended:
