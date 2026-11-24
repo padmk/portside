@@ -94,6 +94,8 @@ final class Store {
     /// Daemon commands running while the connection loop is paused for them;
     /// the loop resumes once the last one ends.
     private var pausedFor = 0
+    /// The latest daemon command of pauseLoop; the next one waits for it.
+    private var daemonCommand: Task<Void, Never>?
     /// The last crash reported per server (exit time and note).
     private var notifiedCrash: [String: String] = [:]
     /// Containers with an issue per server, as last seen.
@@ -305,6 +307,8 @@ final class Store {
         var retried = false
         while true {
             let epoch = try await DaemonHandshake.shared.epoch(base: base, token: token)
+            // Cancelled during the handshake: no socket may open for a loop that ended.
+            if Task.isCancelled { return }
             var req = URLRequest(url: comps.url!)
             guard let challenge = RequestSigner.sign(&req, token: token, epoch: epoch) else { throw DaemonError.unverified }
             let ws = DaemonSession.shared.webSocketTask(with: req)
@@ -315,7 +319,7 @@ final class Store {
             defer { ws.cancel(with: .goingAway, reason: nil) }
             var msg: URLSessionWebSocketTask.Message
             do {
-                msg = try await ws.receive()
+                msg = try await Self.receive(ws)
             } catch {
                 guard (ws.response as? HTTPURLResponse)?.statusCode == 401 else { throw error }
                 if !retried, await DaemonHandshake.shared.renewed(base: base, token: token, after: epoch) {
@@ -333,6 +337,9 @@ final class Store {
             var restarted = connectedEpoch != nil && connectedEpoch != epoch
             connectedEpoch = epoch
             while true {
+                // A Stop or Restart cancels the loop: a state that arrives after
+                // that must not mark the daemon connected again.
+                if Task.isCancelled { return }
                 let data: Data
                 switch msg {
                 case .string(let s): data = Data(s.utf8)
@@ -347,8 +354,18 @@ final class Store {
                     }
                 }
                 if Task.isCancelled { return }
-                msg = try await ws.receive()
+                msg = try await Self.receive(ws)
             }
+        }
+    }
+
+    /// The socket's next message. Cancelling the task closes the socket, since
+    /// a pending receive does not end on cancellation by itself.
+    private static func receive(_ ws: URLSessionWebSocketTask) async throws -> URLSessionWebSocketTask.Message {
+        try await withTaskCancellationHandler {
+            try await ws.receive()
+        } onCancel: {
+            ws.cancel(with: .goingAway, reason: nil)
         }
     }
 
@@ -560,16 +577,20 @@ final class Store {
     }
 
     /// Stops the connection loop, runs a daemon command, then resumes the loop.
+    /// Commands run one at a time, in the order the user gave them.
     private func pauseLoop(while command: [String], before: () -> Void) {
         task?.cancel(with: .goingAway, reason: nil)
         let running = loop
         loop?.cancel()
         pausedFor += 1
         before()
-        Task {
+        let previous = daemonCommand
+        daemonCommand = Task {
             // Let the connection loop (and any `daemon info` that could start
-            // a daemon) finish first, so it does not race the command.
+            // a daemon) and the command before this one finish first, so
+            // neither races the command.
             await running?.value
+            await previous?.value
             do { _ = try await DaemonCLI.run(command) } catch { lastError = error.localizedDescription }
             pausedFor -= 1
             if pausedFor == 0 { start() }

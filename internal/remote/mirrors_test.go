@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -378,4 +379,38 @@ func bindAndServe(c *conn, local, port int) []net.Listener {
 	lns := listen(local)
 	c.serve(lns, port)
 	return lns
+}
+
+// Two edits of one port's forwarding at once leave remote.json with the
+// value the live connection ended up with, so a reconnect restores it.
+func TestConcurrentForwardingEditsSaveTheLiveValue(t *testing.T) {
+	m, c := connected(t)
+	p, a, b := freePort(t), freePort(t), freePort(t)
+	data, _ := json.Marshal(map[string]any{"servers": []map[string]any{{"name": "web", "port": p, "pid": 42}}})
+	var rs remoteState
+	_ = json.Unmarshal(data, &rs)
+	c.apply(data, &rs)
+	race := func(one, other func()) {
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); one() }()
+		go func() { defer wg.Done(); other() }()
+		wg.Wait()
+	}
+	for i := 0; i < 1000; i++ {
+		race(func() { _, _ = m.SetLocalPort(p, a) }, func() { _, _ = m.SetLocalPort(p, b) })
+		m.mu.Lock()
+		live := c.locals[p]
+		m.mu.Unlock()
+		if saved := m.store.locals(devbox.DNSName)[p]; live != saved {
+			t.Fatalf("round %d: live local port %d, saved %d", i, live, saved)
+		}
+		race(func() { _, _ = m.SetForwarding(p, false) }, func() { _, _ = m.SetForwarding(p, true) })
+		m.mu.Lock()
+		off := c.off[p]
+		m.mu.Unlock()
+		if saved := m.store.off(devbox.DNSName)[p]; off != saved {
+			t.Fatalf("round %d: live forwarding off=%v, saved off=%v", i, off, saved)
+		}
+	}
 }

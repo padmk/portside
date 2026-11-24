@@ -94,6 +94,11 @@ type Manager struct {
 	// sets another).
 	reach func(context.Context, tailnet.Node, share.Credential) (reached, error)
 
+	// editMu serializes edits of a port's forwarding preferences
+	// (SetLocalPort, SetForwarding), so the saved preference changes in the
+	// same order as the live one.
+	editMu sync.Mutex
+
 	mu sync.Mutex
 	c  *conn
 	// op is the generation of the latest Connect, Resume, Disconnect or

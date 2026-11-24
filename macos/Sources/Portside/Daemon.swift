@@ -203,7 +203,8 @@ enum DaemonCLI {
     static func exec(_ args: [String]) async throws -> Output {
         let url = helperURL
         guard FileManager.default.isExecutableFile(atPath: url.path) else { throw DaemonError.helperMissing }
-        let p = Process()
+        let launch = CancellableLaunch()
+        let p = launch.process
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { cont in
             p.executableURL = url
@@ -218,11 +219,40 @@ enum DaemonCLI {
                 let msg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 cont.resume(returning: Output(status: proc.terminationStatus, stdout: data, stderr: msg))
             }
-            do { try p.run() } catch { cont.resume(throwing: error) }
+            do {
+                if try !launch.run() { cont.resume(throwing: CancellationError()) }
+            } catch { cont.resume(throwing: error) }
             }
         } onCancel: {
             // A cancelled call must not keep going (e.g. start a daemon the user just stopped).
-            if p.isRunning { p.terminate() }
+            launch.cancel()
+        }
+    }
+
+    /// A helper process and whether its call was cancelled, decided under one
+    /// lock: a cancel before the launch keeps it from starting, one after it
+    /// terminates the process.
+    private final class CancellableLaunch: @unchecked Sendable {
+        let process = Process()
+        private let lock = NSLock()
+        private var cancelled = false
+        private var launched = false
+
+        /// Starts the process unless the call was cancelled; false when it was.
+        func run() throws -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if cancelled { return false }
+            try process.run()
+            launched = true
+            return true
+        }
+
+        func cancel() {
+            lock.lock()
+            defer { lock.unlock() }
+            cancelled = true
+            if launched, process.isRunning { process.terminate() }
         }
     }
 
