@@ -422,6 +422,8 @@ func (m *Manager) Forwarded(port int) (string, bool) {
 // computer instead of the same number, or to the same number again when
 // local is 0 or port. The choice is kept for that computer.
 func (m *Manager) SetLocalPort(port, local int) (Info, error) {
+	m.editMu.Lock()
+	defer m.editMu.Unlock()
 	c := m.current()
 	if c == nil {
 		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to another computer"}
@@ -453,13 +455,20 @@ func (m *Manager) SetLocalPort(port, local int) (Info, error) {
 	if conflict != nil {
 		return Info{}, conflict
 	}
-	if err := m.store.setLocal(c.node.DNSName, port, local); err != nil {
-		return Info{}, err
-	}
+	return m.savePreference(c, func() error { return m.store.setLocal(c.node.DNSName, port, local) })
+}
+
+// savePreference saves a preference applied to c, only while c is still the
+// connection: under the lock Disconnect ends it with, so an edit that loses
+// to a disconnect changes nothing on disk.
+func (m *Manager) savePreference(c *conn, save func() error) (Info, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.c != c {
 		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to " + c.node.Name}
+	}
+	if err := save(); err != nil {
+		return Info{}, err
 	}
 	return c.infoLocked(), nil
 }
@@ -470,6 +479,8 @@ func (m *Manager) SetLocalPort(port, local int) (Info, error) {
 // still listed so it can be turned on again. The choice is kept for that
 // computer. Turning off a port that computer does not forward is refused.
 func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
+	m.editMu.Lock()
+	defer m.editMu.Unlock()
 	c := m.current()
 	if c == nil {
 		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to another computer"}
@@ -481,9 +492,6 @@ func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
 		if err := m.checkForwarded(c, port); err != nil {
 			return Info{}, err
 		}
-	}
-	if err := m.store.setOff(c.node.DNSName, port, !on); err != nil {
-		return Info{}, err
 	}
 	c.update(func() {
 		if on {
@@ -502,12 +510,7 @@ func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
 		// drop them from the pool too.
 		c.devTr.CloseIdleConnections()
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.c != c {
-		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to " + c.node.Name}
-	}
-	return c.infoLocked(), nil
+	return m.savePreference(c, func() error { return m.store.setOff(c.node.DNSName, port, !on) })
 }
 
 // checkForwarded fails unless the connected computer c forwards port, busy

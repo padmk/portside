@@ -63,10 +63,13 @@ export function shortenHome(p: string): string {
 /** `http://name.localhost:7980/x` becomes `name.localhost:7980/x`. */
 export const bareUrl = (u: string) => u.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
-/** A process runs and is not shutting down: its address opens and its terminal takes input. */
-export const isUp = (v: Pick<ServerView, 'status'>) => v.status === 'running' || v.status === 'starting'
+/**
+ * A process runs and is not shutting down: its address opens and its terminal takes input. A server
+ * that is starting has no process yet while it waits for its dependencies or the end of its previous run.
+ */
+export const isUp = (v: Pick<ServerView, 'status' | 'pid'>) => v.status === 'running' || (v.status === 'starting' && !!v.pid)
 
-export const hasProcess = (v: Pick<ServerView, 'status'>) =>
+export const hasProcess = (v: Pick<ServerView, 'status' | 'pid'>) =>
   isUp(v) || v.status === 'stopping'
 
 /**
@@ -75,9 +78,16 @@ export const hasProcess = (v: Pick<ServerView, 'status'>) =>
  */
 export const restartPending = (v: Pick<ServerView, 'restartPending'>) => v.restartPending === true
 
-/** Stop has something to do: a process runs, or an automatic restart is due. */
-export const canStop = (v: Pick<ServerView, 'status' | 'restartPending'>) =>
-  isUp(v) || restartPending(v)
+/** Stop has something to do: a process runs, a start is under way, or an automatic restart is due. */
+export const canStop = (v: Pick<ServerView, 'status' | 'pid' | 'restartPending'>) =>
+  isUp(v) || v.status === 'starting' || restartPending(v)
+
+/**
+ * Another process holds the port of a server that waits for a retry: taking the port over is what
+ * starts it, since a plain start fails while the port is in use.
+ */
+export const heldWhileRetrying = (v: Pick<ServerView, 'status' | 'pid' | 'restartPending' | 'external'>) =>
+  restartPending(v) && !!v.external && !hasProcess(v)
 
 export function initials(name: string): string {
   const parts = name.split(/[-_.]+/).filter(Boolean)

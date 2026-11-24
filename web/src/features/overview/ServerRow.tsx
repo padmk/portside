@@ -6,7 +6,7 @@ import { selectServer } from '../../state/route'
 import { displayStatus, Lamp } from '../../ui/Lamp'
 import { Sparkline } from '../../ui/charts'
 import { restartServer, startServer, stopServer, useBusy } from '../servers/actions'
-import { bareUrl, formatBytes, formatCpu, formatUptime, hasProcess, isUp, restartPending } from '../servers/format'
+import { bareUrl, canStop, formatBytes, formatCpu, formatUptime, hasProcess, heldWhileRetrying, isUp } from '../servers/format'
 import { useProtectedReason } from '../servers/holder'
 import { isDegraded, useServerNote } from '../servers/note'
 import { ProjectTile } from '../servers/ProjectTile'
@@ -26,7 +26,8 @@ export function ServerRow({ server: v, now, cursor }: Props) {
   const busy = useBusy(v.name)
   const status = displayStatus(v)
   const alive = hasProcess(v)
-  const pending = restartPending(v)
+  // A stopping server keeps its buttons (disabled); one whose port is held while it waits for a retry is taken over.
+  const controls = (canStop(v) || v.status === 'stopping') && !heldWhileRetrying(v)
   const reachable = isUp(v)
   const reason = useProtectedReason(v.external?.pid, v.port)
   const note = useServerNote(v)
@@ -80,7 +81,7 @@ export function ServerRow({ server: v, now, cursor }: Props) {
         )}
       </div>
       <div className="row-actions">
-        {alive || pending ? (
+        {controls ? (
           <>
             {reachable && v.url && (
               <a className="icon-btn icon-btn--boxed" href={v.url} target="_blank" rel="noreferrer" aria-label={t('common.openUrl', { url: v.url })} title={t('common.open')}>
@@ -95,10 +96,17 @@ export function ServerRow({ server: v, now, cursor }: Props) {
             </button>
           </>
         ) : v.external ? (
-          <button type="button" className="btn btn--primary btn--sm" disabled={busy || reason !== null} onClick={() => startServer(v.name, true)} title={reason ? t('banner.protected', { reason }) : undefined}>
-            <Unplug size={15} aria-hidden="true" />
-            {t('card.takeOver')}
-          </button>
+          <>
+            <button type="button" className="btn btn--primary btn--sm" disabled={busy || reason !== null} onClick={() => startServer(v.name, true)} title={reason ? t('banner.protected', { reason }) : undefined}>
+              <Unplug size={15} aria-hidden="true" />
+              {t('card.takeOver')}
+            </button>
+            {heldWhileRetrying(v) && (
+              <button type="button" className="icon-btn icon-btn--boxed" aria-label={t(v.temporary ? 'action.stopRemoveName' : 'action.stopName', { name: v.name })} title={t(v.temporary ? 'action.stopRemove' : 'action.stop')} disabled={busy} onClick={() => stopServer(v.name)}>
+                <Square size={14} fill="currentColor" />
+              </button>
+            )}
+          </>
         ) : (
           <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => startServer(v.name)} aria-label={t(status === 'crashed' ? 'action.restartName' : 'action.startName', { name: v.name })}>
             {status === 'crashed' ? <RotateCw size={15} aria-hidden="true" /> : <Play size={14} fill="currentColor" aria-hidden="true" />}

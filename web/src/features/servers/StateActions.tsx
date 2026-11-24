@@ -6,7 +6,7 @@ import { selectServer } from '../../state/route'
 import { showTerminal } from '../../state/ui'
 import { displayStatus } from '../../ui/Lamp'
 import { restartServer, startServer, stopServer, useBusy } from './actions'
-import { restartPending } from './format'
+import { heldWhileRetrying, restartPending } from './format'
 import { useProtectedReason } from './holder'
 
 interface Props {
@@ -60,7 +60,7 @@ export function StateActions({ server: v, inDetail }: Props) {
     </div>
   )
 
-  if (restartPending(v)) {
+  if (restartPending(v) && !heldWhileRetrying(v)) {
     return (
       <div className="actions">
         {primary(() => void startServer(v.name), <RotateCw size={17} aria-hidden="true" />, t('action.restart'))}
@@ -116,6 +116,12 @@ export function StateActions({ server: v, inDetail }: Props) {
         <div className="actions">
           {main}
           {logs}
+          {restartPending(v) && (
+            <>
+              <span className="actions-spacer" />
+              {stop}
+            </>
+          )}
         </div>
       )
     }

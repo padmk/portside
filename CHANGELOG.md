@@ -5,6 +5,9 @@
 - **CLI:** `portside` without a command opens the [terminal UI](docs/tui.md) once a config file exists, when standard input and output are both a terminal; piped, in scripts and for coding agents it still runs `status`, and before a config exists it still prints the help.
 - **Fixed, starts:** a start asked for right after a server's process exited, before the daemon had collected it, is no longer lost; renaming a server while its start waits for its port keeps the start; a start with `--takeover` replaces a start still under way; and a server shows `starting` from the moment its start is asked for.
 - **Fixed, tasks:** a bulk start that restarts a server whose run just ended no longer runs the task it depends on a second time.
+- **Fixed, other computers:** two changes at once to how one forwarded port is mapped or whether it is forwarded leave the setting that the live connection ended up with, so a reconnect no longer brings back the other one; a change that loses to a disconnect is no longer saved.
+- **Fixed, dashboard:** a server whose port another process holds while it waits for a retry offers Take over (and Stop) instead of a Restart that fails with the port in use; a server that waits for its dependencies shows no address link, terminal input or usage until its process starts, and can still be stopped.
+- **Fixed, macOS app:** Stop, Restart and Start of the daemon given in quick succession run one after another in the order given, instead of overlapping so that the last one could be undone; a stopped connection no longer shows the daemon as connected again from a late update, and no longer leaves an events connection open; a cancelled daemon query no longer starts the daemon.
 
 ## 0.12.0
 
