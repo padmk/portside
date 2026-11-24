@@ -370,6 +370,17 @@ func (s *Supervisor) startOne(name string, opt StartOptions, token int) error {
 			return nil
 		}
 		if err := s.killForeign(owner); err != nil {
+			s.mu.Lock()
+			s.awaitHandoffLocked()
+			if s.procs[name] == p && p.want && p.startSeq == token && !s.closing && p.pid == 0 {
+				p.status = Blocked
+				p.external = &owner
+				p.note = fmt.Sprintf("port %d: taking it over from %s (pid %d) failed: %v", sv.Port, owner.Command, owner.PID, err)
+				s.startFailedLocked(p)
+				s.saveLocked()
+				s.changedLocked()
+			}
+			s.mu.Unlock()
 			return err
 		}
 	}

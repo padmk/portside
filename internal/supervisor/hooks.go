@@ -193,7 +193,9 @@ func (s *Supervisor) startFailedLocked(p *proc) {
 	p.scheduleReserved = false // the scheduled run, if any, failed to start
 	p.settledAt = time.Now()
 	s.reportCrashLocked(p, nil, 0)
-	s.retryLocked(p)
+	if !s.retryLocked(p) {
+		p.want = false
+	}
 }
 
 // unreadyLocked runs on_unready once a running server has not answered for

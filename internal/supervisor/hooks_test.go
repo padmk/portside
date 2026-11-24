@@ -394,3 +394,37 @@ func TestTakeoverOnlyStopsTheConfirmedProcess(t *testing.T) {
 		t.Errorf("web shows %+v as the port's holder", holder)
 	}
 }
+
+// A takeover that fails (here the port's holder is this daemon, which it
+// refuses to end) settles the start as blocked: the server is neither left
+// starting nor wanted, and the next start is not ignored as one under way.
+func TestFailedTakeoverSettlesTheStart(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	if _, found := ports.Owner(context.Background(), port); !found {
+		t.Skip("no tool here tells which process listens on a port (lsof, ss)")
+	}
+	s, _ := crashHookSupervisor(t, "sleep 60", config.RestartNo)
+	s.procs["web"].cfg.Port = port
+	if err := s.Start("web", StartOptions{Takeover: true}); err == nil {
+		t.Fatal("a refused takeover started the server")
+	}
+	s.mu.Lock()
+	p := s.procs["web"]
+	status, wanted, holder := p.status, p.want, p.external
+	st := s.stateLocked()
+	s.mu.Unlock()
+	if status != Blocked || wanted || holder == nil || holder.PID != os.Getpid() {
+		t.Fatalf("after the refused takeover: %s, wanted %v, holder %+v", status, wanted, holder)
+	}
+	if slices.Contains(st.Running, "web") {
+		t.Fatalf("saved Running still contains web after refused takeover: %v", st.Running)
+	}
+	if err := s.Start("web", StartOptions{}); !errors.Is(err, ErrPortBusy) {
+		t.Fatalf("the next start = %v, want the port busy", err)
+	}
+}
