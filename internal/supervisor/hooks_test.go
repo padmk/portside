@@ -381,7 +381,7 @@ func TestTakeoverOnlyStopsTheConfirmedProcess(t *testing.T) {
 	if _, found := ports.Owner(context.Background(), port); !found {
 		t.Skip("no tool here tells which process listens on a port (lsof, ss)")
 	}
-	s, _ := crashHookSupervisor(t, "sleep 60", config.RestartNo)
+	s := lifecycleSupervisor(t, "sleep 60", config.RestartNo)
 	s.procs["web"].cfg.Port = port
 	err = s.Start("web", StartOptions{Takeover: true, TakeoverPID: os.Getpid() + 1})
 	if !errors.Is(err, ErrPortBusy) {
@@ -408,7 +408,7 @@ func TestFailedTakeoverSettlesTheStart(t *testing.T) {
 	if _, found := ports.Owner(context.Background(), port); !found {
 		t.Skip("no tool here tells which process listens on a port (lsof, ss)")
 	}
-	s, _ := crashHookSupervisor(t, "sleep 60", config.RestartNo)
+	s := lifecycleSupervisor(t, "sleep 60", config.RestartNo)
 	s.procs["web"].cfg.Port = port
 	if err := s.Start("web", StartOptions{Takeover: true}); err == nil {
 		t.Fatal("a refused takeover started the server")
