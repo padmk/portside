@@ -33,8 +33,10 @@ class Portside < Formula
 
   def caveats
     <<~EOS
-      This installs the command-line tool and the daemon with its dashboard,
-      without the menu bar app. Open the dashboard in your browser with:
+      This installs the command-line tool and the daemon with its terminal UI
+      and dashboard, without the menu bar app. Open the terminal UI with:
+        portside tui
+      Or open the dashboard in your browser with:
         portside open
       To start the daemon at login (on Linux at boot, with lingering), run:
         portside service install
