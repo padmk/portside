@@ -9,6 +9,12 @@ let package = Package(
             name: "Portside",
             path: "Sources/Portside",
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "PortsideTests",
+            dependencies: ["Portside"],
+            path: "Tests/PortsideTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )

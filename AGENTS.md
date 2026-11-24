@@ -10,6 +10,7 @@ make check        # go vet, make lint, go test -race, the dashboard build, the l
 make lint         # golangci-lint (.golangci.yml) and tools/lintcheck; noctx and contextcheck only for code changed since LINT_BASE
 make hooks        # pre-commit hook: gofmt, make lint on the staged packages, tsc for web/
 make notices      # regenerate THIRD_PARTY_NOTICES.txt after changing Go or npm dependencies or adding a theme
+swift test --package-path macos  # macOS app tests; CI runs them on the macOS runner
 make dev-daemon   # isolated daemon on :7980, config and state in .dev/
 make dev-open     # sign the browser in; prints the Vite address on the dev daemon's dashboard host
 make dev-ui       # Vite on :5173 proxying /api and /auth; open it at http://<dashboard host>:5173

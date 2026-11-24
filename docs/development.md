@@ -13,6 +13,7 @@ make hooks          # run .githooks/pre-commit before every commit in this clone
 make notices        # regenerate THIRD_PARTY_NOTICES.txt
 make snapshot       # release archives in ./dist (goreleaser)
 make app            # macOS app in dist/macos/Portside.app (scripts/build-macos-app.sh)
+swift test --package-path macos   # macOS app tests (daemon command order, cancelled helper calls)
 make app-install    # build the app, install it in /Applications and upgrade the running daemon in place
 make install        # copy bin/portside to ~/.local/bin
 ```

@@ -94,6 +94,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: scripts/build-macos-app.sh
+      - run: swift test --package-path macos
       # noctx and contextcheck report only code changed since LINT_BASE.
       - name: Lint
         env:
