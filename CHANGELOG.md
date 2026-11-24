@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **CLI:** `portside` without a command opens the [terminal UI](docs/tui.md) once a config file exists, when standard input and output are both a terminal; piped, in scripts and for coding agents it still runs `status`, and before a config exists it still prints the help.
+
 ## 0.12.0
 
 - **Terminal UI:** `portside tui` is a full-screen client of the daemon for Linux, SSH sessions and anyone who prefers the terminal, also on another computer with `--on`. Keys follow lazygit and lazydocker; the footer, `?`, the `x` menu, the `:` command line (completion, history, argument checks) and the `ctrl+p` palette come from one action table ([Terminal UI](docs/tui.md)).

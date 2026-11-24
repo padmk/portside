@@ -6,6 +6,7 @@
 
 ```sh
 portside tui                      # this computer
+portside                          # the same, in a terminal once a config exists
 portside --on mbp tui             # the connected computer
 portside tui --theme nord-light   # a theme and variant for this run, not saved
 portside tui --icons nerd         # Nerd Font icons
@@ -15,7 +16,7 @@ portside tui --icons nerd         # Nerd Font icons
 - `--icons <set>` picks `unicode`, `nerd` or `ascii`.
 - `--on <computer>` (before `tui`) opens the session on the connected computer ([Other computers](#other-computers)).
 
-It needs an interactive terminal on standard input and output; piped, it says so and points to `portside status` and `portside logs`. At 80x24 or more it shows the list and the main panel side by side; in a smaller terminal it shows one pane at a time and `esc` goes back. `NO_COLOR` turns colors off; states keep their glyphs. `q` quits; Bubble Tea then leaves the alternate screen and turns the mouse and the cursor back to how they were.
+It needs an interactive terminal on standard input and output; piped, it says so and points to `portside status` and `portside logs`. `portside` without a command opens it only in such a terminal and runs `status` anywhere else ([CLI](cli.md)). At 80x24 or more it shows the list and the main panel side by side; in a smaller terminal it shows one pane at a time and `esc` goes back. `NO_COLOR` turns colors off; states keep their glyphs. `q` quits; Bubble Tea then leaves the alternate screen and turns the mouse and the cursor back to how they were.
 
 ## The screen
 

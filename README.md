@@ -62,6 +62,8 @@ brew install --formula padmk/tap/portside
 portside tui
 ```
 
+Once a config file exists, `portside` alone opens the terminal UI in a terminal and prints the status when piped or run by a script or an agent.
+
 On Linux, `portside service install` then starts the daemon at login, or at boot with lingering; [Linux server](docs/linux-server.md) is the guide for a machine without a desktop.
 
 The app is not notarized by Apple yet, so the cask removes the quarantine flag to let macOS start it. You rely instead on the public source and on release files built by GitHub Actions with a verifiable attestation; [Trust](docs/security.md#trust) says what that covers and how to check a download. The formula avoids the prebuilt app.

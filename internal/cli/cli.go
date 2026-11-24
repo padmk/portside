@@ -236,11 +236,13 @@ func Main(args []string) int {
 		}
 	}
 	if len(args) == 0 {
-		if _, err := os.Stat(e.cfgPath); err != nil {
+		_, err := os.Stat(e.cfgPath)
+		name := bareCommand(err == nil, isTerminal(os.Stdin) && isTerminal(os.Stdout))
+		if name == "" {
 			usage(e.out)
 			return 0
 		}
-		args = []string{"status"}
+		args = []string{name}
 	}
 	if args[0] == "help" {
 		if len(args) > 1 {
@@ -285,6 +287,20 @@ func Main(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// bareCommand is the command that portside without arguments runs: none (the
+// help) before a config exists, the terminal UI when standard input and output
+// are both a terminal, and status for scripts, pipes and agents.
+func bareCommand(configExists, interactive bool) string {
+	switch {
+	case !configExists:
+		return ""
+	case interactive:
+		return "tui"
+	default:
+		return "status"
+	}
 }
 
 func find(name string) *command {

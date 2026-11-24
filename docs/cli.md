@@ -1,6 +1,6 @@
 # CLI
 
-Commands start the daemon when none runs, except those that only report on it: `check`, `daemon status`, `daemon stop` and `daemon info --no-start`. `portside` without a command runs `status` once a config file exists, and prints the help otherwise. `portside help <command>` prints a command's arguments.
+Commands start the daemon when none runs, except those that only report on it: `check`, `daemon status`, `daemon stop` and `daemon info --no-start`. `portside` without a command prints the help until a config file exists; then it opens the [terminal UI](tui.md) when standard input and output are both a terminal, and runs `status` otherwise (in scripts, pipes and coding agents). `portside help <command>` prints a command's arguments.
 
 Global flags go before the command:
 
