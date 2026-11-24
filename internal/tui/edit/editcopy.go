@@ -3,6 +3,7 @@ package edit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -67,7 +68,13 @@ func (c *editCopy) run() (string, error) {
 		return "", err
 	}
 	if err := runEditor(c.ctx, file, c.in, c.out, c.errOut); err != nil {
-		return "", errors.New("the editor (" + editor.Name() + ") failed: " + err.Error())
+		if errors.Is(err, ui.ErrEnding) {
+			return "", err
+		}
+		if _, ok := errors.AsType[ui.PanicMsg](err); ok {
+			return "", err
+		}
+		return "", fmt.Errorf("the editor (%s) failed: %w", editor.Name(), err)
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {

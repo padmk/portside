@@ -52,7 +52,47 @@ func TestTerminalIsRestored(t *testing.T) {
 		_ = s.tty.Close()
 		_ = s.master.Close()
 		s.waitExit(t)
+		if code := s.cmd.ProcessState.ExitCode(); code != 0 {
+			t.Fatalf("exit code = %d (state %v), want 0", code, s.cmd.ProcessState)
+		}
 	})
+	for _, tc := range []struct {
+		name string
+		sig  syscall.Signal
+	}{
+		{"SIGTERM while editing config", syscall.SIGTERM},
+		{"SIGHUP while editing config", syscall.SIGHUP},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "editor-ready")
+			edEnv := append(append([]string(nil), env...),
+				fmt.Sprintf("VISUAL=sh -c 'touch %q; exec sleep 60' _", marker),
+			)
+			s := startTUI(t, bin, edEnv)
+			s.write(t, ":config\r")
+			for deadline := time.Now().Add(10 * time.Second); ; {
+				if _, err := os.Stat(marker); err == nil {
+					break
+				}
+				if time.Now().After(deadline) || s.exited() {
+					t.Fatalf("editor did not start:\n%q", s.tail(400))
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			sent := time.Now()
+			if err := s.cmd.Process.Signal(tc.sig); err != nil {
+				t.Fatal(err)
+			}
+			s.waitExit(t)
+			if elapsed := time.Since(sent); elapsed >= 4*time.Second {
+				t.Fatalf("exited after %v, hit the watchdog instead of quitting cleanly", elapsed)
+			}
+			if code := s.cmd.ProcessState.ExitCode(); code != 0 {
+				t.Fatalf("exit code = %d (state %v), want 0\n%q", code, s.cmd.ProcessState, s.tail(400))
+			}
+			s.checkRestored(t)
+		})
+	}
 	t.Run("q after a lost connection", func(t *testing.T) {
 		s := startTUI(t, bin, env)
 		stopProcess(t, daemon)

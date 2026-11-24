@@ -503,6 +503,29 @@ func TestLeftoverCopiesOfEndedProcessesAreRemoved(t *testing.T) {
 	}
 }
 
+func TestEditCopyPreservesShutdownAndPanic(t *testing.T) {
+	oldRun := runEditor
+	t.Cleanup(func() { runEditor = oldRun })
+
+	runEditor = func(_ context.Context, _ string, _ io.Reader, _, _ io.Writer) error {
+		return ui.ErrEnding
+	}
+	c := &editCopy{text: "port = 7980\n", ctx: context.Background()}
+	if err := c.Run(); !errors.Is(err, ui.ErrEnding) {
+		t.Fatalf("Run() on shutdown = %v, want ui.ErrEnding", err)
+	}
+
+	wantPanic := ui.PanicMsg{Value: "boom"}
+	runEditor = func(_ context.Context, _ string, _ io.Reader, _, _ io.Writer) error {
+		return wantPanic
+	}
+	c = &editCopy{text: "port = 7980\n", ctx: context.Background()}
+	gotPanic, ok := errors.AsType[ui.PanicMsg](c.Run())
+	if !ok || gotPanic.Value != "boom" {
+		t.Fatalf("Run() on panic = %v, want PanicMsg(boom)", c.err)
+	}
+}
+
 func isFieldError(err error, key string) bool {
 	fe, ok := errors.AsType[fieldError](err)
 	return ok && fe.key == key
