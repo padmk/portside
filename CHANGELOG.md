@@ -3,6 +3,8 @@
 ## Unreleased
 
 - **CLI:** `portside` without a command opens the [terminal UI](docs/tui.md) once a config file exists, when standard input and output are both a terminal; piped, in scripts and for coding agents it still runs `status`, and before a config exists it still prints the help.
+- **Fixed, starts:** a start asked for right after a server's process exited, before the daemon had collected it, is no longer lost; renaming a server while its start waits for its port keeps the start; a start with `--takeover` replaces a start still under way; and a server shows `starting` from the moment its start is asked for.
+- **Fixed, tasks:** a bulk start that restarts a server whose run just ended no longer runs the task it depends on a second time.
 
 ## 0.12.0
 
