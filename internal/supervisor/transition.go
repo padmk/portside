@@ -467,6 +467,9 @@ func (s *Supervisor) pendingDueLocked(p *proc, ev evPendingDue) []effect {
 		return nil
 	}
 	token := p.startSeq
+	// Clients and the port reservation see the start from now on, through
+	// its preflight.
+	defer s.changedLocked()
 	if ev.pd.kind == pendingRetry {
 		p.retries = 0
 		req := startRequest{trigger: triggerRetry, at: time.Now()}

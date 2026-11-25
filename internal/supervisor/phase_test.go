@@ -368,3 +368,27 @@ func TestRenamedComposeStartKeepsItsPublishedPort(t *testing.T) {
 
 // A due automatic restart is announced as it begins, and its port counts
 // as wanted through the preflight.
+func TestDueRestartIsAnnounced(t *testing.T) {
+	h := fakeHarness(t, config.RestartOnFailure, true)
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "running", func() bool { return h.live() != nil })
+	h.exitLive(t, 1)
+	waitFor(t, "restart pending", func() bool { _, _, rp := h.state(); return rp })
+	h.quiet(50 * time.Millisecond)
+	ch := h.s.Subscribe()
+	defer h.s.Unsubscribe(ch)
+	h.gate.close(h.daemon)
+	go h.tick()
+	h.gate.await(t)
+	select {
+	case <-ch:
+	default:
+		t.Fatal("no change announced for the restart in its preflight")
+	}
+	if !h.s.WantsPort(h.port) {
+		t.Fatal("the port of the restart in its preflight does not count as wanted")
+	}
+	h.gate.open(false)
+}
