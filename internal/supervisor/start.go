@@ -98,7 +98,7 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 	// Dependencies come from the definition, so a temporary server shares
 	// its origin's dependencies. They are read under the lock that reserves
 	// the start, so a config reload cannot mix two versions.
-	deps := s.cfg.WithDeps(p.cfg.DependsOn)
+	deps := s.depsLocked(p)
 	if opt.Since.IsZero() {
 		opt.Since = time.Now()
 	}
@@ -110,7 +110,7 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 
 // launch starts deps in order and then p, while token is p's start under
 // way. The start holds p itself, so a rename meanwhile does not end it.
-func (s *Supervisor) launch(p *proc, deps []string, opt StartOptions, token int) error {
+func (s *Supervisor) launch(p *proc, deps []*proc, opt StartOptions, token int) error {
 	s.mu.Lock()
 	if opt.Since.IsZero() {
 		// The request's own time, which a task it waits for is measured by.
@@ -124,7 +124,11 @@ func (s *Supervisor) launch(p *proc, deps []string, opt StartOptions, token int)
 		return s.startOne(p, opt, token)
 	}
 	if p.startingWith(token) {
-		p.note = "waiting for " + strings.Join(deps, ", ")
+		names := make([]string, len(deps))
+		for i, d := range deps {
+			names[i] = d.cfg.Name
+		}
+		p.note = "waiting for " + strings.Join(names, ", ")
 		if opt.trigger != "" {
 			p.trigger = opt.trigger
 		}
@@ -132,32 +136,35 @@ func (s *Supervisor) launch(p *proc, deps []string, opt StartOptions, token int)
 	}
 	s.mu.Unlock()
 	// Dependencies start in order; each must be ready before the next starts.
-	// A Stop of the target (or shutdown) cancels the rest of the chain.
+	// A Stop of the target (or shutdown) cancels the rest of the chain. The
+	// chain holds the dependencies themselves, so one renamed meanwhile is
+	// still started and waited for.
 	go func() {
 		for _, d := range deps {
 			if !s.current(p, token) {
 				return
 			}
 			dep := s.reserveDependency(d, opt.Since)
+			name := dep.name
 			switch {
 			case dep.p == nil || dep.done:
 				continue // a run since the request satisfies it
 			case dep.failed != "":
 				// A run since the request failed: the same request does not
 				// run it again.
-				s.failStart(p, token, fmt.Sprintf("dependency %s failed: %s", d, dep.failed))
+				s.failStart(p, token, fmt.Sprintf("dependency %s failed: %s", name, dep.failed))
 				return
 			}
 			task := dep.task
 			if err := s.startOne(dep.p, StartOptions{trigger: triggerStart}, dep.token); err != nil {
-				s.failStart(p, token, fmt.Sprintf("dependency %s failed: %v", d, err))
+				s.failStart(p, token, fmt.Sprintf("dependency %s failed: %v", name, err))
 				return
 			}
-			if err := s.WaitReady(context.Background(), d, opt.Since, 3*time.Minute); err != nil {
+			if err := s.waitReady(context.Background(), s.configuredAs(d), name, opt.Since, 3*time.Minute); err != nil {
 				if f, ok := errors.AsType[*waitFailure](err); ok && task {
-					s.failStart(p, token, fmt.Sprintf("dependency %s failed: %s", d, f.reason))
+					s.failStart(p, token, fmt.Sprintf("dependency %s failed: %s", f.name, f.reason))
 				} else {
-					s.failStart(p, token, fmt.Sprintf("dependency %s did not become ready: %v", d, err))
+					s.failStart(p, token, fmt.Sprintf("dependency %s did not become ready: %v", name, err))
 				}
 				return
 			}
@@ -169,39 +176,54 @@ func (s *Supervisor) launch(p *proc, deps []string, opt StartOptions, token int)
 	return nil
 }
 
-// dependency is how reserveDependency left a dependency: a task done or
-// failed in a run since the request, or reserved with token.
+// dependency is how reserveDependency left a dependency: gone from the
+// config (p nil), a task done or failed in a run since the request, or
+// reserved with token, under its name then.
 type dependency struct {
 	p          *proc
+	name       string
 	task, done bool
 	failed     string // why a task's run since the request failed
 	token      int
 }
 
-// reserveDependency reserves a start of dependency name with a fresh round
+// reserveDependency reserves a start of dependency p with a fresh round
 // of automatic restarts, as Start does, unless it is a task whose run since
 // the request already ended (done or failed); one lock covers both, so a
 // run that ends in between is not repeated.
-func (s *Supervisor) reserveDependency(name string, since time.Time) dependency {
+func (s *Supervisor) reserveDependency(p *proc, since time.Time) dependency {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := s.procs[name]
-	if p == nil {
-		return dependency{}
+	name := p.cfg.Name
+	if s.procs[name] != p || p.removed {
+		return dependency{name: name}
 	}
 	if task := p.cfg.Oneshot; task && p.live() == nil && !p.settledAt.Before(since) {
 		switch taskStateLocked(p, since) {
 		case taskDone:
-			return dependency{p: p, task: true, done: true}
+			return dependency{p: p, name: name, task: true, done: true}
 		case taskFailed:
-			return dependency{p: p, task: true, failed: cmp.Or(p.note, string(p.status()))}
+			return dependency{p: p, name: name, task: true, failed: cmp.Or(p.note, string(p.status()))}
 		case taskPending:
 			// Under way or on its way: reserved below, and waited for.
 		}
 	}
 	p.retries = 0
 	s.transitionLocked(p, evRequest{req: startRequest{trigger: triggerStart, at: since}, after: s.startAfterRunLocked(p, since)})
-	return dependency{p: p, task: p.cfg.Oneshot, token: p.startSeq}
+	return dependency{p: p, name: name, task: p.cfg.Oneshot, token: p.startSeq}
+}
+
+// depsLocked returns the servers p depends on, also through them, in the
+// order they start: the definition's, so a temporary server shares its
+// origin's dependencies.
+func (s *Supervisor) depsLocked(p *proc) []*proc {
+	var deps []*proc
+	for _, name := range s.cfg.WithDeps(p.cfg.DependsOn) {
+		if q := s.procs[name]; q != nil {
+			deps = append(deps, q)
+		}
+	}
+	return deps
 }
 
 // startAfterRunLocked reports whether a start of p asked for now comes
@@ -227,11 +249,11 @@ func (s *Supervisor) startAfterRunLocked(p *proc, since time.Time) bool {
 // reserveStartLocked records a start of p, which is down, with trigger, as
 // Start does: a fresh round of automatic restarts, and the dependencies to
 // start first. It returns them and the start's token.
-func (s *Supervisor) reserveStartLocked(p *proc, trigger string) (deps []string, token int) {
+func (s *Supervisor) reserveStartLocked(p *proc, trigger string) (deps []*proc, token int) {
 	p.retries = 0
 	p.trigger = trigger
 	s.transitionLocked(p, evRequest{req: startRequest{trigger: trigger}})
-	return s.cfg.WithDeps(p.cfg.DependsOn), p.startSeq
+	return s.depsLocked(p), p.startSeq
 }
 
 // startRequest is a start asked for: what asked for it ("" for an

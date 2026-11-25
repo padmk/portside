@@ -87,7 +87,7 @@ func (s *Supervisor) checkSchedules() {
 	now := s.now()
 	type run struct {
 		p     *proc
-		deps  []string
+		deps  []*proc
 		token int
 	}
 	var due []run

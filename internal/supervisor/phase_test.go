@@ -299,3 +299,37 @@ func TestAutomaticRestartPreflightIsStarting(t *testing.T) {
 	}
 	h.gate.open(false)
 }
+
+// A dependency renamed while a server waits for it is still waited for:
+// the start goes on once it is done, under its new name.
+func TestRenamedDependencyIsStillWaitedFor(t *testing.T) {
+	h := newHarness(t)
+	h.name = "db"
+	h.m.task = true
+	h.port = freeModelPort(t)
+	webDir := t.TempDir()
+	webPort := freeModelPort(t)
+	cfgWith := func(db string) *config.Config {
+		h.name = db
+		c := h.config()
+		c.Servers = append(c.Servers, config.Server{Name: "web", Cmd: "fake", Dir: webDir, Port: webPort, Enabled: true, Restart: config.RestartNo, Stop: time.Hour, DependsOn: []string{db}})
+		return c
+	}
+	h.s = h.newSupervisor(cfgWith("db"))
+	t.Cleanup(h.cleanup)
+	h.gate.close(h.daemon)
+	if err := h.s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.gate.await(t) // the task's preflight
+	h.s.ApplyRenamed(cfgWith("db2"), "db", "db2")
+	h.gate.open(false)
+	waitFor(t, "the task runs", func() bool { return h.live() != nil })
+	h.quiet(50 * time.Millisecond)
+	h.exitLive(t, 0)
+	waitFor(t, "web launched", func() bool {
+		h.w.mu.Lock()
+		defer h.w.mu.Unlock()
+		return h.w.launches[webDir] == 1
+	})
+}

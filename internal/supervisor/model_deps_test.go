@@ -83,6 +83,14 @@ func TestModelDependencies(t *testing.T) {
 				d.m.upgrade()
 				d.settle(t)
 			},
+			// A rename of the task, also while the server waits for it:
+			// the server's start still waits for the task's run.
+			"RenameTask": func(t *rapid.T) {
+				old := d.task
+				d.task = map[string]string{depsTask: depsTask + "-renamed", depsTask + "-renamed": depsTask}[old]
+				d.s.ApplyRenamed(d.config(), old, d.task)
+				d.settle(t)
+			},
 		}))
 	})
 }
@@ -161,6 +169,7 @@ type depsHarness struct {
 	m               depsModel
 	root, stateDir  string
 	taskDir, webDir string
+	task            string // the task's name, which a rename changes
 	port, daemon    int
 	gate            *preflightGate
 	calls           *sync.WaitGroup
@@ -176,7 +185,7 @@ func newDepsHarness(t modelTB) *depsHarness {
 	d := &depsHarness{
 		w: newFakeWorld(), root: root, stateDir: filepath.Join(root, "state"),
 		taskDir: filepath.Join(root, "task"), webDir: filepath.Join(root, "web"),
-		port: freeModelPort(t), gate: newPreflightGate(), calls: &sync.WaitGroup{},
+		port: freeModelPort(t), gate: newPreflightGate(), calls: &sync.WaitGroup{}, task: depsTask,
 	}
 	for _, dir := range []string{d.taskDir, d.webDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -189,9 +198,9 @@ func newDepsHarness(t modelTB) *depsHarness {
 
 func (d *depsHarness) config() *config.Config {
 	return &config.Config{Shell: "sh", Servers: []config.Server{
-		{Name: depsTask, Cmd: "fake", Dir: d.taskDir, Enabled: true, Oneshot: true, Restart: config.RestartNo, Stop: time.Hour},
+		{Name: d.task, Cmd: "fake", Dir: d.taskDir, Enabled: true, Oneshot: true, Restart: config.RestartNo, Stop: time.Hour},
 		{Name: depsServer, Cmd: "fake", Dir: d.webDir, Port: d.port, Enabled: true, Restart: config.RestartNo, Stop: time.Hour,
-			ReadyAfter: time.Nanosecond, DependsOn: []string{depsTask}},
+			ReadyAfter: time.Nanosecond, DependsOn: []string{d.task}},
 	}}
 }
 

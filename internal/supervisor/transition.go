@@ -129,7 +129,7 @@ type effect interface{ isEffect() }
 // first, or (direct) the server alone, as an automatic restart does.
 type effLaunch struct {
 	p      *proc
-	deps   []string
+	deps   []*proc
 	opt    StartOptions
 	token  int
 	direct bool
@@ -372,7 +372,7 @@ func (s *Supervisor) endedLocked(p *proc, ev evEnded) []effect {
 			}
 		}
 		p.ph = starting{req: req, token: p.startSeq}
-		return []effect{effLaunch{p: p, deps: s.cfg.WithDeps(p.cfg.DependsOn), opt: StartOptions{trigger: req.trigger, Since: req.at}, token: p.startSeq}}
+		return []effect{effLaunch{p: p, deps: s.depsLocked(p), opt: StartOptions{trigger: req.trigger, Since: req.at}, token: p.startSeq}}
 	}
 	p.ph = idle{status: status}
 	if done {
@@ -471,7 +471,7 @@ func (s *Supervisor) pendingDueLocked(p *proc, ev evPendingDue) []effect {
 		p.retries = 0
 		req := startRequest{trigger: triggerRetry, at: time.Now()}
 		p.ph = starting{req: req, token: token}
-		return []effect{effLaunch{p: p, deps: s.cfg.WithDeps(p.cfg.DependsOn), opt: StartOptions{trigger: triggerRetry, Since: req.at}, token: token}}
+		return []effect{effLaunch{p: p, deps: s.depsLocked(p), opt: StartOptions{trigger: triggerRetry, Since: req.at}, token: token}}
 	}
 	p.ph = starting{req: startRequest{at: time.Now()}, token: token}
 	return []effect{effLaunch{p: p, token: token, direct: true}}

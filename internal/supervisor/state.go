@@ -279,7 +279,7 @@ func (s *Supervisor) Recover(restore bool) {
 	// restore says, as a run missed while the daemon was down would.
 	type reserved struct {
 		p     *proc
-		deps  []string
+		deps  []*proc
 		token int
 	}
 	var scheduled []reserved
@@ -368,7 +368,7 @@ func (s *Supervisor) startAfterHandoff(name string, req startRequest) {
 	req.trigger = cmp.Or(req.trigger, triggerStart)
 	p.retries = 0
 	s.transitionLocked(p, evRequest{req: req})
-	deps, token := s.cfg.WithDeps(p.cfg.DependsOn), p.startSeq
+	deps, token := s.depsLocked(p), p.startSeq
 	s.mu.Unlock()
 	_ = s.launch(p, deps, StartOptions{trigger: req.trigger, Since: req.at}, token)
 }

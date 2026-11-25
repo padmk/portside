@@ -212,6 +212,23 @@ const ReadyTimeout = 90 * time.Second
 // done in a run that ended at or after since (see taskStateLocked). A
 // server or task that ended or could not start fails with a *waitFailure.
 func (s *Supervisor) WaitReady(ctx context.Context, name string, since time.Time, timeout time.Duration) error {
+	return s.waitReady(ctx, func() *proc { return s.procs[name] }, name, since, timeout)
+}
+
+// configuredAs returns a lookup of p while it is in the config, under
+// whatever name it has.
+func (s *Supervisor) configuredAs(p *proc) func() *proc {
+	return func() *proc {
+		if s.procs[p.cfg.Name] == p && !p.removed {
+			return p
+		}
+		return nil
+	}
+}
+
+// waitReady is WaitReady for the server lookup finds under s.mu, known as
+// name until then.
+func (s *Supervisor) waitReady(ctx context.Context, lookup func() *proc, name string, since time.Time, timeout time.Duration) error {
 	ch := s.Subscribe()
 	defer s.Unsubscribe(ch)
 	deadline := time.NewTimer(timeout)
@@ -223,7 +240,11 @@ func (s *Supervisor) WaitReady(ctx context.Context, name string, since time.Time
 			return err
 		}
 		s.mu.Lock()
-		p, ok := s.procs[name]
+		p := lookup()
+		ok := p != nil
+		if ok {
+			name = p.cfg.Name
+		}
 		var st Status
 		var note string
 		var wanted, task bool
