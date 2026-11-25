@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.2
 
 - **Fixed, macOS app:** the panel's list no longer keeps sliding up and down, with rows drawn out of place, after it appears with servers that are starting (for example after the daemon is stopped and started again from the panel).
 
