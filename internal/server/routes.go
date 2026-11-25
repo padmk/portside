@@ -461,7 +461,17 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 	case "restart":
 		// Stop everything first, then start in dependency order, so a
 		// dependent never comes up against a dependency about to go down.
-		parallel(s.sup.Stop)
+		// Each start follows its own stop only: a Stop or Start asked for
+		// meanwhile wins.
+		stops := make([]supervisor.RestartStop, len(names))
+		var stopsMu sync.Mutex
+		parallel(func(n string) error { //nolint:contextcheck // a stop and the hooks it runs outlive the request, as with Stop
+			st, err := s.sup.StopForRestart(n)
+			stopsMu.Lock()
+			stops[slices.Index(names, n)] = st
+			stopsMu.Unlock()
+			return err
+		})
 		// Taken after the stops, which settle tasks: a stop is not a run
 		// of this request.
 		opt.Since = time.Now()
@@ -474,7 +484,10 @@ func (s *Server) bulk(w http.ResponseWriter, r *http.Request) {
 			if !selected {
 				continue
 			}
-			if err := s.sup.Start(n, opt); err != nil {
+			if res[i].Error != "" {
+				continue // its stop failed
+			}
+			if err := s.sup.StartAfterStop(n, opt, stops[i]); err != nil { //nolint:contextcheck // a start and the hooks it runs outlive the request, as with Start
 				res[i].Error = err.Error()
 			}
 		}

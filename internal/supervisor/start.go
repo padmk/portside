@@ -35,7 +35,7 @@ type StartOptions struct {
 	trigger string
 	// after, for a Restart, is its stop: the start goes ahead only while
 	// nothing has started or stopped the server since.
-	after *stopped
+	after *RestartStop
 }
 
 // Start launches a server and, first, every server it depends on. It returns

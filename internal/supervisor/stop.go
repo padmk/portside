@@ -10,28 +10,28 @@ import (
 // Stop ends a server gracefully: Ctrl-C to its process group, then SIGTERM,
 // then SIGKILL. It returns when the process has exited.
 func (s *Supervisor) Stop(name string) error {
-	_, err := s.stop(name)
+	_, err := s.StopForRestart(name)
 	return err
 }
 
-// stop is Stop that also returns the stop it made: the server and its
-// startSeq once stopped, which a later Start or Stop changes.
-func (s *Supervisor) stop(name string) (stopped, error) {
+// StopForRestart is Stop that also returns the stop it made, which
+// StartAfterStop follows with the restart's start.
+func (s *Supervisor) StopForRestart(name string) (RestartStop, error) {
 	s.mu.Lock()
 	p, ok := s.procs[name]
 	if !ok {
 		s.mu.Unlock()
-		return stopped{}, fmt.Errorf("unknown server %q", name)
+		return RestartStop{}, fmt.Errorf("unknown server %q", name)
 	}
 	// The servers and the state are already handed to the new daemon,
 	// which would not see this stop; like a start, it waits for the end.
 	if s.closing && s.handoff {
 		s.mu.Unlock()
-		return stopped{}, errors.New("the daemon is upgrading in place; try again in a moment")
+		return RestartStop{}, errors.New("the daemon is upgrading in place; try again in a moment")
 	}
 	p.retries = 0
 	effs := s.transitionLocked(p, evStop{})
-	st := stopped{p: p, seq: p.startSeq}
+	st := RestartStop{p: p, seq: p.startSeq}
 	// Without an end of its own to wait for, a stop waits for the one
 	// under way: a second Ctrl-C would make tools such as docker compose
 	// abort their own graceful shutdown. That is also one still ending the
@@ -48,9 +48,9 @@ func (s *Supervisor) stop(name string) (stopped, error) {
 	return st, nil
 }
 
-// stopped is a stop that Restart follows with its start: p, with the
-// startSeq the stop left it.
-type stopped struct {
+// RestartStop is a stop that a restart follows with its start: the server,
+// with the startSeq the stop left it, which a later Start or Stop changes.
+type RestartStop struct {
 	p   *proc
 	seq int
 }

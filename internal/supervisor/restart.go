@@ -9,7 +9,7 @@ import (
 // The start follows only the restart's own stop: a Stop or a start asked
 // for while it waits for the process to exit wins over it.
 func (s *Supervisor) Restart(name string, opt StartOptions) error {
-	st, err := s.stop(name)
+	st, err := s.StopForRestart(name)
 	if err != nil {
 		return err
 	}
@@ -18,6 +18,14 @@ func (s *Supervisor) Restart(name string, opt StartOptions) error {
 	if !opt.Since.IsZero() {
 		opt.Since = time.Now()
 	}
+	return s.StartAfterStop(name, opt, st)
+}
+
+// StartAfterStop is the start of a restart whose stop was st: it starts
+// name only while nothing has started or stopped the server since, so a
+// Stop asked for during the restart's stop wins, and a Start then is the
+// start.
+func (s *Supervisor) StartAfterStop(name string, opt StartOptions, st RestartStop) error {
 	opt.after = &st
 	return s.Start(name, opt)
 }
