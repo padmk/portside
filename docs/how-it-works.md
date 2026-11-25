@@ -6,7 +6,7 @@
 
 ## Servers, output and state
 
-Each server runs as `<shell> -c <cmd>` (`bash` unless the config sets [`shell`](configuration.md#editor-terminal-shell-and-docker)) in its own pseudo-terminal and process group, inside the project's tool environment when it has one ([Version managers](configuration.md#version-managers)). A stop sends `SIGINT` (what `Ctrl-C` sends) to the whole process group, so `docker compose` shuts its containers down, then `SIGTERM`, then `SIGKILL`. Children left in the group after the main process exits are ended too.
+Each server runs as `<shell> -c <cmd>` (`bash` unless the config sets [`shell`](configuration.md#editor-terminal-shell-and-docker)) in its own pseudo-terminal and process group, inside the project's tool environment when it has one ([Version managers](configuration.md#version-managers)). A stop sends `SIGINT` (what `Ctrl-C` sends) to the whole process group, so `docker compose` shuts its containers down, then `SIGTERM`, then `SIGKILL`. Children left in the group after the main process exits on its own are ended too (`SIGTERM`, then `SIGKILL` after 2 seconds), and the server starts again, also by an automatic restart, only once they are gone.
 
 Output goes to a 1 MiB in-memory scrollback and to `~/.local/state/portside/logs/<name>.log`, rotated at 10 MiB. When the daemon restarts or upgrades, it reloads the last 256 KiB of the current and rotated files into scrollback, followed by a `daemon restarted` separator unless the output already ends with one. Restored output has no line timestamps.
 
@@ -17,7 +17,7 @@ The config and server logs can hold environment values and credentials, so:
 - files in the state directory and the config file are created with mode `0600`, directories with `0700`;
 - each daemon start removes group and other access from the config file, from `~/.config/portside` and `~/.local/state/portside` with their contents, and, for a state directory set with `PORTSIDE_STATE_DIR`, from that directory, its `logs` and the files Portside keeps in it. Parent directories and other files are never changed.
 
-When the daemon itself crashed, the next one stops each leftover process group before restoring servers, but only one it can tie to a server: its main process must have the saved start time (read from `ps` in the C locale, so a daemon started under another locale still recognizes it), or, when that process is gone, every process left in the group must have started between it and the last time the previous daemon saved its state or wrote the server's log. Any other group, such as one whose id another program got since, is left alone and named in the daemon log.
+When the daemon itself crashed, the next one stops each leftover process group before restoring servers, but only one it can tie to a server: its main process must have the saved start time (read from `ps` in the C locale, so a daemon started under another locale still recognizes it), or, when that process is gone, every process left in the group must have started between it and the last time the previous daemon saved its state or wrote the server's log. Any other group, such as one whose id another program got since, is left alone and named in the daemon log; the check is repeated before the final `SIGKILL`. Taking a port over signals the process that held it only while it is still that process: on Linux through a pidfd, on macOS by its start time to the microsecond.
 
 ## Periodic checks
 
