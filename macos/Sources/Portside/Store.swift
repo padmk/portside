@@ -94,8 +94,8 @@ final class Store {
     /// Daemon commands running while the connection loop is paused for them;
     /// the loop resumes once the last one ends.
     private var pausedFor = 0
-    /// The latest daemon command of pauseLoop; the next one waits for it.
-    private var daemonCommand: Task<Void, Never>?
+    /// Daemon commands of pauseLoop, run in the order the user gave them.
+    private let daemonCommands = SerialJobs()
     /// The last crash reported per server (exit time and note).
     private var notifiedCrash: [String: String] = [:]
     /// Containers with an issue per server, as last seen.
@@ -584,13 +584,10 @@ final class Store {
         loop?.cancel()
         pausedFor += 1
         before()
-        let previous = daemonCommand
-        daemonCommand = Task {
-            // Let the connection loop (and any `daemon info` that could start
-            // a daemon) and the command before this one finish first, so
-            // neither races the command.
-            await running?.value
-            await previous?.value
+        // The connection loop (and any `daemon info` that could start a
+        // daemon) and the command before this one finish first, so neither
+        // races the command.
+        daemonCommands.add(after: running) { [self] in
             do { _ = try await DaemonCLI.run(command) } catch { lastError = error.localizedDescription }
             pausedFor -= 1
             if pausedFor == 0 { start() }

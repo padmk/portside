@@ -201,7 +201,12 @@ enum DaemonCLI {
 
     /// Runs the helper with arguments and returns its exit status and output.
     static func exec(_ args: [String]) async throws -> Output {
-        let url = helperURL
+        try await exec(helper: helperURL, args)
+    }
+
+    /// Runs the executable at `url` with arguments; cancelling the calling
+    /// task keeps it from starting or terminates it.
+    static func exec(helper url: URL, _ args: [String]) async throws -> Output {
         guard FileManager.default.isExecutableFile(atPath: url.path) else { throw DaemonError.helperMissing }
         let launch = CancellableLaunch()
         let p = launch.process
