@@ -421,13 +421,21 @@ func (s *Supervisor) applyLocked(cfg *config.Config) []string {
 		if keep[name] || (p.temp != nil && !p.removed && s.updateTemporaryLocked(p)) {
 			continue
 		}
-		if p.alive() {
+		if p.live() != nil {
+			// Its process ends first; wait then forgets the server.
 			p.removed = true
 			removed = append(removed, name)
-		} else {
-			p.logs.Close()
-			delete(s.procs, name)
+			continue
 		}
+		// Without a process (also a start under way, in its preflight or
+		// waiting for a dependency) nothing is left to end: the start goes
+		// no further, as the server is gone.
+		p.removed = true
+		if p.request() != nil {
+			s.transitionLocked(p, evStop{})
+		}
+		p.logs.Close()
+		delete(s.procs, name)
 	}
 	// After temporary copies took their origin's new settings.
 	cancelled := false

@@ -98,7 +98,61 @@ func listed(s *Supervisor, name string) (View, bool) {
 
 // A server removed from the config while its start is in the preflight
 // leaves at once, and the start goes no further.
+func TestRemovedDuringPreflightLeaves(t *testing.T) {
+	h := fakeHarness(t, config.RestartNo, true)
+	h.gate.close(h.daemon)
+	h.call(func() { _ = h.s.Start(h.name, StartOptions{}) })
+	h.gate.await(t)
+	h.s.Apply(&config.Config{Shell: "sh"})
+	if v, ok := listed(h.s, h.name); ok {
+		t.Fatalf("removed server still listed: status %s removed %v", v.Status, v.Removed)
+	}
+	h.gate.open(false)
+	h.calls.Wait()
+	h.quiet(50 * time.Millisecond)
+	if n := h.launches(); n != 0 {
+		t.Fatalf("the removed server's start launched %d processes", n)
+	}
+}
+
 // A server removed while it waits for a dependency leaves at once.
+func TestRemovedWhileWaitingForDependencyLeaves(t *testing.T) {
+	h := newHarness(t)
+	h.name = "db"
+	h.port = freeModelPort(t)
+	webDir := t.TempDir()
+	webPort := freeModelPort(t)
+	cfgWith := func(web bool) *config.Config {
+		c := h.config()
+		if web {
+			c.Servers = append(c.Servers, config.Server{Name: "web", Cmd: "fake", Dir: webDir, Port: webPort, Enabled: true, Restart: config.RestartNo, Stop: time.Hour, DependsOn: []string{"db"}})
+		}
+		return c
+	}
+	h.s = h.newSupervisor(cfgWith(true))
+	t.Cleanup(h.cleanup)
+	h.gate.close(h.daemon)
+	if err := h.s.Start("web", StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.gate.await(t) // db's preflight
+	if v := viewOf(h.s, "web"); v.Status != Starting {
+		t.Fatalf("web: %s", v.Status)
+	}
+	h.s.Apply(cfgWith(false))
+	if v, ok := listed(h.s, "web"); ok {
+		t.Fatalf("removed server still listed: status %s removed %v note %q", v.Status, v.Removed, v.Note)
+	}
+	h.gate.open(false)
+	h.quiet(100 * time.Millisecond)
+	h.w.mu.Lock()
+	n := h.w.launches[webDir]
+	h.w.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("the removed server launched %d processes", n)
+	}
+}
+
 // A second Start during a start's preflight joins it: the first Start's
 // caller then waits for the run it started, not the crash before it.
 // While an automatic restart is in its preflight the server is starting,
