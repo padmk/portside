@@ -90,9 +90,15 @@ func (s *Supervisor) PrepareHandoff() ([]Handoff, error) {
 		return nil, errors.New("the daemon is shutting down")
 	}
 	// Also after the leader exited or its server was removed: the stop
-	// still ends the rest of the group, which exec would cut off.
-	for _, name := range s.endings {
-		return nil, fmt.Errorf("%s is stopping; try again once it has stopped", name)
+	// still ends the rest of the group, which exec would cut off. The
+	// orphans of a leader that exited on its own do not hold the upgrade
+	// up: for a run still draining, which is handed over, the next daemon
+	// ends them when it records the exit; after a drained run the exec
+	// cuts their end short.
+	for _, e := range s.endings {
+		if !e.orphans {
+			return nil, fmt.Errorf("%s is stopping; try again once it has stopped", e.name)
+		}
 	}
 	// Readers stop between reads, so what the processes write from now on
 	// stays in their terminals for the new daemon, and the state below

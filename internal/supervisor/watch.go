@@ -284,7 +284,7 @@ func (s *Supervisor) watchRestart(st watchStart) {
 		// throughout and nothing waiting for it sees it stopped; wait
 		// launches it once the group has exited, unless a stop comes first.
 		s.mu.Lock()
-		if s.procs[st.name] != p || p.startSeq != st.seq || p.live() == nil || p.stopping() != nil || p.next() != nil || (p.ending != nil && !isClosed(p.ending)) || s.closing || !p.cfg.Enabled || p.removed {
+		if s.procs[st.name] != p || p.startSeq != st.seq || p.live() == nil || p.stopping() != nil || p.next() != nil || s.groupStoppingLocked(p) || s.closing || !p.cfg.Enabled || p.removed {
 			s.mu.Unlock()
 			return
 		}

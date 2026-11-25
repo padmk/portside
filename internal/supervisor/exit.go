@@ -33,12 +33,22 @@ func (s *Supervisor) wait(p *proc, r *run, gen int) {
 	exited := time.Now()
 	s.transitionLocked(p, evExited{at: exited})
 	stopping := s.requestedExitLocked(p) || p.stopping() != nil
+	var orphans chan struct{}
+	if !stopping {
+		// The leader died on its own; children left in its group are
+		// orphans, which are ended as a Stop's group is: a start of the
+		// server (an automatic restart among them) and a Stop wait for
+		// them. During a Stop, terminate owns the whole group and its grace
+		// period.
+		orphans = s.beginEndingLocked(p, true)
+	}
 	s.mu.Unlock()
 	code := r.process.reap()
-	if !stopping {
-		// The leader died on its own; children left in its group are orphans.
-		// During a Stop, terminate owns the whole group and its grace period.
-		go reapGroup(s.sys, pgid)
+	if orphans != nil {
+		go func() {
+			defer s.endEnding(orphans)
+			reapGroup(s.sys, pgid)
+		}()
 	}
 	// Let the reader drain the last output (often the crash message). An
 	// orphan holding the terminal open must not delay the exit forever.

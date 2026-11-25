@@ -136,11 +136,11 @@ func (p *proc) livePID() int {
 type Supervisor struct {
 	mu      sync.Mutex
 	saveErr string // why the last state write failed; "" when it worked
-	// endings holds the process-group terminations under way by server
-	// name, also of servers removed from the config meanwhile: Shutdown
-	// waits for them, an upgrade waits until there are none, and a start of
-	// the same name waits for its own.
-	endings map[chan struct{}]string
+	// endings holds the process-group terminations under way, also of
+	// servers removed from the config meanwhile: Shutdown waits for them, an
+	// upgrade waits until no stop is among them, and a start of the same
+	// name waits for its own.
+	endings map[chan struct{}]ending
 	tempMu  sync.Mutex // serializes creating temporary servers
 	cfg     *config.Config
 	order   []string
@@ -369,8 +369,9 @@ func (s *Supervisor) ApplyRenamed(cfg *config.Config, old, name string) {
 			// A stop still ending its group goes with it, so a start of the
 			// new name waits for that group.
 			// A start under way goes on: it holds the server, not its name.
-			if _, ok := s.endings[p.ending]; ok && p.ending != nil {
-				s.endings[p.ending] = name
+			if e, ok := s.endings[p.ending]; ok && p.ending != nil {
+				e.name = name
+				s.endings[p.ending] = e
 			}
 		}
 		for _, q := range s.procs {

@@ -71,16 +71,32 @@ const (
 	stopMemory
 )
 
+// ending is a termination of a server's process group under way: a stop
+// of the run, or (orphans) the end of what its leader left in the group
+// when it exited on its own.
+type ending struct {
+	name    string
+	orphans bool
+}
+
 // beginEndingLocked records that p's process group is being ended and
 // returns the channel endEnding closes once it is.
-func (s *Supervisor) beginEndingLocked(p *proc) chan struct{} {
+func (s *Supervisor) beginEndingLocked(p *proc, orphans bool) chan struct{} {
 	ch := make(chan struct{})
 	p.ending = ch
 	if s.endings == nil {
-		s.endings = map[chan struct{}]string{}
+		s.endings = map[chan struct{}]ending{}
 	}
-	s.endings[ch] = p.cfg.Name
+	s.endings[ch] = ending{name: p.cfg.Name, orphans: orphans}
 	return ch
+}
+
+// groupStoppingLocked reports whether a stop is ending p's process group:
+// the end of the orphans of a leader that exited on its own is not one,
+// so a Stop then still ends the group its own way.
+func (s *Supervisor) groupStoppingLocked(p *proc) bool {
+	e, ok := s.endings[p.ending]
+	return p.ending != nil && ok && !e.orphans
 }
 
 func (s *Supervisor) endEnding(ch chan struct{}) {
@@ -92,8 +108,8 @@ func (s *Supervisor) endEnding(ch chan struct{}) {
 
 // endingLocked returns a termination under way for a server named name.
 func (s *Supervisor) endingLocked(name string) chan struct{} {
-	for ch, n := range s.endings {
-		if n == name {
+	for ch, e := range s.endings {
+		if e.name == name {
 			return ch
 		}
 	}
@@ -134,7 +150,7 @@ func (s *Supervisor) Shutdown() {
 		switch {
 		case p.request() != nil:
 			s.transitionLocked(p, evStop{}) // a start under way goes no further
-		case p.live() == nil || (p.ending != nil && !isClosed(p.ending)):
+		case p.live() == nil || s.groupStoppingLocked(p):
 		default:
 			effs := s.transitionLocked(p, evStop{})
 			wg.Go(func() { s.runEffects(effs) })

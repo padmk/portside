@@ -58,13 +58,29 @@ func waitGroup(sys system, pgid int, done <-chan struct{}, d time.Duration) bool
 	return true
 }
 
+// reapGroup ends the members a leader that exited on its own left in its
+// group: SIGTERM, then SIGKILL to those still there after 2 s. It returns
+// once the group is gone, or 2 s after the SIGKILL.
 func reapGroup(sys system, pgid int) {
-	if sys.signalGroup(pgid, 0) != nil {
+	if pgid <= 1 || sys.signalGroup(pgid, 0) != nil {
 		return
 	}
 	_ = sys.signalGroup(pgid, syscall.SIGTERM)
-	<-sys.after(2 * time.Second)
-	if sys.signalGroup(pgid, 0) == nil {
-		_ = sys.signalGroup(pgid, syscall.SIGKILL)
+	if groupGone(sys, pgid, sys.after(2*time.Second)) {
+		return
 	}
+	_ = sys.signalGroup(pgid, syscall.SIGKILL)
+	groupGone(sys, pgid, sys.after(2*time.Second))
+}
+
+// groupGone reports whether group pgid empties before deadline fires.
+func groupGone(sys system, pgid int, deadline <-chan time.Time) bool {
+	for sys.signalGroup(pgid, 0) == nil {
+		select {
+		case <-deadline:
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return true
 }

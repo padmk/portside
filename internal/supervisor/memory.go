@@ -17,7 +17,7 @@ func (s *Supervisor) overMemoryLocked(p *proc, mem int64) []effect {
 	if limit.Bytes <= 0 || mem <= limit.Bytes || p.live() == nil || s.closing || p.stopping() != nil || p.next() != nil {
 		return nil
 	}
-	if p.ending != nil && !isClosed(p.ending) {
+	if s.groupStoppingLocked(p) {
 		return nil
 	}
 	note := "used " + limit.Over(mem) + ", over memory_limit " + limit.String()

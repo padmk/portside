@@ -269,8 +269,8 @@ func (s *Supervisor) stopLocked(p *proc) []effect {
 			ph.stop = &stopRequest{cause: stopAsked}
 		}
 		p.ph = ph
-		if p.ending == nil || isClosed(p.ending) {
-			ending := s.beginEndingLocked(p)
+		if !s.groupStoppingLocked(p) {
+			ending := s.beginEndingLocked(p, false)
 			effs = append(effs, effTerminate{pid: ph.run.pid, done: ph.run.done, grace: p.running.Stop, ending: ending})
 		}
 	}
@@ -406,13 +406,13 @@ func (s *Supervisor) endedLocked(p *proc, ev evEnded) []effect {
 // already ending.
 func (s *Supervisor) overMemoryStopLocked(p *proc, ev evOverMemory) []effect {
 	ph, ok := p.ph.(running)
-	if !ok || ph.stop != nil || (p.ending != nil && !isClosed(p.ending)) {
+	if !ok || ph.stop != nil || s.groupStoppingLocked(p) {
 		return nil
 	}
 	ph.stop = &stopRequest{cause: stopMemory, note: ev.note}
 	p.ph = ph
 	p.note = ev.note
-	ending := s.beginEndingLocked(p)
+	ending := s.beginEndingLocked(p, false)
 	return []effect{effTerminate{pid: ph.run.pid, done: ph.run.done, grace: p.running.Stop, ending: ending}}
 }
 
@@ -421,7 +421,7 @@ func (s *Supervisor) overMemoryStopLocked(p *proc, ev evOverMemory) []effect {
 // stopped; a stop asked for before the run ends wins.
 func (s *Supervisor) restartRunLocked(p *proc, ev evRestartRun) []effect {
 	ph, ok := p.ph.(running)
-	if !ok || ph.stop != nil || (p.ending != nil && !isClosed(p.ending)) {
+	if !ok || ph.stop != nil || s.groupStoppingLocked(p) {
 		return nil
 	}
 	p.startSeq++
@@ -432,7 +432,7 @@ func (s *Supervisor) restartRunLocked(p *proc, ev evRestartRun) []effect {
 	ph.stop = &stopRequest{cause: stopAsked}
 	ph.next = &req
 	p.ph = ph
-	ending := s.beginEndingLocked(p)
+	ending := s.beginEndingLocked(p, false)
 	s.saveLocked()
 	s.changedLocked()
 	return []effect{effTerminate{pid: ph.run.pid, done: ph.run.done, grace: p.running.Stop, ending: ending}}

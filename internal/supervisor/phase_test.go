@@ -1,6 +1,8 @@
 package supervisor
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -114,6 +116,41 @@ func TestStartDuringRestartStartsOnce(t *testing.T) {
 // An automatic restart waits for the crashed run's group to end: an orphan
 // that ignores SIGTERM and writes elsewhere than the terminal keeps it
 // waiting until the SIGKILL 2 s after the exit.
+func TestRestartWaitsForOrphanedGroup(t *testing.T) {
+	h := fakeHarness(t, config.RestartOnFailure, false)
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "running", func() bool { return h.live() != nil })
+	old := h.live()
+	h.w.mu.Lock()
+	old.orphan = true
+	h.w.exitLocked(old, 1, true)
+	_ = old.tty.Close()
+	old.tty = nil
+	h.w.mu.Unlock()
+	waitFor(t, "restart pending", func() bool { _, _, rp := h.state(); return rp })
+	fire := func(d time.Duration) {
+		until := h.w.clock().Add(d)
+		for tm := h.w.nextTimer(until); tm != nil; tm = h.w.nextTimer(until) {
+			go tm.f()
+			h.quiet(30 * time.Millisecond)
+		}
+	}
+	fire(1500 * time.Millisecond) // the restart after 1 s, before the SIGKILL
+	if n := h.launches(); n != 1 {
+		t.Fatalf("the restart launched while pid %d's group (an orphan) still ran", old.pid)
+	}
+	fire(time.Second)
+	waitFor(t, "relaunch", func() bool { return h.launches() == 2 })
+	h.w.mu.Lock()
+	alive := old.orphan
+	h.w.mu.Unlock()
+	if alive {
+		t.Fatal("the orphan outlived the restart")
+	}
+}
+
 // An ordinary server's exit with code 0 is not a task's success once the
 // config makes it a task.
 func TestTaskConfigDoesNotMakeAnExitDone(t *testing.T) {
@@ -206,6 +243,59 @@ func TestRemovedWhileWaitingForDependencyLeaves(t *testing.T) {
 
 // A second Start during a start's preflight joins it: the first Start's
 // caller then waits for the run it started, not the crash before it.
+func TestSecondStartJoinsPreflight(t *testing.T) {
+	h := fakeHarness(t, config.RestartNo, true)
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "running", func() bool { return h.live() != nil })
+	h.exitLive(t, 1)
+	waitFor(t, "crashed", func() bool { st, _, _ := h.state(); return st == Crashed })
+
+	gate := make(chan struct{})
+	arrived := make(chan struct{}, 2)
+	h.s.SetPortRelease(func(int) {
+		arrived <- struct{}{}
+		<-gate
+	})
+	first := make(chan error, 1)
+	go func() { first <- h.s.Start(h.name, StartOptions{}) }()
+	<-arrived
+	h.call(func() { _ = h.s.Start(h.name, StartOptions{}) })
+	select {
+	case <-arrived:
+		t.Fatal("the second Start began a preflight of its own")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(gate)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	err := h.s.WaitReady(ctx, h.name, time.Now(), time.Second)
+	if f, ok := errors.AsType[*waitFailure](err); ok {
+		t.Fatalf("the first Start returned, then WaitReady failed with the earlier run: %s", f.reason)
+	}
+}
+
 // While an automatic restart is in its preflight the server is starting,
 // not a crash that nothing restarts: clients notify a crash and hide Stop
 // for that.
+func TestAutomaticRestartPreflightIsStarting(t *testing.T) {
+	h := fakeHarness(t, config.RestartOnFailure, true)
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "running", func() bool { return h.live() != nil })
+	h.exitLive(t, 1)
+	waitFor(t, "restart pending", func() bool { _, _, rp := h.state(); return rp })
+	h.gate.close(h.daemon)
+	go h.tick()
+	h.gate.await(t)
+	v := viewOf(h.s, h.name)
+	if v.Status != Starting || !v.CanStop() {
+		t.Fatalf("automatic restart in preflight shown as status %s, restartPending %v, canStop %v", v.Status, v.RestartPending, v.CanStop())
+	}
+	h.gate.open(false)
+}
