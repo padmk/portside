@@ -162,7 +162,8 @@ export function DetailPane({ server: v, servers, docker }: Props) {
             interactive={isUp(v)}
             filterLines={(pattern) => api.logMatches(v.name, pattern, 2)}
             searchSignal={ui.focusSearch}
-            emptyText={t('terminal.empty')}
+            // A start under way (waiting for its dependencies) needs no hint to start it.
+            emptyText={t(v.status === 'starting' ? 'terminal.emptyStarting' : 'terminal.empty')}
             waitingText={t('terminal.waiting')}
           />
         </Suspense>
