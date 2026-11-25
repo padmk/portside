@@ -141,7 +141,6 @@ struct ProjectTile: View {
 
 struct Lamp: View {
     let status: String
-    @State private var pulse = false
 
     var body: some View {
         let size: CGFloat = 9
@@ -150,11 +149,14 @@ struct Lamp: View {
             case "running":
                 Circle().fill(Color.green)
             case "starting", "stopping":
+                // The pulse animates only this opacity. A repeating
+                // withAnimation would also repeat every layout change made
+                // in the same update, such as the rows of a list that
+                // appears with a starting server, which then slide forever.
                 Circle().fill(Color.orange)
-                    .opacity(pulse ? 0.45 : 1)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
-                    }
+                    .phaseAnimator([1.0, 0.45]) { lamp, opacity in
+                        lamp.opacity(opacity)
+                    } animation: { _ in .easeInOut(duration: 0.9) }
             case "unready":
                 Circle().fill(Color.orange)
             case "crashed", "blocked":

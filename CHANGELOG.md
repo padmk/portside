@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed, macOS app:** the panel's list no longer keeps sliding up and down, with rows drawn out of place, after it appears with servers that are starting (for example after the daemon is stopped and started again from the panel).
+
 ## 0.12.1
 
 - **CLI:** `portside` without a command opens the [terminal UI](docs/tui.md) once a config file exists, when standard input and output are both a terminal; piped, in scripts and for coding agents it still runs `status`, and before a config exists it still prints the help.
