@@ -160,7 +160,7 @@ func (s *Supervisor) launch(p *proc, deps []*proc, opt StartOptions, token int) 
 				s.failStart(p, token, fmt.Sprintf("dependency %s failed: %v", name, err))
 				return
 			}
-			if err := s.waitReady(context.Background(), s.configuredAs(d), name, opt.Since, 3*time.Minute); err != nil {
+			if err := s.waitReady(context.Background(), s.configuredAs(dep.p), name, opt.Since, 3*time.Minute); err != nil {
 				if f, ok := errors.AsType[*waitFailure](err); ok && task {
 					s.failStart(p, token, fmt.Sprintf("dependency %s failed: %s", f.name, f.reason))
 				} else {
@@ -196,7 +196,13 @@ func (s *Supervisor) reserveDependency(p *proc, since time.Time) dependency {
 	defer s.mu.Unlock()
 	name := p.cfg.Name
 	if s.procs[name] != p || p.removed {
-		return dependency{name: name}
+		// Removed from the config: a server added again under its name
+		// since is the dependency now.
+		q := s.procs[name]
+		if q == nil || q.removed {
+			return dependency{name: name}
+		}
+		p = q
 	}
 	if task := p.cfg.Oneshot; task && p.live() == nil && !p.settledAt.Before(since) {
 		switch taskStateLocked(p, since) {
