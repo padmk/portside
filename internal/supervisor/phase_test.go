@@ -58,8 +58,59 @@ func (h *harness) launches() int {
 
 // A Stop asked for while a Restart waits for a slow process to exit wins:
 // the server stays stopped.
+func TestStopDuringRestartWins(t *testing.T) {
+	h := fakeHarness(t, config.RestartNo, false)
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "running", func() bool { return h.live() != nil })
+	p := h.live()
+	h.w.mu.Lock()
+	p.slow = true
+	h.w.mu.Unlock()
+	h.call(func() { _ = h.s.Restart(h.name, StartOptions{}) })
+	waitFor(t, "stopping", func() bool { st, _, _ := h.state(); return st == Stopping })
+	h.call(func() { _ = h.s.Stop(h.name) })
+	time.Sleep(50 * time.Millisecond) // the Stop waits for the same end
+	h.w.mu.Lock()
+	h.w.exitLocked(p, 130, true)
+	h.w.mu.Unlock()
+	h.calls.Wait()
+	h.quiet(50 * time.Millisecond)
+	st, want, _ := h.state()
+	if n := h.launches(); n != 1 || st != Stopped || want {
+		t.Fatalf("after Restart then Stop: status %s, want %v, launches %d; expected stopped, 1 launch", st, want, n)
+	}
+}
+
 // A Start asked for while a Restart waits for the process to exit still
 // starts the server once, after it has exited.
+func TestStartDuringRestartStartsOnce(t *testing.T) {
+	h := fakeHarness(t, config.RestartNo, false)
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "running", func() bool { return h.live() != nil })
+	p := h.live()
+	h.w.mu.Lock()
+	p.slow = true
+	h.w.mu.Unlock()
+	h.call(func() { _ = h.s.Restart(h.name, StartOptions{}) })
+	waitFor(t, "stopping", func() bool { st, _, _ := h.state(); return st == Stopping })
+	if err := h.s.Start(h.name, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.w.mu.Lock()
+	h.w.exitLocked(p, 130, true)
+	h.w.mu.Unlock()
+	h.calls.Wait()
+	waitFor(t, "relaunch", func() bool { return h.live() != nil })
+	h.quiet(50 * time.Millisecond)
+	if n := h.launches(); n != 2 {
+		t.Fatalf("%d launches, want 2", n)
+	}
+}
+
 // An automatic restart waits for the crashed run's group to end: an orphan
 // that ignores SIGTERM and writes elsewhere than the terminal keeps it
 // waiting until the SIGKILL 2 s after the exit.

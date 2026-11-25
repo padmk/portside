@@ -10,20 +10,28 @@ import (
 // Stop ends a server gracefully: Ctrl-C to its process group, then SIGTERM,
 // then SIGKILL. It returns when the process has exited.
 func (s *Supervisor) Stop(name string) error {
+	_, err := s.stop(name)
+	return err
+}
+
+// stop is Stop that also returns the stop it made: the server and its
+// startSeq once stopped, which a later Start or Stop changes.
+func (s *Supervisor) stop(name string) (stopped, error) {
 	s.mu.Lock()
 	p, ok := s.procs[name]
 	if !ok {
 		s.mu.Unlock()
-		return fmt.Errorf("unknown server %q", name)
+		return stopped{}, fmt.Errorf("unknown server %q", name)
 	}
 	// The servers and the state are already handed to the new daemon,
 	// which would not see this stop; like a start, it waits for the end.
 	if s.closing && s.handoff {
 		s.mu.Unlock()
-		return errors.New("the daemon is upgrading in place; try again in a moment")
+		return stopped{}, errors.New("the daemon is upgrading in place; try again in a moment")
 	}
 	p.retries = 0
 	effs := s.transitionLocked(p, evStop{})
+	st := stopped{p: p, seq: p.startSeq}
 	// Without an end of its own to wait for, a stop waits for the one
 	// under way: a second Ctrl-C would make tools such as docker compose
 	// abort their own graceful shutdown. That is also one still ending the
@@ -32,12 +40,19 @@ func (s *Supervisor) Stop(name string) error {
 	s.mu.Unlock()
 	if len(effs) > 0 {
 		s.runEffects(effs)
-		return nil
+		return st, nil
 	}
 	if ending != nil {
 		<-ending
 	}
-	return nil
+	return st, nil
+}
+
+// stopped is a stop that Restart follows with its start: p, with the
+// startSeq the stop left it.
+type stopped struct {
+	p   *proc
+	seq int
 }
 
 // stopRequest is the end of a server's live run under way: asked for (a

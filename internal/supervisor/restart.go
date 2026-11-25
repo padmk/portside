@@ -6,8 +6,11 @@ import (
 )
 
 // Restart stops a server (if running) and starts it again.
+// The start follows only the restart's own stop: a Stop or a start asked
+// for while it waits for the process to exit wins over it.
 func (s *Supervisor) Restart(name string, opt StartOptions) error {
-	if err := s.Stop(name); err != nil {
+	st, err := s.stop(name)
+	if err != nil {
 		return err
 	}
 	// The stop settles a task after a request time taken before it, which
@@ -15,6 +18,7 @@ func (s *Supervisor) Restart(name string, opt StartOptions) error {
 	if !opt.Since.IsZero() {
 		opt.Since = time.Now()
 	}
+	opt.after = &st
 	return s.Start(name, opt)
 }
 

@@ -33,6 +33,9 @@ type StartOptions struct {
 	// trigger is what asks for the start; "" (an automatic restart) keeps
 	// the one that began the round.
 	trigger string
+	// after, for a Restart, is its stop: the start goes ahead only while
+	// nothing has started or stopped the server since.
+	after *stopped
 }
 
 // Start launches a server and, first, every server it depends on. It returns
@@ -56,6 +59,11 @@ func (s *Supervisor) start(name string, opt StartOptions) error {
 		s.mu.Unlock()
 		return errors.New("the daemon is shutting down")
 	}
+	if a := opt.after; a != nil && (a.p != p || a.seq != p.startSeq) {
+		s.mu.Unlock()
+		return nil
+	}
+	opt.after = nil
 	// An explicit start gets a fresh automatic-restart budget; an automatic
 	// restart (no trigger) goes on with its round's.
 	if opt.trigger != "" {
