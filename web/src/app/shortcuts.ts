@@ -186,7 +186,7 @@ export function useShortcuts(servers: ServerView[], groups: string[], selectedNa
           break
         case 'r':
           // Also brings back a crashed or exited server, like its Restart button.
-          if (current && current.status !== 'stopping' && (hasProcess(current) || current.status === 'crashed' || current.status === 'exited')) {
+          if (current && current.status !== 'stopping' && (hasProcess(current) || current.status === 'starting' || current.status === 'crashed' || current.status === 'exited')) {
             restartServer(current.name)
           }
           break

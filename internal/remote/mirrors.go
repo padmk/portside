@@ -438,6 +438,15 @@ func (m *Manager) SetLocalPort(port, local int) (Info, error) {
 		return Info{}, &Error{Status: http.StatusConflict, Msg: fmt.Sprintf("port %d is kept for %s", local, app.Name)}
 	}
 	var conflict error
+	prev, had := 0, false
+	setLocal := func(had bool, local int) {
+		if had {
+			c.locals[port] = local
+		} else {
+			delete(c.locals, port)
+		}
+		c.reconcileLocked()
+	}
 	c.update(func() {
 		for p := range c.want {
 			if p != port && c.localFor(p) == local {
@@ -445,32 +454,37 @@ func (m *Manager) SetLocalPort(port, local int) (Info, error) {
 				return
 			}
 		}
-		if local == port {
-			delete(c.locals, port)
-		} else {
-			c.locals[port] = local
-		}
-		c.reconcileLocked()
+		prev, had = c.locals[port]
+		setLocal(local != port, local)
 	})
 	if conflict != nil {
 		return Info{}, conflict
 	}
-	return m.savePreference(c, func() error { return m.store.setLocal(c.node.DNSName, port, local) })
+	return m.savePreference(c,
+		func() error { return m.store.setLocal(c.node.DNSName, port, local) },
+		func() { setLocal(had, prev) })
 }
 
 // savePreference saves a preference applied to c, only while c is still the
 // connection: under the lock Disconnect ends it with, so an edit that loses
-// to a disconnect changes nothing on disk.
-func (m *Manager) savePreference(c *conn, save func() error) (Info, error) {
+// to a disconnect changes nothing on disk. When the save fails, undo takes
+// the live change back, so the error leaves the connection as it was; the
+// caller holds editMu, so no other edit of the preferences runs between.
+func (m *Manager) savePreference(c *conn, save func() error, undo func()) (Info, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.c != c {
+		m.mu.Unlock()
 		return Info{}, &Error{Status: http.StatusConflict, Msg: "not connected to " + c.node.Name}
 	}
-	if err := save(); err != nil {
-		return Info{}, err
+	err := save()
+	if err == nil {
+		info := c.infoLocked()
+		m.mu.Unlock()
+		return info, nil
 	}
-	return c.infoLocked(), nil
+	m.mu.Unlock()
+	c.update(undo)
+	return Info{}, err
 }
 
 // SetForwarding turns forwarding of the connected computer's port on or
@@ -493,7 +507,7 @@ func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
 			return Info{}, err
 		}
 	}
-	c.update(func() {
+	setOn := func(on bool) {
 		if on {
 			delete(c.off, port)
 			if mr := c.mirrors[port]; mr != nil {
@@ -504,13 +518,20 @@ func (m *Manager) SetForwarding(port int, on bool) (Info, error) {
 			c.closeTunnelsLocked(port)
 		}
 		c.reconcileLocked()
+	}
+	wasOn := false
+	c.update(func() {
+		wasOn = !c.off[port]
+		setOn(on)
 	})
 	if !on {
 		// Idle keep-alive connections of the proxy are among those closed;
 		// drop them from the pool too.
 		c.devTr.CloseIdleConnections()
 	}
-	return m.savePreference(c, func() error { return m.store.setOff(c.node.DNSName, port, !on) })
+	return m.savePreference(c,
+		func() error { return m.store.setOff(c.node.DNSName, port, !on) },
+		func() { setOn(wasOn) })
 }
 
 // checkForwarded fails unless the connected computer c forwards port, busy

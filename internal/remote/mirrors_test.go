@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -412,5 +414,41 @@ func TestConcurrentForwardingEditsSaveTheLiveValue(t *testing.T) {
 		if saved := m.store.off(devbox.DNSName)[p]; off != saved {
 			t.Fatalf("round %d: live forwarding off=%v, saved off=%v", i, off, saved)
 		}
+	}
+}
+
+// A forwarding edit whose save fails reports the error and leaves the live
+// connection as it was, so a reconnect brings back what is running now.
+func TestForwardingEditThatCannotBeSavedChangesNothing(t *testing.T) {
+	m, c := connected(t)
+	p, a := freePort(t), freePort(t)
+	data, _ := json.Marshal(map[string]any{"servers": []map[string]any{{"name": "web", "port": p, "pid": 42}}})
+	var rs remoteState
+	_ = json.Unmarshal(data, &rs)
+	c.apply(data, &rs)
+	// A file where the state folder should be makes every save fail.
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.store.path = filepath.Join(blocker, "remote.json")
+
+	if _, err := m.SetLocalPort(p, a); err == nil {
+		t.Fatal("SetLocalPort: no error from a failed save")
+	}
+	m.mu.Lock()
+	local, changed := c.locals[p]
+	m.mu.Unlock()
+	if changed {
+		t.Fatalf("live local port %d after a failed save, want the default", local)
+	}
+	if _, err := m.SetForwarding(p, false); err == nil {
+		t.Fatal("SetForwarding: no error from a failed save")
+	}
+	m.mu.Lock()
+	off := c.off[p]
+	m.mu.Unlock()
+	if off {
+		t.Fatal("forwarding off after a failed save, want on")
 	}
 }
