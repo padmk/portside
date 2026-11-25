@@ -46,6 +46,8 @@ type fakeWorld struct {
 	// onLookup, when set, runs as a supervisor asks whether a process is a
 	// zombie, before the answer, so a test can let other goroutines move.
 	onLookup func(p *fakeProc)
+	// busy are ports a test says something listens on.
+	busy map[int]bool
 }
 
 type fakeProc struct {
@@ -228,8 +230,12 @@ func (f *fakeSystem) sameStart(pid int, saved string) bool {
 func (f *fakeSystem) groupMembers(int) []time.Time { return nil }
 
 // portInUse: the fake processes listen nowhere, and the real ports of the
-// machine are not the model's concern.
-func (f *fakeSystem) portInUse(int) bool { return false }
+// machine are not the model's concern; a test marks a port busy.
+func (f *fakeSystem) portInUse(port int) bool {
+	f.w.mu.Lock()
+	defer f.w.mu.Unlock()
+	return f.w.busy[port]
+}
 
 func (f *fakeSystem) signalGroup(pgid int, sig syscall.Signal) error {
 	w := f.w

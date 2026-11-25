@@ -333,3 +333,38 @@ func TestRenamedDependencyIsStillWaitedFor(t *testing.T) {
 		return h.w.launches[webDir] == 1
 	})
 }
+
+// A Compose start renamed while it waits in its preflight still counts the
+// port its own containers publish as its own, under the new name.
+func TestRenamedComposeStartKeepsItsPublishedPort(t *testing.T) {
+	h := newHarness(t)
+	h.name = "db"
+	h.port = freeModelPort(t)
+	cfgAs := func(name string) *config.Config {
+		h.name = name
+		c := h.config()
+		c.Servers[0].Cmd = "docker compose up"
+		return c
+	}
+	h.s = h.newSupervisor(cfgAs("db"))
+	t.Cleanup(h.cleanup)
+	h.w.mu.Lock()
+	h.w.busy = map[int]bool{h.port: true}
+	h.w.mu.Unlock()
+	h.s.SetPublishedPorts(func(server string, port int) bool { return server == "db2" && port == h.port })
+	h.gate.close(h.daemon)
+	h.call(func() { _ = h.s.Start("db", StartOptions{}) })
+	h.gate.await(t)
+	h.s.ApplyRenamed(cfgAs("db2"), "db", "db2")
+	h.gate.open(false)
+	h.calls.Wait()
+	if v := viewOf(h.s, "db2"); v.Status == Blocked {
+		t.Fatalf("the renamed start found its own published port taken: %s", v.Note)
+	}
+	if n := h.launches(); n != 1 {
+		t.Fatalf("%d launches, want 1", n)
+	}
+}
+
+// A due automatic restart is announced as it begins, and its port counts
+// as wanted through the preflight.

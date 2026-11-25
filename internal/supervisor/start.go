@@ -370,6 +370,11 @@ func (s *Supervisor) startOne(p *proc, opt StartOptions, token int) (err error) 
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+	// The release can take a while, and a rename meanwhile does not end the
+	// start: a container is the server's under the name it has now.
+	s.mu.Lock()
+	name = p.cfg.Name
+	s.mu.Unlock()
 	if sv.Port > 0 && s.sys.portInUse(sv.Port) && !composeOwnsPort(name, sv.Cmd, sv.Port, published) {
 		owner, found := ports.Owner(context.Background(), sv.Port)
 		if found && opt.TakeoverPID != 0 && owner.PID != opt.TakeoverPID {
