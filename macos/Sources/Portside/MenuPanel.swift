@@ -398,13 +398,15 @@ struct MenuPanel: View {
             Text(verbatim: "\(running)/\(counted.count)").font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.tertiary)
             Spacer()
             if let group {
+                // Stop while any member has a process, also one still starting.
+                let stops = servers.contains(where: \.isAlive)
                 Button {
-                    store.bulk(running > 0 ? "stop" : "start", names: [group])
+                    store.bulk(stops ? "stop" : "start", names: [group])
                 } label: {
-                    Image(systemName: running > 0 ? "stop.fill" : "play.fill").font(.system(size: 9))
+                    Image(systemName: stops ? "stop.fill" : "play.fill").font(.system(size: 9))
                 }
                 .buttonStyle(.borderless)
-                .help(running > 0 ? L.t("Stop group", "Zatrzymaj grupę") : L.t("Start group", "Uruchom grupę"))
+                .help(stops ? L.t("Stop group", "Zatrzymaj grupę") : L.t("Start group", "Uruchom grupę"))
             }
         }
         .padding(.horizontal, 14)
