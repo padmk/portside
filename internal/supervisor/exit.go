@@ -44,6 +44,11 @@ func (s *Supervisor) wait(p *proc, r *run, gen int) {
 	}
 	s.mu.Unlock()
 	code := r.process.reap()
+	if orphans != nil && s.sys.signalGroup(pgid, 0) != nil {
+		// Nothing was left in the group: no end to wait for.
+		s.endEnding(orphans)
+		orphans = nil
+	}
 	if orphans != nil {
 		go func() {
 			defer s.endEnding(orphans)

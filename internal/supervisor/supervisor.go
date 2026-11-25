@@ -487,16 +487,6 @@ func (p *proc) stale(cfg *config.Config, base []string, volatile map[string]bool
 	return !sameEnv(p.runningEnv, launchEnv(base, b, cfg.PathPrepend, cfg.Env), volatile)
 }
 
-// isClosed reports whether ch has been closed.
-func isClosed(ch chan struct{}) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
-	}
-}
-
 // Input writes keystrokes to a server's terminal.
 func (s *Supervisor) Input(name string, data []byte) error {
 	s.mu.Lock()
