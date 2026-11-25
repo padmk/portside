@@ -22,8 +22,9 @@ type foreignProcess struct {
 }
 
 // openForeign identifies the live process pid; false when it is gone. The
-// pidfd is opened before the start time is read, so a pidfd of another
-// process that got the pid in between does not match it.
+// pidfd is opened before the start time is read: should the pid pass to
+// another process in between, the signals still go through the pidfd of
+// the first one, which then reach nothing.
 func openForeign(pid int) (*foreignProcess, bool) {
 	fd, err := unix.PidfdOpen(pid, 0)
 	if err != nil {
