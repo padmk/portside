@@ -323,6 +323,7 @@ export const en = {
   'terminal.typeOff': 'The process is not running',
   'terminal.waiting': 'Waiting for output...',
   'terminal.empty': 'No output yet. Start the server to see it here.',
+  'terminal.emptyStarting': 'No output yet. It appears here once the process starts.',
 
   'dialog.addServer': 'Add server',
   'dialog.addServerButton': 'Add server',
@@ -959,6 +960,7 @@ export const pl: Record<Key, Message> = {
   'terminal.typeOff': 'Proces nie działa',
   'terminal.waiting': 'Oczekiwanie na logi...',
   'terminal.empty': 'Brak logów. Uruchom serwer, aby je tu zobaczyć.',
+  'terminal.emptyStarting': 'Brak logów. Pojawią się tutaj, gdy proces się uruchomi.',
 
   'dialog.addServer': 'Dodaj serwer',
   'dialog.addServerButton': 'Dodaj serwer',

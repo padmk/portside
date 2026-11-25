@@ -28,7 +28,9 @@ export function viewLogs(name: string) {
 export function StateActions({ server: v, inDetail }: Props) {
   const t = useT()
   const busy = useBusy(v.name)
-  const status = displayStatus(v)
+  // A server whose port another process holds while it waits for a retry offers what an external
+  // holder gets (Take over, and Stop for the retry), whatever status the retry follows.
+  const status = heldWhileRetrying(v) ? 'external' : displayStatus(v)
   const reason = useProtectedReason(v.external?.pid, v.port)
 
   const logs = !inDetail && (
@@ -60,7 +62,7 @@ export function StateActions({ server: v, inDetail }: Props) {
     </div>
   )
 
-  if (restartPending(v) && !heldWhileRetrying(v)) {
+  if (restartPending(v) && status !== 'external') {
     return (
       <div className="actions">
         {primary(() => void startServer(v.name), <RotateCw size={17} aria-hidden="true" />, t('action.restart'))}

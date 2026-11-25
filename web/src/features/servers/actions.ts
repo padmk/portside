@@ -52,7 +52,8 @@ export const groupKey = (group: string | null | undefined) => group || '\0'
 export function groupTargets(servers: ServerView[]): Record<BulkAction, string[]> {
   const names = (pick: (v: ServerView) => boolean) => servers.filter(pick).map((v) => v.name)
   return {
-    start: names((v) => v.enabled && !hasProcess(v)),
+    // A server that is starting (waiting for its dependencies) is under way already.
+    start: names((v) => v.enabled && !hasProcess(v) && v.status !== 'starting'),
     stop: names(canStop),
     restart: names(canStop),
   }
