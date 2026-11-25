@@ -105,21 +105,22 @@ func (s *Supervisor) killForeign(l ports.Listener) error {
 	if name, ok := s.IsManagedPID(l.PID); ok {
 		return s.Stop(name)
 	}
-	// Remember who we are signalling: once that process is gone its pid may be
+	// Hold the process we are signalling: once it is gone its pid may be
 	// reused, and nothing else must receive the escalation.
-	identity := processStart(l.PID)
-	if identity == "" {
+	fp, ok := openForeign(l.PID)
+	if !ok {
 		return nil // already gone
 	}
-	same := func() bool { return processStart(l.PID) == identity }
-	if err := syscall.Kill(l.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	defer fp.close()
+	if err := fp.signal(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("kill %d: %w", l.PID, err)
 	}
-	for i := 0; i < 50 && same(); i++ {
+	for i := 0; i < 50 && fp.alive(); i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
-	if same() {
-		_ = syscall.Kill(l.PID, syscall.SIGKILL)
+	_ = fp.signal(syscall.SIGKILL) // only while it still runs
+	for i := 0; i < 20 && fp.alive(); i++ {
+		time.Sleep(50 * time.Millisecond)
 	}
 	for i := 0; i < 30 && l.Port > 0 && ports.Listening(l.Port); i++ {
 		time.Sleep(100 * time.Millisecond)

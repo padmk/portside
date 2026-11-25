@@ -232,7 +232,11 @@ func (s *Supervisor) Recover(restore bool) {
 		for i := 0; i < 30 && s.sys.signalGroup(g.PID, 0) == nil; i++ {
 			time.Sleep(100 * time.Millisecond)
 		}
-		_ = s.sys.signalGroup(g.PID, syscall.SIGKILL)
+		// Checked again: a group that emptied meanwhile may have given its
+		// id to an unrelated program.
+		if s.sys.signalGroup(g.PID, 0) == nil && s.orphanedGroup(g, alive[name]) {
+			_ = s.sys.signalGroup(g.PID, syscall.SIGKILL)
+		}
 	}
 	// Servers that exited during the upgrade restart as after a crash, and
 	// those started again after they exited before it run, whatever
