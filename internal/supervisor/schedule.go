@@ -87,6 +87,7 @@ func (s *Supervisor) checkSchedules() {
 	now := s.now()
 	type run struct {
 		p     *proc
+		name  string // as reserved: a reload may rename the server meanwhile
 		deps  []*proc
 		token int
 	}
@@ -117,7 +118,7 @@ func (s *Supervisor) checkSchedules() {
 			// run starts leaves it to the next one (see Recover).
 			p.lastRun = now
 			deps, token := s.reserveStartLocked(p, triggerSchedule)
-			due = append(due, run{p, deps, token})
+			due = append(due, run{p, name, deps, token})
 		}
 	}
 	if changed {
@@ -127,7 +128,7 @@ func (s *Supervisor) checkSchedules() {
 	s.mu.Unlock()
 	for _, r := range due {
 		if err := s.launch(r.p, r.deps, StartOptions{trigger: triggerSchedule}, r.token); err != nil {
-			log.Printf("schedule: %s: %v", r.p.cfg.Name, err)
+			log.Printf("schedule: %s: %v", r.name, err)
 		}
 	}
 }
