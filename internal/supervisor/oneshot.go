@@ -18,9 +18,19 @@ const (
 	noteEndedInHandoff = "ended during the upgrade; exit code unknown"
 )
 
-// succeeded reports whether p is a task whose last run exited with code 0.
+// succeeded reports whether p is a task whose last run exited with code 0
+// as a task: an ordinary run's exit 0 is no task's success, also once the
+// config makes the server a task. A task's successful run ended at doneAt,
+// which is then its settledAt; a state saved before doneAt existed says
+// so only in the run's note.
 func (p *proc) succeeded() bool {
-	return p.cfg.Oneshot && p.status() == Exited && p.hasExit && p.exitCode == 0
+	if !p.cfg.Oneshot || p.status() != Exited || !p.hasExit || p.exitCode != 0 {
+		return false
+	}
+	if p.doneAt.IsZero() {
+		return p.note == noteDone
+	}
+	return p.doneAt.Equal(p.settledAt)
 }
 
 // taskState is how far a task got for a waiter.
